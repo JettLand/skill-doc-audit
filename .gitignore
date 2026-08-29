@@ -1,0 +1,8 @@
+# Agent 记忆目录（非技能产物，不纳入版本管理）
+.workbuddy/
+
+# 操作系统 / 编辑器杂项
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.tmp
