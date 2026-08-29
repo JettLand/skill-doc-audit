@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录，也可批量审计全部已安装技能。
-version: "1.5.1"
+version: "1.5.2"
 license: MIT
 author: Jett
 agent_created: true
@@ -149,3 +149,36 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 ```
 
 说明：`ERROR` 默认计入退出码（`1`）；`WARN`/`INFO` 不计入，需结合上下文判断，勿直接当错误处置。`--json` 可输出机读明细（每条含 `checker/severity/category/message/file/line/suggestion`）。
+
+## 进阶用法示例
+
+基础用法之外，以下场景覆盖更复杂的实际诉求：
+
+**1. CI 质量门禁（任何小瑕疵都阻断合并）**
+
+```sh
+# --strict 让 WARN 也计入退出码；--json 便于接入看板
+python scripts/audit_docs.py --skill . --all-checks --strict --json > audit.json
+echo "exit=$?"   # 0=体检通过，1=发现问题（含 WARN）
+```
+
+解读：`--strict` 适合发布前的强约束；把 `audit.json` 喂给后续步骤可做「文档质量趋势」看板，每次提交对比 ERROR/WARN 数量。
+
+**2. 超大单体仓库扫描调优（避免卡死/拖慢）**
+
+```sh
+# 调高超大文件跳过阈值、设总超时上限
+python scripts/audit_docs.py --skill ./huge-monorepo --all-checks --max-file-size 5000000 --timeout 120
+# 只查安全红线 + 依赖声明，省时
+python scripts/audit_docs.py --skill ./huge-monorepo --check security --check deps
+```
+
+解读：单仓库文件极多时，优先用 `--check` 指定检查器，配合 `--max-file-size`/`--timeout` 把审计控制在可接受时长内，超大文件会自动跳过并报告、不拖慢整体。
+
+**3. 一次体检多个已安装技能**
+
+```sh
+python scripts/audit_docs.py --all --all-checks
+```
+
+解读：`--all` 遍历 `~/.workbuddy/skills/` 下全部技能，批量产出各自报告，适合周期性「存量技能大扫除」。

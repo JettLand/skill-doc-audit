@@ -192,7 +192,7 @@ def check_doc(ctx):
             continue
         if "/" in ref or "\\" in ref:
             findings.append(finding("doc", SEVERITY_ERROR, "DEAD_PATH",
-                                    "文档引用的相对路径不存在: %s" % ref, file="SKILL.md",
+                                    "文档里写的路径 %s 在当前技能目录中找不到" % ref, file="SKILL.md",
                                     suggestion="修正路径或补充文件"))
         else:
             findings.append(finding("doc", SEVERITY_INFO, "EXTERNAL_REF",
@@ -235,7 +235,7 @@ def check_doc(ctx):
         ident = m.group(1)
         if ident not in blob:
             findings.append(finding("doc", SEVERITY_ERROR, "UNKNOWN_IDENT",
-                                    "文档提到的标识符在代码中不存在: %s" % ident, file="SKILL.md"))
+                                    "文档里提到的名称 %s 在代码里找不到（可能拼写有误或已被删除）" % ident, file="SKILL.md"))
 
     # A5 版本号
     if not VERSION_RE.search(doc):
@@ -352,7 +352,7 @@ def check_structure(ctx):
         ref = m.group(0)
         if not os.path.exists(os.path.join(skill_dir, ref)):
             findings.append(finding("structure", SEVERITY_ERROR, "broken_ref",
-                                    "加载式引用目标不存在: %s" % ref, file="SKILL.md",
+                                    "文档里引用加载的脚本或文件 %s 不存在（请检查引用路径是否写错）" % ref, file="SKILL.md",
                                     suggestion="修正路径或补充文件"))
 
     # 硬编码用户绝对路径
