@@ -6,3 +6,8 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 *.tmp
+
+# 本地临时产物，不进版本库
+backups/
+__pycache__/
+*.pyc
