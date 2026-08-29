@@ -11,3 +11,6 @@ Desktop.ini
 backups/
 __pycache__/
 *.pyc
+
+# 回归测试夹具（本地资产，不进版本库）
+tests/fixtures/
