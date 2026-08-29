@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录，也可批量审计全部已安装技能。
-version: "1.8.1"
+version: "1.8.2"
 license: MIT
 author: Jett
 agent_created: true
