@@ -250,6 +250,18 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 | `undeclared_cli` | 未声明外部 CLI 调用 | WARN |
 | `platform_undeclared` | 未声明运行平台（含 Windows 专属 API） | INFO |
 
+### deadcode（死代码检测，已纳入 --all-checks，运行前按 --deadcode-mode 选精度）
+
+| category | 中文含义 | 默认级别 |
+|---|---|---|
+| `unused_def` | 未使用的定义（全技能范围都未被引用才报，含跨文件引用感知） | WARN |
+| `unused_import` | 未使用的导入 | INFO |
+| `unreachable` | 不可达代码（return/raise 之后紧跟的无条件语句） | WARN |
+| `orphan_asset` | 孤立资源文件（scripts/ 或 references/ 中从未被引用/加载） | WARN |
+| `vulture` | 高精度死代码（可选，仅 `--deadcode-mode vulture` 且已装 vulture 时产出） | WARN |
+
+> 死代码误报抑制（详见 `references/checkers.md`）：字符串键/装饰器/入口启发、跨文件引用感知、`# keep` 白名单；`orphan_asset` 仅当文件名或相对路径未出现在任何文档/代码、也未被其他 `.py` 以模块名 import 时才报（只可能漏报、不会误标孤儿）。
+
 ## 进阶用法示例
 
 基础用法之外，以下场景覆盖更复杂的实际诉求：
