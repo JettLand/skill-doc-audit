@@ -12,34 +12,50 @@
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
 
-## 检查项明细
+## 检查项明细（权威错误码对照表）
 
-| 检查器 | 项 | 说明 |
-|---|---|---|
-| doc | `DEAD_PATH` | 文档引用的文件路径已不存在 |
-| doc | `DEAD_FLAG` | 文档提到的命令行参数在代码中无实现 |
-| doc | `EXIT_DOC_ONLY` | 文档列了退出码，但代码从不返回 |
-| doc | `EXIT_CODE_ONLY` | 代码会返回某退出码，但文档未列 |
-| doc | `UNKNOWN_IDENT` | 文档提到的 snake_case 标识符在代码中不存在 |
-| doc | `VERSION_MISSING` | SKILL.md 缺少 version 声明 |
-| structure | `name_mismatch` | frontmatter name 与目录名不一致 |
-| structure | `version_missing` | 缺少合规 version |
-| structure | `name_missing` | 缺少 name 声明 |
-| structure | `license_missing` | 缺少 license 声明（WARN） |
-| structure | `h1_name_mismatch` | 正文 H1 与 name/displayName 不一致（WARN） |
-| structure | `oversize_doc` | SKILL.md 超过大小上限（WARN） |
-| structure | `oversize_file` | 代码文件超过大小上限被跳过（WARN） |
-| structure | `desc_missing` | 缺少 description |
-| structure | `broken_ref` | 加载式引用（references/、scripts/）目标不存在 |
-| structure | `hardcoded_path` | 文档含硬编码用户绝对路径 |
-| structure | `todo_marker` | 含 TODO/FIXME 标记 |
-| security | `hardcoded_secret` | 疑似硬编码密钥/凭据 |
-| security | `path_traversal` | 路径穿越('../')（上下文感知：排除注释/文档URL/自引用上溯，避免误报）|
-| security | `destructive_wildcard` | 用户目录通配删除 'rm -rf *' |
-| runtime | `py_syntax` | Python 脚本语法错误 |
-| runtime | `script_ref_missing` | 文档引用的脚本不存在 |
-| deps | `undeclared_cli` | 代码调用外部 CLI 但文档未声明依赖（WARN） |
-| deps | `platform_undeclared` | 代码含 Windows 专属 API 但未声明运行平台（INFO） |
+下表为全部检查项的权威对照。`category` 是**稳定机器标识符**，用于 `--json` 机读输出与跨版本比对，不应随意改名；`中文标签` 由 `audit_docs.py` 的 `CATEGORY_LABELS` 自动映射，用于人类可读报告（`category_cn` 字段），使每条发现自解释。新增检查项须在 `audit_docs.py` 的 `CATEGORY_LABELS` 与本文档同步登记。
+
+| 检查器 | 项（category） | 中文标签 | 说明 | 默认级别 |
+|---|---|---|---|---|
+| doc | `DEAD_PATH` | 死路径 | 文档引用的文件路径已不存在 | ERROR |
+| doc | `DEAD_FLAG` | 失效命令行参数 | 文档提到的命令行参数在代码中无实现 | ERROR |
+| doc | `EXIT_DOC_ONLY` | 文档独有退出码 | 文档列了退出码，但代码从不返回 | ERROR |
+| doc | `EXIT_CODE_ONLY` | 代码独有退出码 | 代码会返回某退出码，但文档未列 | ERROR |
+| doc | `UNKNOWN_IDENT` | 未知标识符 | 文档提到的 snake_case 标识符在代码中不存在 | ERROR |
+| doc | `VERSION_MISSING` | 缺少版本声明 | SKILL.md 缺少 version 声明 | ERROR |
+| doc | `EXTERNAL_REF` | 外部裸文件名引用 | 裸文件名引用，可能指向技能外文件，需人工确认 | INFO |
+| doc | `B_STATUS` | 运行状态枚举 | 运行状态全集（供 AI 复核） | INFO |
+| doc | `B_CONFIG` | 配置项枚举 | 配置项全集（供 AI 复核） | INFO |
+| structure | `name_mismatch` | 名称不一致 | frontmatter name 与目录名不一致 | WARN |
+| structure | `version_missing` | 版本缺失 | 缺少合规 version | ERROR |
+| structure | `name_missing` | 名称缺失 | 缺少 name 声明 | ERROR |
+| structure | `license_missing` | 许可证缺失 | 缺少 license 声明 | WARN |
+| structure | `h1_name_mismatch` | 标题与名称不一致 | 正文 H1 与 name/displayName 不一致 | WARN |
+| structure | `oversize_doc` | 文档过大 | SKILL.md 超过大小上限 | WARN |
+| structure | `oversize_file` | 文件过大已跳过 | 代码文件超过大小上限被跳过 | WARN |
+| structure | `desc_missing` | 描述缺失 | 缺少 description | ERROR |
+| structure | `desc_length` | 描述长度异常 | description 长度应 20-1024 字符 | WARN |
+| structure | `desc_four` | 描述四要素不全 | description 建议含四要素 | INFO |
+| structure | `no_frontmatter` | 缺少 frontmatter | 建议使用 YAML frontmatter | WARN |
+| structure | `too_long` | 文档过长 | 正文超过 500 行建议拆分 | WARN |
+| structure | `broken_ref` | 加载式引用失效 | 加载式引用（references/、scripts/）目标不存在 | ERROR |
+| structure | `hardcoded_path` | 硬编码绝对路径 | 文档含硬编码用户绝对路径 | WARN |
+| structure | `todo_marker` | 待办标记 | 含 TODO/FIXME 标记 | WARN |
+| structure | `placeholder` | 占位/历史文本 | 疑似占位/历史记录文本 | INFO |
+| security | `hardcoded_secret` | 疑似硬编码密钥 | 疑似硬编码密钥/凭据 | ERROR |
+| security | `path_traversal` | 路径穿越 | 路径穿越('../')（上下文感知：排除注释/文档URL/自引用上溯，避免误报）| ERROR |
+| security | `destructive_wildcard` | 危险通配删除 | 用户目录通配删除 'rm -rf *' | ERROR |
+| security | `obfuscation` | 疑似混淆编码 | 疑似混淆/编码隐藏执行 | WARN |
+| security | `dynamic_exec` | 动态执行 | 动态执行外部内容 eval/exec | WARN |
+| security | `secret_in_doc` | 文档含疑似密钥 | 文档出现疑似密钥（可能为示例） | WARN |
+| security | `injection_phrasing` | 疑似注入句式 | 文档含疑似提示词注入句式，需 AI 复核 | INFO |
+| runtime | `py_syntax` | Python 语法错误 | Python 脚本语法错误 | ERROR |
+| runtime | `script_ref_missing` | 脚本引用缺失 | 文档引用的脚本不存在 | ERROR |
+| runtime | `py_check_fail` | 语法校验失败 | 无法校验语法 | WARN |
+| runtime | `capability` | 能力预检 | 脚本能力预检（静态列举，不执行） | INFO |
+| deps | `undeclared_cli` | 未声明外部 CLI | 代码调用外部 CLI 但文档未声明依赖 | WARN |
+| deps | `platform_undeclared` | 未声明运行平台 | 代码含 Windows 专属 API 但未声明运行平台 | INFO |
 
 ## 判定提示
 

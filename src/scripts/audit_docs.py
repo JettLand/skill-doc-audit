@@ -99,6 +99,61 @@ SEVERITY_ERROR = "ERROR"
 SEVERITY_WARN = "WARN"
 SEVERITY_INFO = "INFO"
 
+# 检查项分类的中文标签。
+# 机器标识符（如 DEAD_PATH）稳定用于 --json 机读与跨版本比对；
+# 中文标签仅用于人类可读报告，使每一条发现自解释、无需查表。
+# 新增检查项时务必在此登记，否则报告会回退为显示机器码本身。
+CATEGORY_LABELS = {
+    # doc：文档一致性
+    "DEAD_PATH": "死路径（文档引用文件已不存在）",
+    "EXTERNAL_REF": "外部裸文件名引用",
+    "DEAD_FLAG": "失效命令行参数",
+    "EXIT_DOC_ONLY": "文档独有退出码（代码未返回）",
+    "EXIT_CODE_ONLY": "代码独有退出码（文档未列）",
+    "UNKNOWN_IDENT": "未知标识符",
+    "VERSION_MISSING": "缺少版本声明",
+    "B_STATUS": "运行状态枚举（供 AI 复核）",
+    "B_CONFIG": "配置项枚举（供 AI 复核）",
+    # structure：结构体检 + 元信息
+    "name_mismatch": "名称不一致",
+    "version_missing": "版本缺失",
+    "name_missing": "名称缺失",
+    "license_missing": "许可证缺失",
+    "desc_length": "描述长度异常",
+    "desc_four": "描述四要素不全",
+    "desc_missing": "描述缺失",
+    "h1_name_mismatch": "标题与名称不一致",
+    "no_frontmatter": "缺少 frontmatter",
+    "too_long": "文档过长",
+    "broken_ref": "加载式引用失效",
+    "hardcoded_path": "硬编码绝对路径",
+    "todo_marker": "待办标记",
+    "placeholder": "占位/历史文本",
+    "oversize_doc": "文档过大",
+    "oversize_file": "文件过大已跳过",
+    # security：安全红线静态子集
+    "hardcoded_secret": "疑似硬编码密钥",
+    "obfuscation": "疑似混淆编码",
+    "dynamic_exec": "动态执行",
+    "path_traversal": "路径穿越",
+    "destructive_wildcard": "危险通配删除",
+    "injection_phrasing": "疑似注入句式",
+    "secret_in_doc": "文档含疑似密钥",
+    # runtime：脚本可运行性
+    "py_syntax": "Python 语法错误",
+    "py_check_fail": "语法校验失败",
+    "script_ref_missing": "脚本引用缺失",
+    "capability": "能力预检（静态列举）",
+    # deps：依赖与平台声明
+    "undeclared_cli": "未声明外部 CLI",
+    "platform_undeclared": "未声明运行平台",
+}
+
+
+def category_cn(category):
+    """返回检查项的中文可读标签；未登记时回退为机器标识符本身。"""
+    return CATEGORY_LABELS.get(category, category)
+
 
 # --------------------------------------------------------------------------- #
 # Finding 模型
@@ -108,6 +163,7 @@ def finding(checker, severity, category, message, file=None, line=None, suggesti
         "checker": checker,
         "severity": severity,
         "category": category,
+        "category_cn": category_cn(category),
         "message": message,
         "file": file,
         "line": line,
@@ -635,7 +691,8 @@ def print_human(results):
                     loc += ":%d" % f["line"]
                 if loc:
                     loc = " (" + loc + ")"
-                print("    [%s] %s%s" % (f["severity"], f["message"], loc))
+                print("    [%s] %s【%s】 %s%s" % (
+                    f["severity"], f["category_cn"], f["category"], f["message"], loc))
                 if f.get("suggestion"):
                     print("          建议: %s" % f["suggestion"])
         tot = summarize(r["findings"])
@@ -659,7 +716,10 @@ def build_json(results):
             "checkers": r.get("checkers"),
             "backup": r.get("backup"),
             "summary": summarize(r["findings"]),
-            "findings": r["findings"],
+            "findings": [
+                {**f, "category_cn": f.get("category_cn", category_cn(f["category"]))}
+                for f in r["findings"]
+            ],
         })
     return out
 

@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录，也可批量审计全部已安装技能。
-version: "1.5.2"
+version: "1.5.3"
 license: MIT
 author: Jett
 agent_created: true
@@ -84,7 +84,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --timeout 60
 python scripts/audit_docs.py --skill <目录> --all-checks --max-file-size 2000000
 ```
 
-退出码：`0` 未发现 ERROR 级问题（--strict 下还需无 WARN）；`1` 发现 ERROR 级问题（或 --strict 下存在 WARN）；`2` 参数或路径错误；`130` 审计被中断（超时或 Ctrl+C），优雅退出、不抛堆栈。报告同时提供人类可读分组与 `--json` 机读（每条含 `checker/severity/category/message/file/line/suggestion`）。
+退出码：`0` 未发现 ERROR 级问题（--strict 下还需无 WARN）；`1` 发现 ERROR 级问题（或 --strict 下存在 WARN）；`2` 参数或路径错误；`130` 审计被中断（超时或 Ctrl+C），优雅退出、不抛堆栈。报告同时提供人类可读分组与 `--json` 机读（每条含 `checker/severity/category/category_cn/message/file/line/suggestion`）；`category` 为稳定机器标识符（用于机读与跨版本比对），`category_cn` 为中文可读标签（用于人类报告，使每条发现自解释）。
 
 ## 回滚
 
@@ -134,21 +134,88 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 python scripts/audit_docs.py --skill ~/.workbuddy/skills/workbuddy-checkin --all-checks
 ```
 
-典型可读报告（节选）：
+典型可读报告（节选，每条发现均带中文标签与机器码，自解释）：
 
 ```
-[doc]      ERROR  DEAD_FLAG        SKILL.md:42  文档提到的 `--retry` 在代码中无实现
+[doc]      ERROR  失效命令行参数【DEAD_FLAG】 文档提到的 `--retry` 在代码中无实现 (SKILL.md:42)
           → 建议：补实现或删除文档描述
-[doc]      WARN   VERSION_MISSING  SKILL.md     未声明 version
-[security] ERROR  hardcoded_secret scripts/audit_docs.py  疑似硬编码 Token
+[doc]      WARN   缺少版本声明【VERSION_MISSING】 未声明 version (SKILL.md)
+[security] ERROR  疑似硬编码密钥【hardcoded_secret】 疑似硬编码 Token (scripts/audit_docs.py)
           → 建议：改为环境变量读取
-[security] INFO   path_traversal  被上下文过滤忽略（文档 URL，非真实穿越）
-[structure] OK    name_mismatch   frontmatter name 与目录名一致
+[security] INFO   路径穿越【path_traversal】 被上下文过滤忽略（文档 URL，非真实穿越）
+[structure] OK    名称不一致【name_mismatch】 frontmatter name 与目录名一致
 ...
 Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 ```
 
-说明：`ERROR` 默认计入退出码（`1`）；`WARN`/`INFO` 不计入，需结合上下文判断，勿直接当错误处置。`--json` 可输出机读明细（每条含 `checker/severity/category/message/file/line/suggestion`）。
+说明：`ERROR` 默认计入退出码（`1`）；`WARN`/`INFO` 不计入，需结合上下文判断，勿直接当错误处置。`--json` 可输出机读明细（每条含 `checker/severity/category/category_cn/message/file/line/suggestion`）。`category` 为稳定机器码，`category_cn` 为同一含义的中文标签。
+
+## 错误码对照表
+
+每条发现都带一个机器标识符 `category`（稳定、用于机读与跨版本比对）与一个中文标签 `category_cn`（用于人类报告）。下表为全部 `category` 的权威对照；各检查项完整判定口径与误报抑制机制见 `references/checkers.md`。
+
+### doc（文档一致性，常驻默认开）
+
+| category | 中文含义 | 默认级别 |
+|---|---|---|
+| `DEAD_PATH` | 死路径（文档引用文件已不存在） | ERROR |
+| `EXTERNAL_REF` | 外部裸文件名引用（需人工确认） | INFO |
+| `DEAD_FLAG` | 失效命令行参数（代码无实现） | ERROR |
+| `EXIT_DOC_ONLY` | 文档独有退出码（代码未返回） | ERROR |
+| `EXIT_CODE_ONLY` | 代码独有退出码（文档未列） | ERROR |
+| `UNKNOWN_IDENT` | 未知标识符（代码找不到） | ERROR |
+| `VERSION_MISSING` | 缺少版本声明 | ERROR |
+| `B_STATUS` | 运行状态枚举（供 AI 复核） | INFO |
+| `B_CONFIG` | 配置项枚举（供 AI 复核） | INFO |
+
+### structure（结构体检 + 元信息）
+
+| category | 中文含义 | 默认级别 |
+|---|---|---|
+| `name_mismatch` | 名称不一致（frontmatter name ≠ 目录名） | WARN |
+| `version_missing` | 版本缺失 | ERROR |
+| `name_missing` | 名称缺失 | ERROR |
+| `license_missing` | 许可证缺失 | WARN |
+| `desc_length` | 描述长度异常（应 20–1024 字符） | WARN |
+| `desc_four` | 描述四要素不全 | INFO |
+| `desc_missing` | 描述缺失 | ERROR |
+| `h1_name_mismatch` | 标题与名称不一致 | WARN |
+| `no_frontmatter` | 缺少 frontmatter | WARN |
+| `too_long` | 文档过长（超 500 行） | WARN |
+| `broken_ref` | 加载式引用失效（references/、scripts/ 目标不存在） | ERROR |
+| `hardcoded_path` | 硬编码绝对路径 | WARN |
+| `todo_marker` | 待办标记（TODO/FIXME） | WARN |
+| `placeholder` | 占位/历史文本 | INFO |
+| `oversize_doc` | 文档过大（超过扫描阈值） | WARN |
+| `oversize_file` | 文件过大已跳过扫描 | WARN |
+
+### security（安全红线静态子集）
+
+| category | 中文含义 | 默认级别 |
+|---|---|---|
+| `hardcoded_secret` | 疑似硬编码密钥/凭据 | ERROR |
+| `obfuscation` | 疑似混淆编码 | WARN |
+| `dynamic_exec` | 动态执行（eval/exec 外部内容） | WARN |
+| `path_traversal` | 路径穿越（`../`，上下文感知过滤） | ERROR |
+| `destructive_wildcard` | 危险通配删除（`rm -rf *`） | ERROR |
+| `injection_phrasing` | 疑似提示词注入句式 | INFO |
+| `secret_in_doc` | 文档含疑似密钥（需确认） | WARN |
+
+### runtime（脚本可运行性）
+
+| category | 中文含义 | 默认级别 |
+|---|---|---|
+| `py_syntax` | Python 语法错误 | ERROR |
+| `py_check_fail` | 语法校验失败 | WARN |
+| `script_ref_missing` | 脚本引用缺失 | ERROR |
+| `capability` | 能力预检（静态列举，不执行） | INFO |
+
+### deps（依赖与平台声明）
+
+| category | 中文含义 | 默认级别 |
+|---|---|---|
+| `undeclared_cli` | 未声明外部 CLI 调用 | WARN |
+| `platform_undeclared` | 未声明运行平台（含 Windows 专属 API） | INFO |
 
 ## 进阶用法示例
 

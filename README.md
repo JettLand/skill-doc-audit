@@ -28,5 +28,6 @@ python src/scripts/audit_docs.py --skill src --all-checks
 | 版本 | 综合评分 | 说明 |
 |---|---|---|
 | 1.5.2 | 4.7/5 优秀 | 进阶用法示例 + 报错提示通俗化 |
+| 1.5.3 | 4.7/5 优秀 | 检查项中文标签（category_cn）+ 错误码对照表，报告自解释 |
 
 > 评测由 SkillHub 平台在每次发布后自动重跑（TRACE 五维）。
