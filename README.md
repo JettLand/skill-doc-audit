@@ -1,6 +1,6 @@
 # skill-doc-audit 技能工程仓库
 
-本仓库是 SkillHub 技能 **skill-doc-audit（技能文档审计）** 的源管理与发布工程仓库，并非技能本身。正式上架版本发布于 SkillHub（slug：`skill-doc-audit`），平台综合评测 **4.7/5（优秀）**。
+本仓库是 SkillHub 技能 **skill-doc-audit（技能文档审计）** 的源管理与发布工程仓库，并非技能本身。正式上架版本发布于 SkillHub（slug：`skill-doc-audit`），平台综合评测 **4.8/5（优秀）**。
 
 ## 仓库布局
 - `src/`：技能根目录（即发布包内容）
@@ -28,6 +28,6 @@ python src/scripts/audit_docs.py --skill src --all-checks
 | 版本 | 综合评分 | 说明 |
 |---|---|---|
 | 1.5.2 | 4.7/5 优秀 | 进阶用法示例 + 报错提示通俗化 |
-| 1.5.3 | 4.7/5 优秀 | 检查项中文标签（category_cn）+ 错误码对照表，报告自解释 |
+| 1.5.3 | 4.8/5 优秀 | 检查项中文标签（category_cn）+ 错误码对照表，报告自解释；异常处理 4.3→4.8 |
 
 > 评测由 SkillHub 平台在每次发布后自动重跑（TRACE 五维）。
