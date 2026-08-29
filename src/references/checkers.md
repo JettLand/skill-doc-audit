@@ -4,13 +4,14 @@
 
 ## 检查器总览
 
-脚本能可靠判定的偏差由以下检查器产出，可按需启用：
+脚本能可靠判定的偏差由以下检查器产出，可按需启用。代码/配置文件覆盖多语言：`.py/.js/.jsx/.ts/.tsx/.vue/.go/.rs/.java/.c/.cpp/.h/.rb/.php/.swift/.kt/.lua/.sh/.ps1/.json`（含 Python 语法校验与多语言硬编码密钥检测）。
 
 - `doc`（常驻默认开）：文档一致性
 - `structure`：结构体检 + 元信息
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
+- `deadcode`（已纳入 `--all-checks`；运行前按 `--deadcode-mode` 询问精度模式）：死代码检测（未使用定义/导入、不可达代码、孤立资源文件）
 
 ## 检查项明细（权威错误码对照表）
 
@@ -22,7 +23,7 @@
 | doc | `DEAD_FLAG` | 失效命令行参数 | 文档提到的命令行参数在代码中无实现 | ERROR |
 | doc | `EXIT_DOC_ONLY` | 文档独有退出码 | 文档列了退出码，但代码从不返回 | ERROR |
 | doc | `EXIT_CODE_ONLY` | 代码独有退出码 | 代码会返回某退出码，但文档未列 | ERROR |
-| doc | `UNKNOWN_IDENT` | 未知标识符 | 文档提到的 snake_case 标识符在代码中不存在 | ERROR |
+| doc | `UNKNOWN_IDENT` | 未知标识符 | 文档提到的 snake_case 标识符在代码/声明中不存在（已自动跳过 frontmatter 与文档中声明的外部 MCP/插件工具名，避免对 Agent 类技能误报） | WARN |
 | doc | `VERSION_MISSING` | 缺少版本声明 | SKILL.md 缺少 version 声明 | ERROR |
 | doc | `EXTERNAL_REF` | 外部裸文件名引用 | 裸文件名引用，可能指向技能外文件，需人工确认 | INFO |
 | doc | `B_STATUS` | 运行状态枚举 | 运行状态全集（供 AI 复核） | INFO |
@@ -56,6 +57,11 @@
 | runtime | `capability` | 能力预检 | 脚本能力预检（静态列举，不执行） | INFO |
 | deps | `undeclared_cli` | 未声明外部 CLI | 代码调用外部 CLI 但文档未声明依赖 | WARN |
 | deps | `platform_undeclared` | 未声明运行平台 | 代码含 Windows 专属 API 但未声明运行平台 | INFO |
+| deadcode | `unused_def` | 未使用的定义 | 模块内定义的函数/类但从未被引用（动态派发/钩子可能误报） | WARN |
+| deadcode | `unused_import` | 未使用的导入 | 导入但未使用 | INFO |
+| deadcode | `unreachable` | 不可达代码 | return/raise 之后紧跟的无条件语句 | WARN |
+| deadcode | `orphan_asset` | 孤立资源文件 | `scripts/` 或 `references/` 中从未被引用/加载的文件 | WARN |
+| deadcode | `vulture` | 高精度死代码（可选） | 仅当 `--deadcode-mode vulture` 且环境已安装 vulture 时产出（高精度检测） | WARN |
 
 ## 判定提示
 
@@ -87,3 +93,33 @@
 3. **自引用资源上溯**：含 `__file__`/`dirname`/`.asar`/`install_dir` 等标记的行（合法定位安装目录，非真实穿越）。
 
 真实漏洞（如将外部可控字符串拼入用于 `open`/`os.remove`/`shutil` 的落盘路径并含相对上溯）仍正常报出。该机制无需人工逐条标注，统一作用于全部 security 正则，只减误报、绝不增 ERROR。
+
+## 死代码检查误报抑制（deadcode）
+
+死代码本质是「静态不可达 / 未引用」的启发式判定，天然有漏报/误报，故本检查器全部输出 **WARN/INFO，绝不 ERROR**，结论需人判。已内置四重抑制降低误报：
+
+1. **字符串字面量引用视为已用**：扫描所有字符串常量中的标识符，覆盖「按字符串键注册到 dispatch 字典」「反射 / 动态调用」等场景，避免把被字符串键注册的函数误判为死代码（宁可漏报、绝不误报）。
+2. **入口/特殊名启发**：`main`/`run`/`handler`/`setup`/`callback` 等常见入口名，以及 `__` 开头结尾的魔术方法，视为已用。
+3. **`# keep` 内联白名单**：在定义行或上一行加 `# keep` 注释，即可保留该定义/导入、不再告警（适用于公开 API、钩子、测试辅助等确属有意的「未直接引用」符号）。
+4. **跨文件引用感知**：`unused_def` 先汇总全技能所有 `.py` 的引用集合，仅当某定义在**全技能范围都未被引用**时才报，避免把「本文件定义、他文件调用」的符号误判为死代码（多文件技能常见场景）。
+
+孤儿资源（`orphan_asset`）判定保守：只要文件名或相对路径（`scripts/x.py`、`references/x.md`）出现在任意文档或代码文本中，**或被技能内其他 `.py` 以模块名 import**，即视为已引用，故只可能漏报、不会把被引用文件误标为孤儿。可选增强 `vulture` 仅当选择 `--deadcode-mode vulture` 且环境已安装时运行；选 `ast` 或默认回退时不运行，`vulture` 缺失也自动回退零依赖，不影响默认行为。
+
+**两种精度模式的分工（避免重复报告）**：`ast` 模式由 AST 负责未使用导入 / 未使用定义 / 不可达代码 + 孤儿资源；`vulture` 模式由 vulture 负责导入 / 定义 / 类 / 方法 / 变量检测（高精度、低噪声），并叠加 AST 独有的不可达代码与孤儿资源检测，**不再重复报告 AST 的导入/定义项**。两种模式均支持 `# keep` 内联白名单（vulture 分支同样按定义行/上一行判定 `# keep` 并跳过）。vulture 分析若异常（如版本 API 不兼容），会在 stderr 打印告警并跳过该步、不影响其余检查器。
+
+## 命令行参数速查
+
+| 参数 | 作用 |
+|---|---|
+| `--skill <目录>` | 审计单个技能目录（含 SKILL.md） |
+| `--all` | 批量审计 `~/.workbuddy/skills/` 下全部已安装技能 |
+| `--check <名称>` | 仅启用指定检查器（可重复），`doc` 常驻默认开 |
+| `--all-checks` | 启用全部检查器（含 deadcode） |
+| `--deadcode-mode {ask,vulture,ast,skip}` | deadcode 精度模式；`ask` 默认交互询问、超时回退 `ast`；Agent/CI 用 `vulture`/`ast`/`skip` 跳过交互 |
+| `--preview` | 只预览将运行的检查器与将扫描的文件，不产出发现，退出码 0（适合首次审计前心里有数） |
+| `--strict` | WARN 也计入退出码（CI 门禁用） |
+| `--json` | 额外输出 JSON 机读结果（每条含 checker/severity/category/category_cn/message/file/line/suggestion） |
+| `--timeout <秒>` | 整体超时保护，超时优雅终止（退出码 130）而非卡死 |
+| `--max-file-size <字节>` | 超大文件跳过阈值，避免拖慢 |
+| `--backup` / `--backup-limit N` | 审计前备份 SKILL.md（默认最多保留 3 个备份） |
+

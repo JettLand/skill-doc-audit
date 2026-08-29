@@ -15,7 +15,8 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
       security   安全红线静态子集（硬编码密钥/混淆/路径穿越/eval 外部内容/注入句式）
       runtime    脚本可运行性（py_compile 语法、脚本引用存在性、能力预检清单）
       deps      依赖与平台声明（外部 CLI 调用未声明 / Windows 专属 API 未标注平台）
-  - --all-checks  启用全部检查器
+      deadcode   死代码检测（未使用定义/导入、不可达代码、孤儿资源文件；已纳入 --all-checks，运行前询问精度模式）
+  - --all-checks  启用全部检查器（含 deadcode；运行 deadcode 前询问 vulture/ast/skip 模式）
   检查器只扫描不改写；description 四要素、制作质量评分等需语义判断的项仅给提示(INFO)。
 
 退出码：0=未发现 ERROR（--strict 下还需无 WARN）；1=发现 ERROR 或（--strict 下）WARN；2=参数或路径错误
@@ -23,7 +24,9 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
 用法：
   python audit_docs.py --skill <技能目录>                  # 仅运行常驻 doc 检查器
   python audit_docs.py --skill <技能目录> --check structure # doc + structure
-  python audit_docs.py --skill <技能目录> --all-checks     # 全部检查器
+  python audit_docs.py --skill <技能目录> --all-checks     # 全部检查器（含 deadcode，运行前询问模式）
+  python audit_docs.py --skill <技能目录> --check deadcode # 仅死代码检查
+  python audit_docs.py --skill <目录> --deadcode-mode vulture   # 指定精度模式，跳过交互
   python audit_docs.py --all --all-checks                  # 审计全部技能（全检查器）
   python audit_docs.py --skill <目录> --backup             # 审计前先备份 SKILL.md
   python audit_docs.py --skill <目录> --json               # JSON 机读输出（同时仍打印可读报告）
@@ -32,6 +35,7 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
 """
 
 import argparse
+import ast
 import datetime
 import glob
 import json
@@ -47,11 +51,13 @@ SKILLS_ROOT = os.path.expanduser("~/.workbuddy/skills")
 BACKUP_LIMIT = 3  # 同一技能 SKILL.md 最多保留的备份数，防止频繁迭代产生过多 .bak 文件
 SKIP_DIRS = {"__pycache__", "dist", "state", "logs", "node_modules",
              ".git", "evals", ".workbuddy", "archive", "vendor"}
-CODE_EXT = (".py", ".js", ".sh", ".ps1", ".json")
+CODE_EXT = (".py", ".js", ".jsx", ".ts", ".tsx", ".vue", ".go", ".rs", ".java",
+             ".c", ".cpp", ".h", ".rb", ".php", ".swift", ".kt", ".lua",
+             ".sh", ".ps1", ".json")
 MAX_FILE_SIZE = 2_000_000  # 单文件超过此字节数跳过扫描，避免超大文件拖慢/卡死
 
 # ---- doc 检查器正则 ----
-FILE_REF_RE = re.compile(r"`([\w./\\-]+\.(?:py|json|log|md|lnk|sh|ps1|asar|txt))`")
+FILE_REF_RE = re.compile(r"`([\w./\\-]+\.(?:py|js|jsx|ts|tsx|vue|go|rs|java|c|cpp|h|rb|php|swift|kt|lua|json|log|md|lnk|sh|ps1|asar|txt))`")
 FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]{2,})")
 IDENT_RE = re.compile(r"`(_?[a-z][a-z0-9]*_[a-z0-9_]+)`")
 DOC_EXIT_RE = re.compile(r"^\|\s*`(\d+)`\s*\|", re.M)
@@ -147,6 +153,12 @@ CATEGORY_LABELS = {
     # deps：依赖与平台声明
     "undeclared_cli": "未声明外部 CLI",
     "platform_undeclared": "未声明运行平台",
+    # deadcode：死代码检测（已纳入 --all-checks，运行前按 --deadcode-mode 询问精度）
+    "unused_def": "未使用的定义",
+    "unused_import": "未使用的导入",
+    "unreachable": "不可达代码",
+    "orphan_asset": "孤立资源文件",
+    "vulture": "高精度死代码（可选）",
 }
 
 
@@ -287,11 +299,20 @@ def check_doc(ctx):
                                 suggestion="在文档补全退出码说明"))
 
     # A4 标识符
+    declared = ctx.get("declared_tools", set())
+    seen_idents = set()
     for m in IDENT_RE.finditer(doc):
         ident = m.group(1)
         if ident not in blob:
-            findings.append(finding("doc", SEVERITY_ERROR, "UNKNOWN_IDENT",
-                                    "文档里提到的名称 %s 在代码里找不到（可能拼写有误或已被删除）" % ident, file="SKILL.md"))
+            if ident in declared:
+                # 外部 MCP / 插件工具名（frontmatter 或文档中声明），非本地代码符号，跳过避免误报
+                continue
+            if ident in seen_idents:
+                # 同一标识符在文档多处提及只报一次，避免重复刷屏
+                continue
+            seen_idents.add(ident)
+            findings.append(finding("doc", SEVERITY_WARN, "UNKNOWN_IDENT",
+                                    "文档里提到的名称 %s 在代码里找不到（可能拼写有误或已被删除；若为外部 MCP/插件工具请在 frontmatter 的 allowed-tools 声明）" % ident, file="SKILL.md"))
 
     # A5 版本号
     if not VERSION_RE.search(doc):
@@ -404,7 +425,7 @@ def check_structure(ctx):
                                 "正文 %d 行，超过 500 行建议拆分" % len(lines)))
 
     # 加载式引用完整性（references/ 与 scripts/）
-    for m in re.finditer(r"(?:references|scripts)/[A-Za-z0-9_.\-/]+\.(?:md|py|json|sh|ps1)", doc):
+    for m in re.finditer(r"(?:references|scripts)/[A-Za-z0-9_.\-/]+\.(?:md|py|js|jsx|ts|tsx|vue|go|rs|java|c|cpp|h|rb|php|swift|kt|lua|json|sh|ps1)", doc):
         ref = m.group(0)
         if not os.path.exists(os.path.join(skill_dir, ref)):
             findings.append(finding("structure", SEVERITY_ERROR, "broken_ref",
@@ -504,7 +525,7 @@ def check_runtime(ctx):
                                         "无法校验 %s: %s" % (rel, e), file=rel))
 
         # 文档引用的脚本是否存在
-        for m in re.finditer(r"(scripts/[A-Za-z0-9_\-]+\.(?:py|sh|ps1))", doc):
+        for m in re.finditer(r"(scripts/[A-Za-z0-9_\-]+\.(?:py|js|jsx|ts|tsx|vue|go|rs|java|c|cpp|h|rb|php|swift|kt|lua|sh|ps1))", doc):
             ref = m.group(1)
             if not os.path.exists(os.path.join(skill_dir, ref)):
                 findings.append(finding("runtime", SEVERITY_ERROR, "script_ref_missing",
@@ -583,6 +604,299 @@ def check_deps(ctx):
 
 
 # --------------------------------------------------------------------------- #
+# 检查器：deadcode（死代码检测，已纳入 --all-checks；运行前按 --deadcode-mode 询问精度模式）
+#   零依赖：基于 ast 静态分析 .py 的未使用定义/导入、不可达代码；
+#   孤儿资源：scripts/ 与 references/ 下从未被引用的文件；
+#   可选增强：环境装了 vulture 则额外跑高精度死代码（未装静默跳过）。
+#   全部 WARN/INFO，绝不 ERROR——死代码结论需人判（同 structure/security 提示项）。
+# --------------------------------------------------------------------------- #
+# 常见入口名启发：这些名字即使没被显式调用（如作为回调/钩子/公开 API 注册）也视为已用，避免误报。
+ENTRY_HINTS = {"main", "run", "start", "handler", "setup", "init", "register",
+               "callback", "on_load", "entrypoint", "cli", "execute", "invoke"}
+
+
+def _deadcode_name_of(node):
+    """从装饰器/调用节点取出被引用的名字（用于识别注册式调用）。"""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Call):
+        return _deadcode_name_of(node.func)
+    return ""
+
+
+def _has_keep(content, lineno):
+    """该函数/导入所在行或上一行含 `# keep` 则视为有意保留，跳过告警。"""
+    if not lineno:
+        return False
+    lines = content.splitlines()
+    for off in (0, -1):
+        idx = lineno - 1 + off
+        if 0 <= idx < len(lines) and "keep" in lines[idx].lower():
+            return True
+    return False
+
+
+def _vulture_module():
+    """尝试导入 vulture；不可用返回 None（不抛异常、不自动安装）。"""
+    try:
+        import vulture as _v  # noqa: F401
+        return _v
+    except Exception:
+        return None
+
+
+def _resolve_deadcode_mode(args):
+    """决定 deadcode 运行模式：ask/vulture/ast/skip。
+
+    - 显式 --deadcode-mode vulture|ast|skip：直接用（供 Agent/CI 跳过交互）。
+    - 默认 ask：TTY 交互询问（超时/无输入 → ast 零依赖）；非 TTY（被管道或 Agent 调用）→ 直接 ast。
+    """
+    mode = getattr(args, "deadcode_mode", "ask") if args else "ask"
+    if mode != "ask":
+        if mode == "vulture" and _vulture_module() is None:
+            sys.stderr.write("[deadcode] 未检测到 vulture 库，回退零依赖 AST 模式\n")
+            return "ast"
+        return mode
+    if not sys.stdin.isatty():
+        sys.stderr.write("[deadcode] 非交互环境，默认零依赖 AST 模式（若要 vulture/skip 请传 --deadcode-mode）\n")
+        return "ast"
+    return _prompt_deadcode_mode()
+
+
+def _prompt_deadcode_mode():
+    """交互询问 deadcode 模式；10 秒超时默认 ast（零依赖，易误报）。"""
+    sys.stderr.write(
+        "\n[deadcode] 选择死代码检测精度模式：\n"
+        "  1) vulture 高精度（推荐，需已安装 vulture）\n"
+        "  2) 零依赖 AST（易误报，无需安装）\n"
+        "  3) 本次跳过 deadcode\n"
+        "请输入 1/2/3（10 秒内未选则默认 2 零依赖）："
+    )
+    sys.stderr.flush()
+
+    buf = {}
+
+    def _read():
+        try:
+            buf["v"] = sys.stdin.readline().strip()
+        except Exception:
+            buf["v"] = ""
+
+    th = threading.Thread(target=_read, daemon=True)
+    th.start()
+    th.join(10)
+    choice = buf.get("v", "")
+    if not choice:
+        sys.stderr.write("\n[deadcode] 超时/无输入，默认零依赖 AST 模式\n")
+        return "ast"
+    if choice == "1":
+        if _vulture_module() is None:
+            sys.stderr.write("[deadcode] 未检测到 vulture 库，回退零依赖 AST 模式\n")
+            return "ast"
+        return "vulture"
+    if choice == "3":
+        return "skip"
+    return "ast"
+
+
+def check_deadcode(ctx):
+    mode = _resolve_deadcode_mode(ctx.get("args"))
+    if mode == "skip":
+        return []
+    findings = []
+    skill_dir = ctx["skill_dir"]
+    doc = ctx["doc"]
+    code = ctx["code"]
+
+    # ---- 预扫描：跨文件引用集合 ----
+    # 多文件技能里，一个函数常在本文件定义、在他文件被调用。若只按单文件 AST 判定，
+    # 会把「跨文件被引用」的符号误报为 unused_def。故先汇总全技能范围被引用的标识符
+    # (global_used) 与被 import 的模块名 (imported_modules)，供下方跨文件判定使用。
+    global_used = set()
+    imported_modules = set()
+
+    def _collect_refs(tree):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                global_used.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                global_used.add(node.attr)
+            elif isinstance(node, ast.Import):
+                for n in node.names:
+                    imported_modules.add(n.name.split(".")[0])
+                    if n.asname:
+                        imported_modules.add(n.asname)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imported_modules.add(node.module.split(".")[0])
+                for n in node.names:
+                    imported_modules.add(n.name.split(".")[0])
+                    if n.asname:
+                        imported_modules.add(n.asname)
+            elif isinstance(node, ast.Call):
+                n = _deadcode_name_of(node.func)
+                if n:
+                    global_used.add(n)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                # 字符串字面量中的标识符也视为潜在引用：覆盖 dispatch 字典按字符串键注册、反射等动态调用
+                for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", node.value):
+                    global_used.add(tok)
+
+    per_file = []
+    for rel, content in code.items():
+        if not rel.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            continue  # 语法错误由 runtime 检查器负责
+        _collect_refs(tree)
+        used_local = set()
+        defined = []
+        import_names = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                used_local.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                used_local.add(node.attr)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defined.append((node.name, node.lineno))
+                for dec in node.decorator_list:  # 装饰器即注册式调用，视为已用
+                    n = _deadcode_name_of(dec)
+                    if n:
+                        used_local.add(n)
+            elif isinstance(node, ast.ClassDef):
+                defined.append((node.name, node.lineno))
+            elif isinstance(node, ast.Import):
+                for n in node.names:
+                    import_names.append((n.asname or n.name.split(".")[0], node.lineno))
+            elif isinstance(node, ast.ImportFrom):
+                for n in node.names:
+                    import_names.append((n.asname or n.name.split(".")[0], node.lineno))
+            elif isinstance(node, ast.Call):
+                n = _deadcode_name_of(node.func)
+                if n:
+                    used_local.add(n)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                # 字符串字面量中的标识符也视为潜在引用：覆盖 dispatch 字典按字符串键注册、反射等动态调用
+                for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", node.value):
+                    used_local.add(tok)
+        per_file.append((rel, content, tree, used_local, defined, import_names))
+
+    # ---- A. 代码级：AST 分析 .py（unused_def 跨文件判定） ----
+    for rel, content, tree, used_local, defined, import_names in per_file:
+        # 未使用导入（INFO）—— 仅按本文件判定；vulture 模式下交由 vulture 检测，避免重复报告
+        if mode != "vulture":
+            for name, lineno in import_names:
+                if name == "*":
+                    continue
+                if name in used_local or _has_keep(content, lineno):
+                    continue
+                findings.append(finding("deadcode", SEVERITY_INFO, "unused_import",
+                                        "导入但未使用: %s" % name, file=rel, line=lineno,
+                                        suggestion="删除未使用的导入，或加 `# keep` 保留"))
+
+        # 未使用定义（WARN）—— 跨文件判定：仅在全技能范围都未引用时才报（消除多文件技能的误报）
+        if mode != "vulture":
+            for name, lineno in defined:
+                if name in global_used or name in ENTRY_HINTS:
+                    continue
+                if name.startswith("__") and name.endswith("__"):
+                    continue  # 魔术方法/特殊名不视为死代码
+                if _has_keep(content, lineno):
+                    continue
+                findings.append(finding("deadcode", SEVERITY_WARN, "unused_def",
+                                        "定义了但从未被引用: %s" % name, file=rel, line=lineno,
+                                        suggestion="删除死代码，或加 `# keep` 保留（如公开 API/钩子）"))
+
+        # 不可达代码（WARN）：同一代码块中 return/raise 之后紧跟无条件的语句
+        for node in ast.walk(tree):
+            body = getattr(node, "body", None)
+            if not isinstance(body, list) or len(body) < 2:
+                continue
+            for idx in range(len(body) - 1):
+                cur = body[idx]
+                nxt = body[idx + 1]
+                if not isinstance(cur, (ast.Return, ast.Raise)):
+                    continue
+                if isinstance(nxt, (ast.If, ast.For, ast.AsyncFor, ast.While,
+                                    ast.With, ast.AsyncWith, ast.Try,
+                                    ast.FunctionDef, ast.AsyncFunctionDef,
+                                    ast.ClassDef, ast.Import, ast.ImportFrom)):
+                    continue
+                ln = getattr(nxt, "lineno", 0)
+                if _has_keep(content, ln):
+                    continue
+                findings.append(finding("deadcode", SEVERITY_WARN, "unreachable",
+                                        "不可达代码（return/raise 之后的语句）", file=rel, line=ln,
+                                        suggestion="删除不可达分支"))
+
+    # ---- B. 孤儿资源文件（scripts/ 与 references/ 下从未被引用的文件） ----
+    all_text = doc + "\n" + "\n".join(code.values())
+    for sub in ("scripts", "references"):
+        d = os.path.join(skill_dir, sub)
+        if not os.path.isdir(d):
+            continue
+        for fn in os.listdir(d):
+            fp = os.path.join(d, fn)
+            if not os.path.isfile(fp):
+                continue
+            if fn in ("__init__.py",):
+                continue
+            base = fn
+            relref = "%s/%s" % (sub, fn)
+            mod_name = os.path.splitext(fn)[0]
+            # 被文档/代码按文件名或相对路径引用，或被其他 .py 以模块名 import（保守：避免把被导入模块误标为孤儿）
+            if base in all_text or relref in all_text or mod_name in imported_modules:
+                continue
+            findings.append(finding("deadcode", SEVERITY_WARN, "orphan_asset",
+                                    "资源文件从未被引用/加载: %s" % relref, file=relref,
+                                    suggestion="删除无用文件，或在 SKILL.md/代码中引用"))
+
+    # ---- 可选：vulture 高精度死代码（仅 vulture 模式运行） ----
+    if mode == "vulture":
+        _v = _vulture_module()
+        if _v is not None:
+            try:
+                py_files = [os.path.join(skill_dir, r) for r in code if r.endswith(".py")]
+                if py_files:
+                    v = _v.Vulture()
+                    v.scavenge(py_files)
+                    # 兼容 vulture 2.x（get_unused_code / typ / first_lineno）
+                    # 与旧版（get_unused_code_items / typename / lineno）
+                    if hasattr(v, "get_unused_code"):
+                        items = v.get_unused_code()
+                    elif hasattr(v, "get_unused_code_items"):
+                        items = v.get_unused_code_items()
+                    else:
+                        items = []
+                    for item in items:
+                        typ = getattr(item, "typ", None) or getattr(item, "typename", None) or ""
+                        line = getattr(item, "first_lineno", None) or getattr(item, "lineno", None)
+                        # 与 AST 分支一致：定义所在行或上一行含 `# keep` 视为有意保留，跳过
+                        if item.filename:
+                            try:
+                                with open(item.filename, encoding="utf-8", errors="ignore") as _fh:
+                                    _src = _fh.read()
+                                if _has_keep(_src, line):
+                                    continue
+                            except Exception:
+                                pass
+                        msg = ("vulture 检出死代码: %s (%s)" % (item.name, typ)) if typ else ("vulture 检出死代码: %s" % item.name)
+                        findings.append(finding("deadcode", SEVERITY_WARN, "vulture",
+                                                msg,
+                                                file=os.path.relpath(item.filename, skill_dir) if item.filename else None,
+                                                line=line,
+                                                suggestion="确认后删除或加白名单"))
+            except Exception as exc:
+                sys.stderr.write("[deadcode] vulture 分析异常，已跳过：%s\n" % exc)
+
+    return findings
+
+
+# --------------------------------------------------------------------------- #
 # 调度
 # --------------------------------------------------------------------------- #
 CHECKERS = {
@@ -591,12 +905,14 @@ CHECKERS = {
     "security": check_security,
     "runtime": check_runtime,
     "deps": check_deps,
+    "deadcode": check_deadcode,
 }
 DEFAULT_CHECKERS = ["doc"]
-ALL_CHECKERS = ["doc", "structure", "security", "runtime", "deps"]
+# deadcode 已纳入 --all-checks；运行前按 --deadcode-mode 询问精度模式（默认 ask，超时→ast 零依赖）。
+ALL_CHECKERS = ["doc", "structure", "security", "runtime", "deps", "deadcode"]
 
 
-def analyze_skill(skill_dir, enabled, do_backup=False, backup_limit=BACKUP_LIMIT):
+def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=BACKUP_LIMIT):
     doc_path = os.path.join(skill_dir, "SKILL.md")
     if not os.path.isfile(doc_path):
         return {"skill": skill_dir, "error": "no SKILL.md", "findings": []}
@@ -606,6 +922,36 @@ def analyze_skill(skill_dir, enabled, do_backup=False, backup_limit=BACKUP_LIMIT
     scripts_dir = os.path.join(skill_dir, "scripts")
     code, skipped_code = collect_code(skill_dir)
     blob = "\n".join(code.values())
+
+    # 声明式外部工具名（MCP / 插件工具）：frontmatter 的 allowed-tools / tools 字段，
+    # 以及全仓库 .md 中出现的 mcp__*__<name> 标记。这些名称只出现在文档/声明里、不在本地
+    # 代码内，UNKNOWN_IDENT 检查应跳过，避免对 Agent / MCP 类技能刷出海量误报。
+    declared_tools = set()
+    _fm = re.match(r"^---\s*\n(.*?)\n---\s*\n", doc, re.S)
+    if _fm:
+        for _key in ("allowed-tools", "tools"):
+            _kv = re.search(r"^%s:\s*(.+)$" % re.escape(_key), _fm.group(1), re.M)
+            if _kv:
+                for _tok in re.split(r"[,;\s]+", _kv.group(1).strip()):
+                    _tok = _tok.strip()
+                    if not _tok:
+                        continue
+                    declared_tools.add(_tok)
+                    if "__" in _tok:
+                        declared_tools.add(_tok.rsplit("__", 1)[-1])
+    for _root, _dirs, _names in os.walk(skill_dir):
+        _dirs[:] = [d for d in _dirs if d not in SKIP_DIRS and not d.startswith(".")]
+        for _n in _names:
+            if not _n.endswith(".md"):
+                continue
+            _fp = os.path.join(_root, _n)
+            try:
+                with open(_fp, encoding="utf-8", errors="replace") as _fh:
+                    _t = _fh.read()
+            except Exception:
+                continue
+            for _m in re.finditer(r"mcp__[A-Za-z0-9_]+__([A-Za-z0-9_]+)", _t):
+                declared_tools.add(_m.group(1))
 
     backup_path = None
     if do_backup:
@@ -621,6 +967,8 @@ def analyze_skill(skill_dir, enabled, do_backup=False, backup_limit=BACKUP_LIMIT
         "code": code,
         "blob": blob,
         "scripts_dir": scripts_dir,
+        "args": args,
+        "declared_tools": declared_tools,
     }
     findings = []
     for name in enabled:
@@ -733,7 +1081,7 @@ def main():
     ap.add_argument("--skill", help="技能目录")
     ap.add_argument("--all", action="store_true", help="审计 ~/.workbuddy/skills 下全部技能")
     ap.add_argument("--check", action="append", metavar="NAME",
-                    help="启用插件式检查器(doc/structure/security/runtime/deps)，可重复；doc 常驻默认开")
+                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode)，可重复；doc 常驻默认开")
     ap.add_argument("--all-checks", action="store_true", help="启用全部检查器")
     ap.add_argument("--backup", action="store_true", help="审计前备份 SKILL.md")
     ap.add_argument("--backup-limit", type=int, default=BACKUP_LIMIT,
@@ -744,6 +1092,10 @@ def main():
                     help="整体超时秒数（0=不限制）；超时后优雅终止而非卡死")
     ap.add_argument("--max-file-size", type=int, default=MAX_FILE_SIZE,
                     help="单文件超过此字节数跳过扫描（默认 %d）" % MAX_FILE_SIZE)
+    ap.add_argument("--deadcode-mode", default="ask", choices=["ask", "vulture", "ast", "skip"],
+                    help="deadcode 精度模式：ask(默认,运行前交互询问,超时→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
+    ap.add_argument("--preview", action="store_true",
+                    help="只预览将运行哪些检查器、将扫描哪些文件，不产出发现，退出码 0（适合首次审计前心里有数）")
     args = ap.parse_args()
 
     MAX_FILE_SIZE = args.max_file_size
@@ -785,7 +1137,24 @@ def main():
             if c not in enabled:
                 enabled.append(c)
 
-    results = [analyze_skill(t, enabled, do_backup=args.backup,
+    # 检查预览：只展示将运行哪些检查器、将扫描哪些文件，不产出发现
+    if args.preview:
+        for t in targets:
+            d = os.path.join(t, "SKILL.md")
+            code, _skipped = collect_code(t)
+            print("预览：%s" % t)
+            print("  启用检查器: %s" % ", ".join(enabled))
+            if "deadcode" in enabled:
+                print("  deadcode 精度模式: %s（ask=运行时交互询问/非 TTY 回退 ast）" % args.deadcode_mode)
+            print("  文档: %s" % ("SKILL.md" if os.path.isfile(d) else "（无）"))
+            print("  将扫描代码/配置文件 %d 个:" % len(code))
+            for rel in sorted(code.keys()):
+                print("    - %s" % rel)
+            if _skipped:
+                print("  跳过（超大文件）: %s" % ", ".join(sorted(_skipped)[:10]))
+        sys.exit(0)
+
+    results = [analyze_skill(t, enabled, args=args, do_backup=args.backup,
                              backup_limit=args.backup_limit) for t in targets]
     print_human(results)
     if args.json:

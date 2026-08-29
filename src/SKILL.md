@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录，也可批量审计全部已安装技能。
-version: "1.5.3"
+version: "1.8.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -28,10 +28,39 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
+- `deadcode`（已纳入 `--all-checks`；运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask` 会交互询问，超时或未指定则回退零依赖 `ast`。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
 
 脚本只能枚举差异、不能判定对错的，以及完全查不出、必须 AI 读代码判断的语义项（如描述是否仍成立、提示是否误导、跨文件一致性），详见 `references/checkers.md`。**不要只用脚本结论就下判断**——扫描报告是线索，不是裁决。
+
+## 快速开始
+
+三条命令覆盖 90% 场景：
+
+```sh
+# 1) 体检一个技能（doc 一致性常驻默认开，审计前自动备份 SKILL.md）
+python scripts/audit_docs.py --skill ~/.workbuddy/skills/<技能名> --backup
+
+# 2) 全套体检（结构/安全/可运行/依赖/死代码；deadcode 运行前询问精度）
+python scripts/audit_docs.py --skill <目录> --all-checks
+
+# 3) 先预览再审计（看清楚会扫哪些检查器、哪些文件，退出码 0）
+python scripts/audit_docs.py --skill <目录> --all-checks --preview
+```
+
+想做某件事，直接用对应命令要点：
+
+| 我的诉求 | 命令要点 |
+|---|---|
+| 只查文档与代码对不对得上 | `--backup`（doc 常驻默认开） |
+| 一次性全身体检 | `--all-checks` |
+| CI 门禁，连 WARN 也阻断合并 | `--all-checks --strict` |
+| 批量体检所有已装技能 | `--all --all-checks` |
+| 先看看会扫什么再决定 | `--preview` |
+| 只查某一类（如安全红线） | `--check security` |
+
+其余参数（`--json` / `--timeout` / `--max-file-size` / `--deadcode-mode` / `--backup-limit`）与完整检查项口径见下方「用法」与 `references/checkers.md`。
 
 ## 流程
 
@@ -66,7 +95,7 @@ python scripts/audit_docs.py --skill ~/.workbuddy/skills/workbuddy-checkin --bac
 # 启用插件式检查器（doc 常驻 + 指定项，可重复 --check）
 python scripts/audit_docs.py --skill <目录> --check structure --check security
 
-# 全部检查器（doc + structure + security + runtime + deps）
+# 全部检查器（doc + structure + security + runtime + deps + deadcode；deadcode 运行前会询问精度模式）
 python scripts/audit_docs.py --skill <目录> --all-checks
 
 # 仅依赖/平台声明检查
@@ -82,6 +111,10 @@ python scripts/audit_docs.py --skill <目录> --all-checks --strict
 python scripts/audit_docs.py --skill <目录> --all-checks --timeout 60
 # 超大文件跳过阈值（字节）；超过则跳过并报告，避免拖慢
 python scripts/audit_docs.py --skill <目录> --all-checks --max-file-size 2000000
+# deadcode 精度模式：vulture 高精度 / ast 零依赖 / skip 跳过；Agent/CI 用此跳过交互询问
+python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture
+# 先预览将运行哪些检查器、将扫描哪些文件（不产出发现，退出码 0）
+python scripts/audit_docs.py --skill <目录> --all-checks --preview
 ```
 
 退出码：`0` 未发现 ERROR 级问题（--strict 下还需无 WARN）；`1` 发现 ERROR 级问题（或 --strict 下存在 WARN）；`2` 参数或路径错误；`130` 审计被中断（超时或 Ctrl+C），优雅退出、不抛堆栈。报告同时提供人类可读分组与 `--json` 机读（每条含 `checker/severity/category/category_cn/message/file/line/suggestion`）；`category` 为稳定机器标识符（用于机读与跨版本比对），`category_cn` 为中文可读标签（用于人类报告，使每条发现自解释）。
@@ -163,7 +196,7 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 | `DEAD_FLAG` | 失效命令行参数（代码无实现） | ERROR |
 | `EXIT_DOC_ONLY` | 文档独有退出码（代码未返回） | ERROR |
 | `EXIT_CODE_ONLY` | 代码独有退出码（文档未列） | ERROR |
-| `UNKNOWN_IDENT` | 未知标识符（代码找不到） | ERROR |
+| `UNKNOWN_IDENT` | 未知标识符（代码找不到） | WARN |
 | `VERSION_MISSING` | 缺少版本声明 | ERROR |
 | `B_STATUS` | 运行状态枚举（供 AI 复核） | INFO |
 | `B_CONFIG` | 配置项枚举（供 AI 复核） | INFO |
