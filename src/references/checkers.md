@@ -24,6 +24,11 @@
 | doc | `VERSION_MISSING` | SKILL.md 缺少 version 声明 |
 | structure | `name_mismatch` | frontmatter name 与目录名不一致 |
 | structure | `version_missing` | 缺少合规 version |
+| structure | `name_missing` | 缺少 name 声明 |
+| structure | `license_missing` | 缺少 license 声明（WARN） |
+| structure | `h1_name_mismatch` | 正文 H1 与 name/displayName 不一致（WARN） |
+| structure | `oversize_doc` | SKILL.md 超过大小上限（WARN） |
+| structure | `oversize_file` | 代码文件超过大小上限被跳过（WARN） |
 | structure | `desc_missing` | 缺少 description |
 | structure | `broken_ref` | 加载式引用（references/、scripts/）目标不存在 |
 | structure | `hardcoded_path` | 文档含硬编码用户绝对路径 |

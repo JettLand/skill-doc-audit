@@ -27,6 +27,8 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
   python audit_docs.py --all --all-checks                  # 审计全部技能（全检查器）
   python audit_docs.py --skill <目录> --backup             # 审计前先备份 SKILL.md
   python audit_docs.py --skill <目录> --json               # JSON 机读输出（同时仍打印可读报告）
+  python audit_docs.py --skill <目录> --timeout 60         # 整体超时 60 秒，超时优雅终止（非卡死）
+  python audit_docs.py --skill <目录> --max-file-size 2000000  # 超过此字节的文件跳过扫描
 """
 
 import argparse
@@ -38,12 +40,15 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
+import _thread
 
 SKILLS_ROOT = os.path.expanduser("~/.workbuddy/skills")
 BACKUP_LIMIT = 3  # 同一技能 SKILL.md 最多保留的备份数，防止频繁迭代产生过多 .bak 文件
 SKIP_DIRS = {"__pycache__", "dist", "state", "logs", "node_modules",
              ".git", "evals", ".workbuddy", "archive", "vendor"}
 CODE_EXT = (".py", ".js", ".sh", ".ps1", ".json")
+MAX_FILE_SIZE = 2_000_000  # 单文件超过此字节数跳过扫描，避免超大文件拖慢/卡死
 
 # ---- doc 检查器正则 ----
 FILE_REF_RE = re.compile(r"`([\w./\\-]+\.(?:py|json|log|md|lnk|sh|ps1|asar|txt))`")
@@ -114,8 +119,13 @@ def finding(checker, severity, category, message, file=None, line=None, suggesti
 # 通用辅助
 # --------------------------------------------------------------------------- #
 def collect_code(skill_dir):
-    """收集技能目录下所有可作为基准的代码/配置文件内容（不含 SKILL.md）。"""
+    """收集技能目录下所有可作为基准的代码/配置文件内容（不含 SKILL.md）。
+
+    返回 (files, skipped)：files 为 路径->内容；skipped 为因超过 MAX_FILE_SIZE
+    而被跳过的文件相对路径列表（避免超大生成物/资源文件拖慢或卡死扫描）。
+    """
     files = {}
+    skipped = []
     for root, dirs, names in os.walk(skill_dir):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
         for n in names:
@@ -125,11 +135,18 @@ def collect_code(skill_dir):
                 if rel == "SKILL.md":
                     continue
                 try:
+                    size = os.path.getsize(p)
+                except OSError:
+                    continue
+                if size > MAX_FILE_SIZE:
+                    skipped.append(rel)
+                    continue
+                try:
                     with open(p, encoding="utf-8", errors="replace") as fh:
                         files[rel] = fh.read()
                 except Exception:
                     pass
-    return files
+    return files, skipped
 
 
 def resolve_exists(skill_dir, ref, scripts_dir):
@@ -275,6 +292,14 @@ def check_structure(ctx):
             findings.append(finding("structure", SEVERITY_ERROR, "version_missing",
                                     "frontmatter 缺少合规 version",
                                     suggestion="添加 version: x.y.z"))
+        if not name_m:
+            findings.append(finding("structure", SEVERITY_ERROR, "name_missing",
+                                    "frontmatter 缺少 name 声明",
+                                    suggestion="添加 name: <技能目录名>"))
+        if not re.search(r"^license:", fm_text, re.M):
+            findings.append(finding("structure", SEVERITY_WARN, "license_missing",
+                                    "frontmatter 缺少 license 声明",
+                                    suggestion="添加 license: MIT 等"))
         if desc_m:
             desc = desc_m.group(1).strip().strip("\"'")
             if not (20 <= len(desc) <= 1024):
@@ -288,6 +313,21 @@ def check_structure(ctx):
         else:
             findings.append(finding("structure", SEVERITY_ERROR, "desc_missing",
                                     "frontmatter 缺少 description"))
+        # H1 标题与 frontmatter 身份一致性（与 name 或 displayName 比对，兼容中英文）
+        disp_m = re.search(r"^displayName:\s*(.+)$", fm_text, re.M)
+        h1_m = re.search(r"^#\s+(.+)$", doc, re.M)
+        if h1_m and name_m:
+            nm = name_m.group(1).strip().strip("\"'")
+            disp = disp_m.group(1).strip().strip("\"'") if disp_m else ""
+            h1n = h1_m.group(1).strip()
+            _norm = lambda s: re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", s.lower()).strip()
+            cand = [_norm(disp), _norm(nm)] if disp else [_norm(nm)]
+            h1n_n = _norm(h1n)
+            if not any(c and (c in h1n_n or h1n_n in c) for c in cand):
+                findings.append(finding("structure", SEVERITY_WARN, "h1_name_mismatch",
+                                        "正文 H1 标题与 frontmatter 身份不一致（H1='%s', name='%s'%s）"
+                                        % (h1n, nm, (" / displayName='%s'" % disp) if disp else ""),
+                                        suggestion="统一 H1 与 name/displayName"))
     else:
         # 无 frontmatter：退化为检查 inline version / description，避免对已验证技能误报
         if not VERSION_RE.search(doc):
@@ -508,7 +548,7 @@ def analyze_skill(skill_dir, enabled, do_backup=False, backup_limit=BACKUP_LIMIT
     with open(doc_path, encoding="utf-8") as fh:
         doc = fh.read()
     scripts_dir = os.path.join(skill_dir, "scripts")
-    code = collect_code(skill_dir)
+    code, skipped_code = collect_code(skill_dir)
     blob = "\n".join(code.values())
 
     backup_path = None
@@ -531,6 +571,19 @@ def analyze_skill(skill_dir, enabled, do_backup=False, backup_limit=BACKUP_LIMIT
         fn = CHECKERS.get(name)
         if fn:
             findings.extend(fn(ctx))
+
+    # 稳定性：超大文件防护（避免卡死/拖慢）
+    doc_size = os.path.getsize(doc_path)
+    if doc_size > MAX_FILE_SIZE:
+        findings.append(finding("structure", SEVERITY_WARN, "oversize_doc",
+                               "SKILL.md 超过 %d 字节（实际 %d），建议拆分或精简" % (MAX_FILE_SIZE, doc_size),
+                               file="SKILL.md",
+                               suggestion="文档过大可能影响审计性能"))
+    if skipped_code and set(enabled) & {"structure", "security", "runtime", "deps"}:
+        findings.append(finding("structure", SEVERITY_WARN, "oversize_file",
+                               "以下文件超过 %d 字节已跳过扫描（可能为生成物/大资源）: %s"
+                               % (MAX_FILE_SIZE, ", ".join(sorted(skipped_code)[:10])),
+                               suggestion="确认是否为应纳入审计的源文件"))
 
     return {
         "skill": skill_dir,
@@ -615,6 +668,7 @@ def build_json(results):
 # 入口
 # --------------------------------------------------------------------------- #
 def main():
+    global MAX_FILE_SIZE
     ap = argparse.ArgumentParser(description="技能静态体检（文档一致性/结构/安全/可运行性）")
     ap.add_argument("--skill", help="技能目录")
     ap.add_argument("--all", action="store_true", help="审计 ~/.workbuddy/skills 下全部技能")
@@ -626,8 +680,22 @@ def main():
                     help="SKILL.md 最多保留的备份数（默认 %d）" % BACKUP_LIMIT)
     ap.add_argument("--json", action="store_true", help="额外输出 JSON 机读结果")
     ap.add_argument("--strict", action="store_true", help="WARN 也计入退出码（CI 门禁用）")
+    ap.add_argument("--timeout", type=float, default=0,
+                    help="整体超时秒数（0=不限制）；超时后优雅终止而非卡死")
+    ap.add_argument("--max-file-size", type=int, default=MAX_FILE_SIZE,
+                    help="单文件超过此字节数跳过扫描（默认 %d）" % MAX_FILE_SIZE)
     args = ap.parse_args()
 
+    MAX_FILE_SIZE = args.max_file_size
+
+    watchdog = None
+    if args.timeout and args.timeout > 0:
+        def _on_timeout():
+            sys.stderr.write("\n[超时] 审计超过 %.0f 秒，强制终止\n" % args.timeout)
+            _thread.interrupt_main()
+        watchdog = threading.Timer(args.timeout, _on_timeout)
+        watchdog.daemon = True
+        watchdog.start()
     if args.all:
         if not os.path.isdir(SKILLS_ROOT):
             print("技能根目录不存在: %s" % SKILLS_ROOT, file=sys.stderr)
@@ -670,8 +738,17 @@ def main():
     total_warn = sum(summarize(r.get("findings", [])).get("warn", 0)
                      for r in results if "findings" in r)
     failed = (total_err > 0) or (args.strict and total_warn > 0)
+    if watchdog is not None:
+        watchdog.cancel()
     sys.exit(0 if not failed else 1)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.stderr.write("\n审计被中断（Ctrl+C 或超时），已安全退出，未产生部分结果。\n")
+        sys.exit(130)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write("\n审计异常终止：%s\n" % e)
+        sys.exit(2)

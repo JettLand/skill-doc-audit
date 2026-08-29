@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录，也可批量审计全部已安装技能。
-version: "1.4.2"
+version: "1.5.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -78,6 +78,10 @@ python scripts/audit_docs.py --all --all-checks
 python scripts/audit_docs.py --skill <目录> --all-checks --json
 # CI 门禁：WARN 也计入退出码（默认仅 ERROR 计入）
 python scripts/audit_docs.py --skill <目录> --all-checks --strict
+# 整体超时保护（秒）；超时优雅终止，不再卡死
+python scripts/audit_docs.py --skill <目录> --all-checks --timeout 60
+# 超大文件跳过阈值（字节）；超过则跳过并报告，避免拖慢
+python scripts/audit_docs.py --skill <目录> --all-checks --max-file-size 2000000
 ```
 
 退出码：`0` 未发现 ERROR 级问题（--strict 下还需无 WARN）；`1` 发现 ERROR 级问题（或 --strict 下存在 WARN）；`2` 参数或路径错误。报告同时提供人类可读分组与 `--json` 机读（每条含 `checker/severity/category/message/file/line/suggestion`）。
@@ -104,3 +108,44 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 > 触发判据：用户意图围绕「文档与代码一致性 / 结构 / 安全红线 / 可运行性 / 依赖平台」的静态审计时使用；纯运行期、动态行为或部署类诉求不在范围内。
 
 **误报自纠错能力**：`security` 检查器对所有正则统一采用上下文感知过滤，自动排除注释、文档 URL、自引用资源上溯，避免上下文盲误报。完整机制见 `references/checkers.md`。
+
+## 常见问题（FAQ）与避坑
+
+**Q1：报告里出现 `DEAD_PATH`，但那个路径确实在用，是误报吗？**
+很可能是。文档引用的路径若指向「运行期生成的产物」（如某技能会在目标项目创建 `.learnings/` 目录、或脚本在临时目录生成 state），本技能目录下确实不存在，却并非漂移。判定前留意引用处是否含「生成 / 创建 / 写入」等含义。详见 `references/checkers.md` 的「判定提示」。
+
+**Q2：安全扫描报了 `path_traversal`（`../`），但我只是写文档 URL，怎么办？**
+这是上下文盲误报。`security` 检查器已对全部正则做上下文感知过滤，自动排除注释行、含 `://` 的文档 URL、以及含 `__file__`/`dirname`/`.asar` 的合法资源上溯。若仍报出，请贴出原行复核；真实漏洞（外部可控字符串拼入落盘路径并含相对上溯）会被正确保留。
+
+**Q3：扫描报告能直接当裁决改文档吗？**
+不能。脚本只枚举差异、不判定对错；语义项（描述是否仍成立、提示是否误导、跨文件一致性）必须 AI 读代码判断。报告是线索，不是裁决。
+
+**Q4：退出码在文档列了但代码从不返回，是文档错了？**
+未必。若文档已标注「已弃用」，那是刻意的向后兼容说明，保留不要删。
+
+**Q5：只想查某一类问题，怎么缩小范围？**
+用 `--check` 按需启用（如 `--check security`），或 `--all-checks` 全开；`--strict` 让 WARN 也计入退出码，适合 CI 门禁。
+
+## 示例输出
+
+对 `~/.workbuddy/skills/workbuddy-checkin` 运行：
+
+```sh
+python scripts/audit_docs.py --skill ~/.workbuddy/skills/workbuddy-checkin --all-checks
+```
+
+典型可读报告（节选）：
+
+```
+[doc]      ERROR  DEAD_FLAG        SKILL.md:42  文档提到的 `--retry` 在代码中无实现
+          → 建议：补实现或删除文档描述
+[doc]      WARN   VERSION_MISSING  SKILL.md     未声明 version
+[security] ERROR  hardcoded_secret scripts/audit_docs.py  疑似硬编码 Token
+          → 建议：改为环境变量读取
+[security] INFO   path_traversal  被上下文过滤忽略（文档 URL，非真实穿越）
+[structure] OK    name_mismatch   frontmatter name 与目录名一致
+...
+Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
+```
+
+说明：`ERROR` 默认计入退出码（`1`）；`WARN`/`INFO` 不计入，需结合上下文判断，勿直接当错误处置。`--json` 可输出机读明细（每条含 `checker/severity/category/message/file/line/suggestion`）。
