@@ -16,7 +16,7 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
       runtime    脚本可运行性（py_compile 语法、脚本引用存在性、能力预检清单）
       deps      依赖与平台声明（外部 CLI 调用未声明 / Windows 专属 API 未标注平台）
       deadcode   死代码检测（未使用定义/导入、不可达代码、孤儿资源文件；已纳入 --all-checks，运行前询问精度模式）
-  - --all-checks  启用全部检查器（含 deadcode；运行 deadcode 前询问 vulture/ast/skip 模式）
+  - --all-checks  启用全部检查器（含 deadcode；已装 vulture 则自动高精度，否则运行前询问 vulture/ast/skip 模式）
   检查器只扫描不改写；description 四要素、制作质量评分等需语义判断的项仅给提示(INFO)。
 
 退出码：0=未发现 ERROR（--strict 下还需无 WARN）；1=发现 ERROR 或（--strict 下）WARN；2=参数或路径错误
@@ -651,7 +651,9 @@ def _resolve_deadcode_mode(args):
     """决定 deadcode 运行模式：ask/vulture/ast/skip。
 
     - 显式 --deadcode-mode vulture|ast|skip：直接用（供 Agent/CI 跳过交互）。
-    - 默认 ask：TTY 交互询问（超时/无输入 → ast 零依赖）；非 TTY（被管道或 Agent 调用）→ 直接 ast。
+    - 默认 ask：环境已装 vulture 则直接采用高精度 vulture 模式（不重复询问）；
+      未装 vulture 时：TTY 交互询问（超时 30s / 无输入 → ast 零依赖）；
+      非 TTY（被管道或 Agent 调用）→ 直接 ast。
     """
     mode = getattr(args, "deadcode_mode", "ask") if args else "ask"
     if mode != "ask":
@@ -659,6 +661,10 @@ def _resolve_deadcode_mode(args):
             sys.stderr.write("[deadcode] 未检测到 vulture 库，回退零依赖 AST 模式\n")
             return "ast"
         return mode
+    # ask 模式：已装 vulture 直接走高精度，避免重复询问
+    if _vulture_module() is not None:
+        sys.stderr.write("[deadcode] 检测到 vulture 库，自动采用高精度模式（跳过询问）\n")
+        return "vulture"
     if not sys.stdin.isatty():
         sys.stderr.write("[deadcode] 非交互环境，默认零依赖 AST 模式（若要 vulture/skip 请传 --deadcode-mode）\n")
         return "ast"
@@ -666,13 +672,13 @@ def _resolve_deadcode_mode(args):
 
 
 def _prompt_deadcode_mode():
-    """交互询问 deadcode 模式；10 秒超时默认 ast（零依赖，易误报）。"""
+    """交互询问 deadcode 模式；30 秒超时默认 ast（零依赖，易误报）。"""
     sys.stderr.write(
         "\n[deadcode] 选择死代码检测精度模式：\n"
         "  1) vulture 高精度（推荐，需已安装 vulture）\n"
         "  2) 零依赖 AST（易误报，无需安装）\n"
         "  3) 本次跳过 deadcode\n"
-        "请输入 1/2/3（10 秒内未选则默认 2 零依赖）："
+        "请输入 1/2/3（30 秒内未选则默认 2 零依赖）："
     )
     sys.stderr.flush()
 
@@ -686,7 +692,7 @@ def _prompt_deadcode_mode():
 
     th = threading.Thread(target=_read, daemon=True)
     th.start()
-    th.join(10)
+    th.join(30)
     choice = buf.get("v", "")
     if not choice:
         sys.stderr.write("\n[deadcode] 超时/无输入，默认零依赖 AST 模式\n")
@@ -908,7 +914,7 @@ CHECKERS = {
     "deadcode": check_deadcode,
 }
 DEFAULT_CHECKERS = ["doc"]
-# deadcode 已纳入 --all-checks；运行前按 --deadcode-mode 询问精度模式（默认 ask，超时→ast 零依赖）。
+# deadcode 已纳入 --all-checks；ask 模式下已装 vulture 自动高精度，否则运行前询问精度（默认 ask，超时 30s→ast 零依赖）。
 ALL_CHECKERS = ["doc", "structure", "security", "runtime", "deps", "deadcode"]
 
 
@@ -1093,7 +1099,7 @@ def main():
     ap.add_argument("--max-file-size", type=int, default=MAX_FILE_SIZE,
                     help="单文件超过此字节数跳过扫描（默认 %d）" % MAX_FILE_SIZE)
     ap.add_argument("--deadcode-mode", default="ask", choices=["ask", "vulture", "ast", "skip"],
-                    help="deadcode 精度模式：ask(默认,运行前交互询问,超时→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
+                    help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
     ap.add_argument("--preview", action="store_true",
                     help="只预览将运行哪些检查器、将扫描哪些文件，不产出发现，退出码 0（适合首次审计前心里有数）")
     args = ap.parse_args()
@@ -1145,7 +1151,7 @@ def main():
             print("预览：%s" % t)
             print("  启用检查器: %s" % ", ".join(enabled))
             if "deadcode" in enabled:
-                print("  deadcode 精度模式: %s（ask=运行时交互询问/非 TTY 回退 ast）" % args.deadcode_mode)
+                print("  deadcode 精度模式: %s（ask=已装vulture则自动高精度,否则交互询问30s→ast/非TTY回退ast）" % args.deadcode_mode)
             print("  文档: %s" % ("SKILL.md" if os.path.isfile(d) else "（无）"))
             print("  将扫描代码/配置文件 %d 个:" % len(code))
             for rel in sorted(code.keys()):

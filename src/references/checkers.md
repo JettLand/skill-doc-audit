@@ -11,7 +11,7 @@
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
-- `deadcode`（已纳入 `--all-checks`；运行前按 `--deadcode-mode` 询问精度模式）：死代码检测（未使用定义/导入、不可达代码、孤立资源文件）
+- `deadcode`（已纳入 `--all-checks`；运行前按 `--deadcode-mode` 选精度，已装 vulture 则自动高精度、不询问）：死代码检测（未使用定义/导入、不可达代码、孤立资源文件）
 
 ## 检查项明细（权威错误码对照表）
 
@@ -115,7 +115,7 @@
 | `--all` | 批量审计 `~/.workbuddy/skills/` 下全部已安装技能 |
 | `--check <名称>` | 仅启用指定检查器（可重复），`doc` 常驻默认开 |
 | `--all-checks` | 启用全部检查器（含 deadcode） |
-| `--deadcode-mode {ask,vulture,ast,skip}` | deadcode 精度模式；`ask` 默认交互询问、超时回退 `ast`；Agent/CI 用 `vulture`/`ast`/`skip` 跳过交互 |
+| `--deadcode-mode {ask,vulture,ast,skip}` | deadcode 精度模式；`ask` 默认已装 vulture 则自动高精度(不询问)，否则交互询问、30s 超时回退 `ast`；Agent/CI 用 `vulture`/`ast`/`skip` 跳过交互 |
 | `--preview` | 只预览将运行的检查器与将扫描的文件，不产出发现，退出码 0（适合首次审计前心里有数） |
 | `--strict` | WARN 也计入退出码（CI 门禁用） |
 | `--json` | 额外输出 JSON 机读结果（每条含 checker/severity/category/category_cn/message/file/line/suggestion） |

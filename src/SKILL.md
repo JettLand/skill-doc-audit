@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录，也可批量审计全部已安装技能。
-version: "1.8.0"
+version: "1.8.1"
 license: MIT
 author: Jett
 agent_created: true
@@ -28,7 +28,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
-- `deadcode`（已纳入 `--all-checks`；运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask` 会交互询问，超时或未指定则回退零依赖 `ast`。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
+- `deadcode`（已纳入 `--all-checks`；运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask`：环境已装 vulture 则自动采用高精度（不询问），未装则交互询问，30 秒超时或无输入回退零依赖 `ast`。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
 
@@ -42,7 +42,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 # 1) 体检一个技能（doc 一致性常驻默认开，审计前自动备份 SKILL.md）
 python scripts/audit_docs.py --skill ~/.workbuddy/skills/<技能名> --backup
 
-# 2) 全套体检（结构/安全/可运行/依赖/死代码；deadcode 运行前询问精度）
+# 2) 全套体检（结构/安全/可运行/依赖/死代码；deadcode 已装 vulture 则自动高精度，否则运行前询问精度）
 python scripts/audit_docs.py --skill <目录> --all-checks
 
 # 3) 先预览再审计（看清楚会扫哪些检查器、哪些文件，退出码 0）
@@ -95,7 +95,7 @@ python scripts/audit_docs.py --skill ~/.workbuddy/skills/workbuddy-checkin --bac
 # 启用插件式检查器（doc 常驻 + 指定项，可重复 --check）
 python scripts/audit_docs.py --skill <目录> --check structure --check security
 
-# 全部检查器（doc + structure + security + runtime + deps + deadcode；deadcode 运行前会询问精度模式）
+# 全部检查器（doc + structure + security + runtime + deps + deadcode；deadcode 已装 vulture 则自动高精度，否则运行前询问精度模式）
 python scripts/audit_docs.py --skill <目录> --all-checks
 
 # 仅依赖/平台声明检查
@@ -111,7 +111,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --strict
 python scripts/audit_docs.py --skill <目录> --all-checks --timeout 60
 # 超大文件跳过阈值（字节）；超过则跳过并报告，避免拖慢
 python scripts/audit_docs.py --skill <目录> --all-checks --max-file-size 2000000
-# deadcode 精度模式：vulture 高精度 / ast 零依赖 / skip 跳过；Agent/CI 用此跳过交互询问
+# deadcode 精度模式：ask(已装 vulture 则自动高精度,不询问) / 显式 vulture 高精度 / ast 零依赖 / skip 跳过；Agent/CI 用 --deadcode-mode 跳过交互询问
 python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture
 # 先预览将运行哪些检查器、将扫描哪些文件（不产出发现，退出码 0）
 python scripts/audit_docs.py --skill <目录> --all-checks --preview
