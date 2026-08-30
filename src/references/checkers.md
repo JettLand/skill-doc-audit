@@ -12,7 +12,7 @@
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
 - `deadcode`（运行前按 `--deadcode-mode` 选精度，已装 vulture 则自动高精度、不询问）：死代码检测（未使用定义/导入、不可达代码、孤立资源文件）
-- `portability`（零依赖纯静态分析，全部 WARN/INFO 不报 ERROR）：跨平台可移植性——硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合。按 SKILL.md 的 `target_platform` 字段豁免对应平台项
+- `portability`（零依赖纯静态分析，全部 WARN/INFO 不报 ERROR）：跨平台可移植性——硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合 / 跨格式可移植性损失（`lossy_port`，Phase 6）。按 SKILL.md 的 `target_platform` 字段豁免对应平台项；`--report portability-matrix` 可打印「源格式 → 各目标格式」的 P/D/L 损失矩阵
 
 ## 检查项明细（权威错误码对照表）
 
@@ -69,6 +69,7 @@
 | portability | `interpreter_lock` | 解释器/运行时锁 | 裸 `python`（非 python3）或 Windows `py` 启动器，跨平台不可用 | WARN |
 | portability | `encoding_sep` | 编码/路径分隔符假设 | `open()` 未指定 `encoding`，Windows 文本模式默认非 UTF-8 易致解码错误 | WARN |
 | portability | `agent_coupling` | Agent 平台耦合 | 耦合 WorkBuddy 平台约定（`.workbuddy`/`allowed-tools`），受 `target_agent` 字段门控：声明跨 Agent 目标（不含 workbuddy，如 claude-code/cross-agent）且仍含 WorkBuddy 耦合升 WARN，其余（未声明/声明含 workbuddy/推断 workbuddy）均 INFO 提示（不再抑制）；开放标准 `compatibility` 视作 `target_agent` | INFO/WARN |
+| portability | `lossy_port` | 跨格式可移植性损失 | Phase 6 矩阵发现：技能显式声明跨 Agent 目标（如 `compatibility: [claude-code, cursor]`）却含目标端无对应字段（`lost`，升 WARN）或需转译（`degraded`，仅 INFO）的字段；纯 workbuddy/未声明目标不触发 | INFO/WARN |
 
 ## 平台豁免字段 `target_platform`
 
@@ -97,6 +98,15 @@
 | `workbuddy` | 仅 WorkBuddy | INFO 提示（不再抑制，供评估跨 Agent 可移植性） |
 | `claude-code` / `[claude-code, cursor]` | 跨 Agent，未含 workbuddy | WARN（仍耦合 WorkBuddy 会失效） |
 | `[workbuddy, claude-code]` | 多 Agent 含 workbuddy | INFO（含 workbuddy 不升 WARN，但仍提示） |
+
+## 跨格式可移植性矩阵（Phase 6）
+
+在 Phase 5 统一 `SkillModel` 之上，引擎以开放标准 `agentskills` 为枢纽，构建字段级能力映射（`FMT_CAPS` 各格式原生支持的字段集合、`EQUIV` 跨格式等价字段），对任意技能生成「源格式 → 各目标格式」的 **P（保留）/ D（降级需转译）/ L（丢失）** 矩阵。`--report portability-matrix` 直接打印该矩阵（不改写任何文件）。
+
+- **触发**：`lossy_port` 仅在技能**显式声明跨 Agent 目标**（`target_agent`/`compatibility` 含非 `workbuddy` 项，如 `claude-code`/`cursor`/`cross-agent`）时产出发现；纯 workbuddy 或未声明目标的不发（其跨 Agent 咨询已由 `agent_coupling` 覆盖），避免对未声明目标刷噪音。
+- **分级**：字段在声明目标端 `lost`（无对应字段，如 workbuddy 的 `version`/`slug` 在 claude-code）→ **WARN**；`degraded`（有等价字段需转译，如 `target_agent`→`compatibility`、`slug`/`displayName`→`name`）→ **INFO**。
+- **等价映射（固化 v1.11.0 约定）**：`target_agent` ↔ `compatibility`；`slug`/`displayName` → `name`。
+- **Cursor 两种形态**：Cursor Plugin 的 `SKILL.md` 等同 `agentskills`（支持 `allowed-tools`/`compatibility`）；若以 `.mdc` 规则文件分发（`cursor-mdc`），则无 `name`/`allowed-tools`，损失更大——矩阵报告中对 `cursor-mdc` 单列呈现以提示差异。
 
 ## 判定提示
 

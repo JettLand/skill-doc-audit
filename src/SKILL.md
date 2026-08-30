@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库或 SkillHub 集市里的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。
-version: "1.12.0"
+version: "1.13.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -65,6 +65,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 | 只查跨平台可移植性 | `--check portability` |
 | 声明目标平台以豁免对应项 | SKILL.md 写 `target_platform: windows`（或 linux/macos/列表） |
 | 标注目标 Agent 分发范围 | SKILL.md 写 `target_agent: workbuddy`（或 claude-code/cross-agent/自由列表）；耦合提示不再抑制，跨 Agent 声明未含 workbuddy 升 WARN |
+| 生成跨格式可移植性矩阵（X→Y 字段损失） | `--report portability-matrix`（仅做报告，不改写；输出源格式到各目标格式的 P/D/L 矩阵） |
 
 其余参数（`--json` / `--timeout` / `--max-file-size` / `--deadcode-mode` / `--backup-limit` / `--source` / `--ref` / `--keep-temp`）与完整检查项口径见下方「用法」与 `references/checkers.md`。
 
@@ -301,6 +302,9 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 | `interpreter_lock` | 解释器/运行时锁（裸 `python` 非 `python3`、Windows `py` 启动器） | WARN |
 | `encoding_sep` | 编码/路径分隔符假设（`open()` 未指定 `encoding`，Windows 文本模式默认编码非 UTF-8 易解码失败） | WARN |
 | `agent_coupling` | Agent 平台耦合（硬编码 `.workbuddy` / `allowed-tools` 约定，跨 Agent 分发需抽象） | INFO/WARN |
+| `lossy_port` | 跨格式可移植性损失（Phase 6：声明跨 Agent 目标却含目标端无对应/需转译的字段；`lost` 升 WARN，`degraded` 仅 INFO） | INFO/WARN |
+
+> **跨格式可移植性矩阵（Phase 6，核心价值）**：在 Phase 5 统一 `SkillModel` 之上，引擎以开放标准 `agentskills` 为枢纽构建字段级能力映射（`FMT_CAPS` / `EQUIV`），对任意技能生成「源格式 → 各目标格式」的 P（保留）/ D（降级需转译）/ L（丢失）矩阵，并可通过 `--report portability-matrix` 直接打印。`lossy_port` 发现即来自该矩阵：仅当技能**显式声明跨 Agent 目标**（如 `compatibility: [claude-code, cursor]`、`target_agent` 含非 workbuddy 项）时，对声明目标端会 `lost`/`degraded` 的字段发出 WARN/INFO；纯 workbuddy 或未声明目标的不发（其跨 Agent 咨询已由 `agent_coupling` 覆盖）。降级示例：`target_agent` ↔ `compatibility`、`slug`/`displayName` → `name`；丢失示例：workbuddy 的 `version`/`slug` 在 claude-code 无对应字段。
 
 > 豁免规则（核心）：每条发现的 `breaks_on` 是「它会在哪些 OS 上崩」。声明平台与 `breaks_on` **有交集才报**，无交集才抑制。例：`target_platform: windows` 会抑制 `powershell`/`C:\` 这类 Windows 专属项的误报，但**保留** `rm -rf`/`/Users/` 这种在 Windows 目标上真会崩的项。`target_platform` 不写 = 跨平台（全平台）→ 始终全检。`agent_coupling`（Agent 平台耦合）为 INFO/WARN 咨询项，受 `target_agent` 字段门控：声明跨 Agent 目标（不含 `workbuddy`，如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合时升为 WARN（跨 Agent 会失效）；其余（未声明 / 声明含 `workbuddy` / 推断 `workbuddy`）均按 INFO 提示——不再因 `workbuddy` 而抑制，因本 skill 自身亦开发跨 Agent 能力，耦合提示对所有技能均有价值。开放标准技能的 `compatibility` 字段视作 `target_agent`。
 

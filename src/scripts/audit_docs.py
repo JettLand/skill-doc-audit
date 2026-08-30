@@ -971,11 +971,11 @@ def _parse_frontmatter_list(fm_text, key):
     m = re.search(r"^%s:\s*(.*)$" % re.escape(key), fm_text, re.M)
     if not m:
         return []
-    val = m.group(1).strip()
+    val = m.group(1).strip().strip("[]").strip()
     if val:
         out = []
         for tok in re.split(r"[,;\s]+", val):
-            tok = tok.strip()
+            tok = tok.strip().strip("[]")
             if tok:
                 out.append(tok.split("(", 1)[0].strip())  # Bash(npm run:*) -> Bash
         return out
@@ -1107,6 +1107,28 @@ def check_portability(ctx):
                         "%s:%d 耦合 WorkBuddy 平台约定（%s），跨 Agent 分发需抽象" % (rel, ln, " / ".join(coupled)),
                         suggestion="若计划跨 Agent 分发，将平台专有路径/约定抽取为可配置项；或声明 target_agent: workbuddy"))
 
+
+    # #7 跨格式可移植性矩阵（lossy_port）：仅当声明跨 Agent 目标（不含 workbuddy）时升级为发现
+    # 设计：纯 workbuddy / 未声明 → 不发 lossy 发现（跨 Agent 咨询已由 #6 agent_coupling 覆盖）；
+    # 声明跨 Agent（claude-code/cursor 等且不含 workbuddy）→ 对声明目标端会丢失/降级的字段发 WARN/INFO。
+    # 放在代码行循环之外：本检查基于 SkillModel/frontmatter，与代码内容无关，无代码文件也应触发。
+    model = ctx.get("skill_model")
+    if model is not None:
+        _da = ctx.get("target_agent", set())
+        _cross = bool(_da) and "workbuddy" not in _da
+        if _cross:
+            _tgt_fmts = {AGENT_TO_FMT.get(a, "generic") for a in _da}
+            _tgt_fmts.discard(model.fmt)
+            for _r in build_portability_matrix(model):
+                if _r["target"] not in _tgt_fmts or _r["status"] == "preserved":
+                    continue
+                _sev = SEVERITY_WARN if _r["status"] == "lost" else SEVERITY_INFO
+                _msg = "跨 Agent 移植损失【lossy_port】 %s → %s：%s" % (
+                    _r["feature"], _r["target"],
+                    _r["note"] or ("%s 在 %s 丢失" % (_r["feature"], _r["target"])))
+                findings.append(finding("portability", _sev, "lossy_port", _msg,
+                    suggestion="若确需跨 Agent 分发，将该字段抽象为各端可识别形式（参考 --report portability-matrix）"))
+
     return findings
 
 
@@ -1191,6 +1213,84 @@ class SkillModel:
         self.license = license
         self.version = version
         self.extra = extra or {}
+
+
+# ---- Phase 6：跨格式可移植性矩阵（字段级能力映射）----
+# 以开放标准 agentskills 为枢纽：Claude Code / Cursor Plugin 共用 SKILL.md 格式。
+# 各格式原生支持的字段集合（决定某 feature 在目标端是保留/降级/丢失）。
+FMT_CAPS = {
+    "workbuddy":     {"name", "description", "license", "version", "allowed-tools",
+                      "target_agent", "slug", "displayname", "metadata"},
+    "agentskills":   {"name", "description", "license", "allowed-tools",
+                      "compatibility", "metadata"},
+    "claude-code":   {"name", "description", "license", "allowed-tools",
+                      "model", "context", "agent", "hooks", "argument-hint", "metadata"},
+    "cursor-plugin": {"name", "description", "license", "allowed-tools",
+                      "compatibility", "metadata"},   # = agentskills 兼容
+    "cursor-mdc":    {"description", "globs", "alwaysApply"},   # Cursor 规则文件：无 name/allowed-tools
+    "generic":       {"name", "description"},
+}
+# 跨格式字段等价映射（降级而非丢失）：feature -> 目标端对应字段名
+EQUIV = {
+    "target_agent": "compatibility",
+    "slug": "name",
+    "displayname": "name",
+}
+# 候选目标格式（用于 --report 全矩阵展示）
+FORMAT_TARGETS = ["workbuddy", "agentskills", "claude-code", "cursor-plugin", "cursor-mdc", "generic"]
+# Agent 名 -> 规范格式（target_agent 自由列表元素映射为矩阵目标）
+AGENT_TO_FMT = {
+    "workbuddy": "workbuddy",
+    "claude-code": "claude-code",
+    "cursor": "cursor-plugin",     # Cursor Plugin 的 SKILL.md 形式（agentskills 兼容）
+    "codex": "agentskills",
+    "copilot": "agentskills",
+    "cline": "agentskills",
+    "generic": "generic",
+}
+
+
+def _model_features(model):
+    """从 SkillModel 提取该技能实际填充的字段集合（供矩阵消费）。"""
+    f = set()
+    if model.name:
+        f.add("name")
+    if model.description:
+        f.add("description")
+    if model.license:
+        f.add("license")
+    if model.version:
+        f.add("version")
+    if model.tools:
+        f.add("allowed-tools")
+    if model.target_agent:
+        f.add("target_agent")
+    for k in ("slug", "displayname", "metadata", "globs", "alwaysapply",
+              "model", "context", "agent", "hooks", "argument-hint"):
+        if k in model.extra:
+            f.add(k)
+    return f
+
+
+def build_portability_matrix(model):
+    """返回跨格式可移植性矩阵行列表：{feature, target, status, note}。
+    status: preserved(保留) / degraded(降级，需转译) / lost(丢失)。
+    """
+    feats = _model_features(model)
+    rows = []
+    for tgt in FORMAT_TARGETS:
+        if tgt == model.fmt:
+            continue
+        caps = FMT_CAPS.get(tgt, FMT_CAPS["generic"])
+        for feat in sorted(feats):
+            if feat in caps:
+                status, note = "preserved", ""
+            elif feat in EQUIV and EQUIV[feat] in caps:
+                status, note = "degraded", "%s 在 %s 中以 %s 表达（需转译）" % (feat, tgt, EQUIV[feat])
+            else:
+                status, note = "lost", "%s 在 %s 无对应字段，将丢失" % (feat, tgt)
+            rows.append({"feature": feat, "target": tgt, "status": status, "note": note})
+    return rows
 
 
 def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=BACKUP_LIMIT):
@@ -1402,8 +1502,28 @@ def build_json(results):
                 {**f, "category_cn": f.get("category_cn", category_cn(f["category"]))}
                 for f in r["findings"]
             ],
+            "portability_matrix": (build_portability_matrix(r["skill_model"])
+                                   if r.get("skill_model") else []),
         })
     return out
+
+
+def print_portability_matrix(model):
+    """打印跨格式可移植性矩阵（--report portability-matrix 用）。"""
+    targets = [t for t in FORMAT_TARGETS if t != model.fmt]
+    rows = build_portability_matrix(model)
+    idx = {(r["feature"], r["target"]): r["status"] for r in rows}
+    feats = sorted({r["feature"] for r in rows})
+    print("=" * 72)
+    print("跨格式可移植性矩阵（源格式: %s）" % model.fmt)
+    print("  P=保留  D=降级(需转译)  L=丢失")
+    header = "  %-16s" % "feature" + "".join(" %-15s" % t for t in targets)
+    print(header)
+    print("-" * len(header))
+    for feat in feats:
+        cells = "".join(" %-15s" % idx.get((feat, t), "-") for t in targets)
+        print("  %-16s%s" % (feat, cells))
+    print("=" * 72)
 
 
 # --------------------------------------------------------------------------- #
@@ -1577,6 +1697,8 @@ def main():
     ap.add_argument("--ref", help="来源引用：github 为 owner/repo 或 https 地址(可 @分支)；skillhub 为技能 slug")
     ap.add_argument("--keep-temp", action="store_true",
                     help="保留 github/skillhub 产生的临时目录（用于排查，默认审计后自动清理）")
+    ap.add_argument("--report", default=None, choices=["portability-matrix"],
+                    help="生成专项报告：portability-matrix 输出跨格式可移植性矩阵（源格式 → 各目标格式的字段损失）")
     args = ap.parse_args()
 
     MAX_FILE_SIZE = args.max_file_size
@@ -1629,6 +1751,10 @@ def main():
     results = [analyze_skill(t, enabled, args=args, do_backup=args.backup,
                              backup_limit=args.backup_limit) for t in targets]
     print_human(results)
+    if args.report == "portability-matrix":
+        for r in results:
+            if r.get("skill_model"):
+                print_portability_matrix(r["skill_model"])
     if args.json:
         print("\n" + "=" * 72)
         print("JSON 结果：")
