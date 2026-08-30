@@ -2,8 +2,8 @@
 name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
-description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库或 SkillHub 集市里的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.16.0"
+description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
+version: "1.17.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -62,6 +62,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 | 只查某一类（如安全红线） | `--check security` |
 | 审计 GitHub 仓库里的技能 | `--source github --ref owner/repo`（可 `@分支`） |
 | 审计 SkillHub 集市里的技能 | `--source skillhub --ref <slug>` |
+| 审计任意 URL 上的技能 | `--source url --ref <https 地址>`（指向 SKILL.md 文件或所在目录；支持 github.com blob 链接自动转 raw） |
 | 只查跨平台可移植性 | `--check portability` |
 | 声明目标平台以豁免对应项 | SKILL.md 写 `target_platform: windows`（或 linux/macos/列表） |
 | 标注目标 Agent 分发范围 | SKILL.md 写 `target_agent: workbuddy`（或 claude-code/cross-agent/自由列表）；耦合提示不再抑制，跨 Agent 声明未含 workbuddy 升 WARN |
@@ -71,7 +72,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 
 其余参数（`--json` / `--timeout` / `--max-file-size` / `--deadcode-mode` / `--backup-limit` / `--source` / `--ref` / `--keep-temp`）与完整检查项口径见下方「用法」与 `references/checkers.md`。
 
-## 多平台来源（--source github / skillhub）
+## 多平台来源（--source github / skillhub / url）
 
 默认 `--source local`：用 `--skill <目录>` 或 `--all`（扫 `~/.workbuddy/skills`）审计本机技能。
 新增 `--source` 可把**远程仓库 / 集市技能**拉到临时目录后照常审计，`analyze_skill` 核心逻辑零改动。
@@ -81,6 +82,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 | `local`（默认） | 本机目录 / 已装技能 | 无需（用 `--skill` / `--all`） |
 | `github` | `git clone --depth 1` 到临时目录后审计；支持仓库内含嵌套子目录（如 `src/` 下放 SKILL.md）/多技能 | `owner/repo` 或 https 地址，可加 `@分支` |
 | `skillhub` | 经 `skillhub install <slug> --dir` 拉取集市技能 | 技能 slug |
+| `url` | 用标准库 `urllib` 直接抓取 SKILL.md 文本到临时目录后审计；零外部依赖、对 OS 透明；`github.com` blob 链接自动转 `raw.githubusercontent.com` | SKILL.md 的 https 地址（可指向文件或所在目录） |
 
 审计结束后临时目录默认自动清理；加 `--keep-temp` 可保留并打印路径，便于排查。
 
@@ -145,6 +147,9 @@ python scripts/audit_docs.py --source github --ref https://github.com/owner/repo
 python scripts/audit_docs.py --source skillhub --ref <slug> --all-checks
 # 保留克隆/安装的临时目录供排查
 python scripts/audit_docs.py --source github --ref owner/repo --keep-temp
+# 泛化源：直接审计任意 URL 上的 SKILL.md（零外部依赖，github blob 链接自动转 raw）
+python scripts/audit_docs.py --source url --ref https://raw.githubusercontent.com/owner/repo/main/SKILL.md --all-checks
+python scripts/audit_docs.py --source url --ref https://github.com/owner/repo/blob/main/SKILL.md
 ```
 
 退出码：`0` 未发现 ERROR 级问题（--strict 下还需无 WARN）；`1` 发现 ERROR 级问题（或 --strict 下存在 WARN）；`2` 参数或路径错误；`130` 审计被中断（超时或 Ctrl+C），优雅退出、不抛堆栈。报告同时提供人类可读分组与 `--json` 机读（每条含 `checker/severity/category/category_cn/message/file/line/suggestion`）；`category` 为稳定机器标识符（用于机读与跨版本比对），`category_cn` 为中文可读标签（用于人类报告，使每条发现自解释）。
@@ -322,7 +327,7 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 - **纯 Python 标准库实现，零第三方依赖**：`scripts/audit_docs.py` 仅依赖 `argparse` / `re` / `os` / `json` / `zipfile` / `subprocess` / `threading` 等标准库，无需 `pip install`；`deadcode` 高精度模式的可选依赖 `vulture` 缺省时自动降级为零依赖 `ast`，非运行必需。
 - **无平台专属 API 的实际调用**：代码中出现的 `win32api` / `ctypes.windll` / `winreg` / `HKEY_` / `ShellExecute` / `os.startfile` / `powershell` / `cmd.exe` / `os.getcwd` / `shell=True` 等字样，**仅作为检查器自身的检测规则**（用于发现*其他*技能的这些反模式），本技能自身从未调用；所有外部 CLI（`git` / `npm` / `skillhub` 等）均以**列表传参**方式调用，未使用 `shell=True`。
 - **portability 自检零 OS 级发现**：在本技能源码（SKILL.md 未声明 `target_platform`，即「跨平台 = 全平台全检」）上运行 `--check portability`，结果为 `ERROR 0 / WARN 0`；17 条 `INFO` 全部为 `agent_coupling`（跨 *Agent* 咨询，提示 `.workbuddy` / `allowed-tools` 耦合，**非** OS 级破损）——无硬编码绝对路径、无启动目录依赖、无平台专属 shell、无解释器锁、无编码假设。
-- **结论**：可在 Windows / Linux / macOS 上无修改运行。仅当接入 `--source github`（git clone）或 `--source skillhub`（skillhub CLI）时才需对应外部 CLI 存在于 `PATH`，且该依赖对目标 OS 透明。
+- **结论**：可在 Windows / Linux / macOS 上无修改运行。仅当接入 `--source github`（git clone）或 `--source skillhub`（skillhub CLI）时才需对应外部 CLI 存在于 `PATH`；`--source url` 使用标准库 `urllib`，无需任何外部 CLI，且 HTTPS 依赖对目标 OS 透明。
 
 ## 进阶用法示例
 

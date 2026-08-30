@@ -53,6 +53,7 @@ import sys
 import tempfile
 import threading
 import _thread
+import urllib.request
 
 SKILLS_ROOT = os.path.expanduser("~/.workbuddy/skills")
 BACKUP_LIMIT = 3  # 同一技能 SKILL.md 最多保留的备份数，防止频繁迭代产生过多 .bak 文件
@@ -1927,7 +1928,84 @@ class SkillhubSource(SkillSource):
         return dirs, [tmp]
 
 
-SOURCES = {"local": LocalSource, "github": GithubSource, "skillhub": SkillhubSource}
+class UrlSource(SkillSource):
+    name = "url"
+
+    def _normalize(self, ref):
+        # GitHub 网页 blob 链接 → raw 直链，便于直接抓取 SKILL.md 文本
+        m = re.match(r"https?://github\.com/([^/]+)/([^/]+)/blob/(.+)", ref)
+        if m:
+            return "https://raw.githubusercontent.com/%s/%s/%s" % (m.group(1), m.group(2), m.group(3))
+        return ref
+
+    def _fetch(self, url):
+        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.17.0"})
+        try:
+            resp = urllib.request.urlopen(req, timeout=30)
+        except Exception as e:
+            raise ValueError("网络请求失败：%s" % e)
+        if resp.status != 200:
+            raise ValueError("HTTP %s" % resp.status)
+        data = resp.read()
+        if len(data) > MAX_FILE_SIZE:
+            raise ValueError("文件过大（>%d 字节），已跳过" % MAX_FILE_SIZE)
+        return data.decode("utf-8", errors="replace")
+
+    def resolve(self, ref, args):
+        if not ref:
+            print("url 来源需通过 --ref 指定 SKILL.md 的 https 地址（可指向文件或所在目录）", file=sys.stderr)
+            sys.exit(2)
+        ref = self._normalize(ref)
+        tmp = tempfile.mkdtemp(prefix="skill-doc-audit-url-")
+        skill_dir = os.path.join(tmp, "skill")
+        os.makedirs(skill_dir, exist_ok=True)
+        # 推导 SKILL.md 文件 URL 与所在目录 base：
+        #   - 直接指向 .md 文件 → base 为其父目录
+        #   - 指向目录 → 尝试 <dir>/SKILL.md，base=<dir>
+        if ref.rstrip("/").endswith(".md"):
+            skill_url = ref
+            base = ref.rstrip("/")[:ref.rstrip("/").rfind("/")]
+        else:
+            skill_url = ref.rstrip("/") + "/SKILL.md"
+            base = ref.rstrip("/")
+        try:
+            content = self._fetch(skill_url)
+        except Exception as e:
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("URL 抓取失败：%s" % e, file=sys.stderr)
+            sys.exit(2)
+        low = content.lstrip().lower()
+        if low.startswith(("<!doctype", "<html")):
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("URL 返回内容疑似 HTML 页面，非 SKILL.md 文本：%s" % skill_url, file=sys.stderr)
+            sys.exit(2)
+        with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
+            f.write(content)
+        # 相对引用补全：抓取 SKILL.md 中显式引用的 scripts/ 与 references/ 下文件，
+        # 使其与本地克隆等价，避免「引用文件缺失」刷屏；单文件抓取失败则静默跳过（保留原缺失提示）。
+        self._fetch_refs(content, base, skill_dir)
+        return [skill_dir], [tmp]
+
+    def _fetch_refs(self, skill_md, base, skill_dir):
+        # 仅补全 scripts/ 与 references/ 下的相对引用（非 http(s)），控制规模防失控
+        pat = re.compile(r'(?:scripts|references)[\\/][\w./-]+\.\w+')
+        seen = set()
+        for m in pat.finditer(skill_md):
+            rel = m.group(0).replace("\\", "/")
+            if rel in seen or len(seen) >= 50:
+                continue
+            seen.add(rel)
+            dest = os.path.join(skill_dir, rel)
+            try:
+                data = self._fetch(base.rstrip("/") + "/" + rel)
+            except Exception:
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "w", encoding="utf-8") as fh:
+                fh.write(data)
+
+
+SOURCES = {"local": LocalSource, "github": GithubSource, "skillhub": SkillhubSource, "url": UrlSource}
 
 
 def get_source(name):
@@ -1960,8 +2038,8 @@ def main():
     ap.add_argument("--preview", action="store_true",
                     help="只预览将运行哪些检查器、将扫描哪些文件，不产出发现，退出码 0（适合首次审计前心里有数）")
     ap.add_argument("--source", default="local", choices=list(SOURCES),
-                    help="技能来源：local(默认,--skill/--all) / github(--ref 仓库) / skillhub(--ref slug,经 skillhub CLI 拉取)")
-    ap.add_argument("--ref", help="来源引用：github 为 owner/repo 或 https 地址(可 @分支)；skillhub 为技能 slug")
+                    help="技能来源：local(默认,--skill/--all) / github(--ref 仓库) / skillhub(--ref slug,经 skillhub CLI 拉取) / url(--ref https 地址,标准库直接抓取任意 SKILL.md)")
+    ap.add_argument("--ref", help="来源引用：github 为 owner/repo 或 https 地址(可 @分支)；skillhub 为技能 slug；url 为 SKILL.md 的 https 地址（可指向文件或所在目录，支持 github.com blob 链接自动转 raw）")
     ap.add_argument("--keep-temp", action="store_true",
                     help="保留 github/skillhub 产生的临时目录（用于排查，默认审计后自动清理）")
     ap.add_argument("--report", default=None,

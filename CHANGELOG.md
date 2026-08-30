@@ -5,6 +5,15 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.17.0 打磨明细（泛化来源 --source url）
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| 泛化来源 `url` | 新增 `UrlSource(SkillSource)`：`resolve(ref, args)` 用标准库 `urllib.request` 直接抓取 SKILL.md 文本到临时目录，复用 `analyze_skill` 核心逻辑零改动；`github.com` blob 链接经 `_normalize` 转 `raw.githubusercontent.com` 直链；支持「文件 URL」与「目录 URL（自动补 /SKILL.md）」两种形态 | 抓取本仓库已发布 SKILL.md 链路通畅（沙箱 HTTP 可达） |
+| 引用补全 `_fetch_refs` | 抓取 SKILL.md 后，正则提取其显式引用的 `scripts/`、`references/` 相对文件，相对 base 逐一抓取落盘（上限 50、单文件超 `MAX_FILE_SIZE` 跳过），使远程单文件技能与本地克隆等价 | 实测：原单文件抓取刷出 134 个 `script_ref_missing` ERROR，补全后降至 ERROR 0 / WARN 2；`--source url` 与 `--source local` 审计同一技能结论一致 |
+| 零外部依赖 / 跨平台 | `url` 来源仅用标准库（`urllib`），不依赖 `git`/`skillhub` CLI；HTTPS 依赖对目标 OS 透明 | `portability` 仅报 `agent_coupling`（WorkBuddy 约定），无 OS 级破损；自审 `--all-checks` 0 ERROR |
+| 文档与 CLI 同步 | `SKILL.md` 版本 1.16.0→1.17.0；来源表、用法示例、跨平台证明补 `url`；`audit_docs.py` 的 `--source`/`--ref` 帮助文本补 url 形态 | — |
+
 ## 1.16.0 打磨明细（Phase 7 ⑤落地·agentskills 枢纽标注 + generic 兜底 + 跨平台证明）
 
 | 打磨项 | 改动 | 验证（均通过） |
