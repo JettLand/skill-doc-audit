@@ -2,8 +2,8 @@
 name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
-description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录，也可批量审计全部已安装技能。
-version: "1.8.2"
+description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库或 SkillHub 集市里的技能。
+version: "1.9.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -59,8 +59,23 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 | 批量体检所有已装技能 | `--all --all-checks` |
 | 先看看会扫什么再决定 | `--preview` |
 | 只查某一类（如安全红线） | `--check security` |
+| 审计 GitHub 仓库里的技能 | `--source github --ref owner/repo`（可 `@分支`） |
+| 审计 SkillHub 集市里的技能 | `--source skillhub --ref <slug>` |
 
-其余参数（`--json` / `--timeout` / `--max-file-size` / `--deadcode-mode` / `--backup-limit`）与完整检查项口径见下方「用法」与 `references/checkers.md`。
+其余参数（`--json` / `--timeout` / `--max-file-size` / `--deadcode-mode` / `--backup-limit` / `--source` / `--ref` / `--keep-temp`）与完整检查项口径见下方「用法」与 `references/checkers.md`。
+
+## 多平台来源（--source github / skillhub）
+
+默认 `--source local`：用 `--skill <目录>` 或 `--all`（扫 `~/.workbuddy/skills`）审计本机技能。
+新增 `--source` 可把**远程仓库 / 集市技能**拉到临时目录后照常审计，`analyze_skill` 核心逻辑零改动。
+
+| 来源 | 说明 | --ref 取值 |
+|---|---|---|
+| `local`（默认） | 本机目录 / 已装技能 | 无需（用 `--skill` / `--all`） |
+| `github` | `git clone --depth 1` 到临时目录后审计；支持仓库内含嵌套（`src/SKILL.md`）/多技能 | `owner/repo` 或 https 地址，可加 `@分支` |
+| `skillhub` | 经 `skillhub install <slug> --dir` 拉取集市技能 | 技能 slug |
+
+审计结束后临时目录默认自动清理；加 `--keep-temp` 可保留并打印路径，便于排查。
 
 ## 流程
 
@@ -115,6 +130,14 @@ python scripts/audit_docs.py --skill <目录> --all-checks --max-file-size 20000
 python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture
 # 先预览将运行哪些检查器、将扫描哪些文件（不产出发现，退出码 0）
 python scripts/audit_docs.py --skill <目录> --all-checks --preview
+
+# 多平台来源：克隆 GitHub 仓库并审计（可 @分支；仓库内 SKILL.md 在 src/ 也能自动定位）
+python scripts/audit_docs.py --source github --ref owner/repo --all-checks
+python scripts/audit_docs.py --source github --ref https://github.com/owner/repo @dev --check structure
+# 多平台来源：经 skillhub CLI 拉取集市技能并审计
+python scripts/audit_docs.py --source skillhub --ref <slug> --all-checks
+# 保留克隆/安装的临时目录供排查
+python scripts/audit_docs.py --source github --ref owner/repo --keep-temp
 ```
 
 退出码：`0` 未发现 ERROR 级问题（--strict 下还需无 WARN）；`1` 发现 ERROR 级问题（或 --strict 下存在 WARN）；`2` 参数或路径错误；`130` 审计被中断（超时或 Ctrl+C），优雅退出、不抛堆栈。报告同时提供人类可读分组与 `--json` 机读（每条含 `checker/severity/category/category_cn/message/file/line/suggestion`）；`category` 为稳定机器标识符（用于机读与跨版本比对），`category_cn` 为中文可读标签（用于人类报告，使每条发现自解释）。

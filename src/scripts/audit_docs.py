@@ -32,6 +32,10 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
   python audit_docs.py --skill <目录> --json               # JSON 机读输出（同时仍打印可读报告）
   python audit_docs.py --skill <目录> --timeout 60         # 整体超时 60 秒，超时优雅终止（非卡死）
   python audit_docs.py --skill <目录> --max-file-size 2000000  # 超过此字节的文件跳过扫描
+  python audit_docs.py --source github --ref owner/repo --all-checks     # 克隆 GitHub 仓库并审计（可 @分支）
+  python audit_docs.py --source github --ref https://github.com/owner/repo @dev --check structure
+  python audit_docs.py --source skillhub --ref <slug> --all-checks       # 经 skillhub CLI 拉取集市技能并审计
+  python audit_docs.py --source github --ref owner/repo --keep-temp      # 保留克隆临时目录供排查
 """
 
 import argparse
@@ -42,6 +46,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -1081,6 +1086,148 @@ def build_json(results):
 # --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# 技能来源抽象（多平台：local / github / skillhub）
+# --------------------------------------------------------------------------- #
+def find_skill_dirs(root):
+    """遍历 root，返回所有含 SKILL.md 的目录（绝对路径）。
+
+    支持仓库内含嵌套技能（如 src/SKILL.md）或一仓库多技能。忽略目录与
+    collect_code 一致（SKIP_DIRS + 点目录），避免扫入 .git / node_modules。
+    """
+    out = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        if "SKILL.md" in filenames:
+            out.append(os.path.abspath(dirpath))
+    return out
+
+
+class SkillSource:
+    """将一种「来源」解析为若干本地技能目录。
+
+    analyze_skill 只消费本地目录，故来源层只负责把远程/集市技能落到临时目录，
+    再交还本地路径——核心审计逻辑零改动。
+
+    resolve(ref, args) -> (dirs, cleanup)：
+      dirs     待审计的本地技能目录列表
+      cleanup  使用完毕需清理的临时目录（--keep-temp 时保留供排查）
+    """
+
+    name = "local"
+
+    def resolve(self, ref, args):
+        raise NotImplementedError
+
+
+class LocalSource(SkillSource):
+    name = "local"
+
+    def resolve(self, ref, args):
+        if args.all:
+            if not os.path.isdir(SKILLS_ROOT):
+                print("技能根目录不存在: %s" % SKILLS_ROOT, file=sys.stderr)
+                sys.exit(2)
+            dirs = [os.path.join(SKILLS_ROOT, d) for d in sorted(os.listdir(SKILLS_ROOT))
+                    if os.path.isfile(os.path.join(SKILLS_ROOT, d, "SKILL.md"))]
+            return dirs, []
+        if args.skill:
+            return [args.skill], []
+        print("本地来源需指定 --skill <目录> 或 --all", file=sys.stderr)
+        sys.exit(2)
+
+
+class GithubSource(SkillSource):
+    name = "github"
+
+    def resolve(self, ref, args):
+        if not ref:
+            print("github 来源需通过 --ref 指定仓库（owner/repo 或 https 地址，可加 @分支）", file=sys.stderr)
+            sys.exit(2)
+        branch = None
+        # 仅对 owner/repo 简写做 @分支 切分；完整 URL 整体作为地址
+        if not ref.startswith(("http://", "https://", "git@")) and "@" in ref:
+            ref, branch = ref.split("@", 1)
+        if ref.startswith(("http://", "https://", "git@")):
+            url = ref
+        else:
+            url = "https://github.com/%s.git" % ref
+        tmp = tempfile.mkdtemp(prefix="skill-doc-audit-gh-")
+        cmd = ["git", "clone", "--depth", "1"]
+        if branch:
+            cmd += ["--branch", branch]
+        cmd += [url, tmp]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
+        except subprocess.CalledProcessError as e:
+            shutil.rmtree(tmp, ignore_errors=True)
+            _out = (e.stderr or e.stdout or str(e)).strip().splitlines()
+            msg = _out[-1] if _out else str(e)
+            print("git clone 失败：%s" % msg, file=sys.stderr)
+            sys.exit(2)
+        except subprocess.TimeoutExpired:
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("git clone 超时（>120s）", file=sys.stderr)
+            sys.exit(2)
+        dirs = find_skill_dirs(tmp)
+        if not dirs:
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("克隆仓库中未发现 SKILL.md：%s" % ref, file=sys.stderr)
+            sys.exit(2)
+        return dirs, [tmp]
+
+
+class SkillhubSource(SkillSource):
+    name = "skillhub"
+
+    def resolve(self, ref, args):
+        if not ref:
+            print("skillhub 来源需通过 --ref 指定技能 slug", file=sys.stderr)
+            sys.exit(2)
+        # 显式解析 skillhub 可执行文件全路径：Windows 上常为 skillhub.CMD，
+        # 直接传裸名时 subprocess 不会自动补扩展名，故取 which 结果（含扩展名）直传。
+        bin_path = shutil.which("skillhub") or os.path.expanduser(
+            os.path.join("~", ".local", "bin", "skillhub"))
+        if not bin_path or not os.path.isfile(bin_path):
+            print("未找到 skillhub CLI，请确认已安装并在 PATH 中", file=sys.stderr)
+            sys.exit(2)
+        tmp = tempfile.mkdtemp(prefix="skill-doc-audit-sh-")
+        cmd = [bin_path, "install", ref, "--dir", tmp]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
+        except FileNotFoundError:
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("未找到 skillhub CLI，请确认已安装并在 PATH 中", file=sys.stderr)
+            sys.exit(2)
+        except subprocess.CalledProcessError as e:
+            shutil.rmtree(tmp, ignore_errors=True)
+            _out = (e.stderr or e.stdout or str(e)).strip().splitlines()
+            msg = _out[-1] if _out else str(e)
+            print("skillhub install 失败：%s" % msg, file=sys.stderr)
+            sys.exit(2)
+        except subprocess.TimeoutExpired:
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("skillhub install 超时（>120s）", file=sys.stderr)
+            sys.exit(2)
+        dirs = find_skill_dirs(tmp)
+        if not dirs:
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("skillhub 安装后未发现 SKILL.md：%s" % ref, file=sys.stderr)
+            sys.exit(2)
+        return dirs, [tmp]
+
+
+SOURCES = {"local": LocalSource, "github": GithubSource, "skillhub": SkillhubSource}
+
+
+def get_source(name):
+    cls = SOURCES.get(name)
+    if cls is None:
+        print("未知来源: %s（可选: %s）" % (name, ", ".join(SOURCES)), file=sys.stderr)
+        sys.exit(2)
+    return cls()
+
+
 def main():
     global MAX_FILE_SIZE
     ap = argparse.ArgumentParser(description="技能静态体检（文档一致性/结构/安全/可运行性）")
@@ -1102,6 +1249,11 @@ def main():
                     help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
     ap.add_argument("--preview", action="store_true",
                     help="只预览将运行哪些检查器、将扫描哪些文件，不产出发现，退出码 0（适合首次审计前心里有数）")
+    ap.add_argument("--source", default="local", choices=list(SOURCES),
+                    help="技能来源：local(默认,--skill/--all) / github(--ref 仓库) / skillhub(--ref slug,经 skillhub CLI 拉取)")
+    ap.add_argument("--ref", help="来源引用：github 为 owner/repo 或 https 地址(可 @分支)；skillhub 为技能 slug")
+    ap.add_argument("--keep-temp", action="store_true",
+                    help="保留 github/skillhub 产生的临时目录（用于排查，默认审计后自动清理）")
     args = ap.parse_args()
 
     MAX_FILE_SIZE = args.max_file_size
@@ -1114,18 +1266,9 @@ def main():
         watchdog = threading.Timer(args.timeout, _on_timeout)
         watchdog.daemon = True
         watchdog.start()
-    if args.all:
-        if not os.path.isdir(SKILLS_ROOT):
-            print("技能根目录不存在: %s" % SKILLS_ROOT, file=sys.stderr)
-            sys.exit(2)
-        targets = [os.path.join(SKILLS_ROOT, d) for d in sorted(os.listdir(SKILLS_ROOT))
-                   if os.path.isfile(os.path.join(SKILLS_ROOT, d, "SKILL.md"))]
-    elif args.skill:
-        targets = [args.skill]
-    else:
-        print("需指定 --skill <目录> 或 --all", file=sys.stderr)
-        sys.exit(2)
-
+    # 解析技能来源：本地/远程仓库/集市，统一落地为本地目录列表
+    src = get_source(args.source)
+    targets, cleanup_dirs = src.resolve(args.ref, args)
     for t in targets:
         if not os.path.isdir(t):
             print("目录不存在: %s" % t, file=sys.stderr)
@@ -1167,6 +1310,13 @@ def main():
         print("\n" + "=" * 72)
         print("JSON 结果：")
         print(json.dumps(build_json(results), ensure_ascii=False, indent=2))
+
+    # 清理来源产生的临时目录（--keep-temp 时保留并打印路径供排查）
+    for d in cleanup_dirs:
+        if args.keep_temp:
+            print("[保留临时目录] %s" % d)
+        else:
+            shutil.rmtree(d, ignore_errors=True)
 
     total_err = sum(summarize(r.get("findings", [])).get("error", 0)
                     for r in results if "findings" in r)
