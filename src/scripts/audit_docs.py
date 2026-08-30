@@ -1091,17 +1091,18 @@ def check_portability(ctx):
                     suggestion="打开文件时显式指定 encoding='utf-8'",
                     breaks_on=PLAT_ALL)
 
-            # #6 Agent 平台耦合（按 target_agent 字段抑制/升级；自由列表，仅特判 workbuddy）
-            # 注意：本项门控维度是 Agent 而非 OS，故不走 add() 的 OS 平台 _port_fire 闭包，直接判定。
+            # #6 Agent 平台耦合（受 target_agent 门控；不再因声明/推断 workbuddy 而抑制，始终提示）
+            # 门控维度是 Agent 而非 OS，故不走 add() 的 OS 平台 _port_fire 闭包，直接判定。
+            # 本 skill 自身亦开发跨平台/跨 Agent 能力，故 workbuddy 目标的耦合提示同样有价值，不抑制。
             coupled = [t for t in (".workbuddy", "allowed-tools") if t in line]
             if coupled:
-                if "workbuddy" in declared_agent:
-                    pass  # 声明/推断为 WorkBuddy，耦合是有意的 → 抑制
-                elif declared_agent:
+                if declared_agent and "workbuddy" not in declared_agent:
+                    # 声明跨 Agent 目标（不含 workbuddy）却仍耦合 WorkBuddy → 升级 WARN（跨 Agent 会失效）
                     findings.append(finding("portability", SEVERITY_WARN, "agent_coupling",
                         "%s:%d 耦合 WorkBuddy 平台约定（%s），但 target_agent 未包含 workbuddy，跨 Agent 分发将失效" % (rel, ln, " / ".join(coupled)),
                         suggestion="若仅面向 WorkBuddy，声明 target_agent: workbuddy；若跨 Agent，抽象平台专有路径/约定"))
                 else:
+                    # 未声明 / 声明含 workbuddy / 推断 workbuddy → 始终 INFO 提示（供评估跨 Agent 可移植性）
                     findings.append(finding("portability", SEVERITY_INFO, "agent_coupling",
                         "%s:%d 耦合 WorkBuddy 平台约定（%s），跨 Agent 分发需抽象" % (rel, ln, " / ".join(coupled)),
                         suggestion="若计划跨 Agent 分发，将平台专有路径/约定抽取为可配置项；或声明 target_agent: workbuddy"))

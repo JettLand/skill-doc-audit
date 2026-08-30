@@ -68,7 +68,7 @@
 | portability | `platform_shell` | 平台专属 shell/命令 | 调用平台专属命令（`cmd.exe`/`powershell` 或 `rm -rf`/`ls`/`mkdir -p` 等），无跨平台分支兜底 | WARN |
 | portability | `interpreter_lock` | 解释器/运行时锁 | 裸 `python`（非 python3）或 Windows `py` 启动器，跨平台不可用 | WARN |
 | portability | `encoding_sep` | 编码/路径分隔符假设 | `open()` 未指定 `encoding`，Windows 文本模式默认非 UTF-8 易致解码错误 | WARN |
-| portability | `agent_coupling` | Agent 平台耦合 | 耦合 WorkBuddy 平台约定（`.workbuddy`/`allowed-tools`），受 `target_agent` 字段门控：声明含 workbuddy 抑制，声明跨 Agent 目标（claude-code/cross-agent）且仍含 WorkBuddy 耦合升 WARN，未声明 INFO 提示；开放标准 `compatibility` 视作 `target_agent` | INFO |
+| portability | `agent_coupling` | Agent 平台耦合 | 耦合 WorkBuddy 平台约定（`.workbuddy`/`allowed-tools`），受 `target_agent` 字段门控：声明跨 Agent 目标（不含 workbuddy，如 claude-code/cross-agent）且仍含 WorkBuddy 耦合升 WARN，其余（未声明/声明含 workbuddy/推断 workbuddy）均 INFO 提示（不再抑制）；开放标准 `compatibility` 视作 `target_agent` | INFO/WARN |
 
 ## 平台豁免字段 `target_platform`
 
@@ -81,20 +81,20 @@
 | `linux` / `macos` | 单一 Unix | 抑制 `rm -rf`/`ls` 等 Unix 命令告警；`C:\` 路径 / `powershell` 仍报 |
 | `[windows, linux]` | 多平台列表 | 仅抑制两平台均覆盖的项 |
 
-> `#6 agent_coupling` 的豁免维度是 **Agent** 而非 OS，不走 `target_platform` 的 OS 门控，而由下方 `target_agent` 字段单独门控（v1.11.0 起）。
+> `#6 agent_coupling` 的门控维度是 **Agent** 而非 OS，不走 `target_platform` 的 OS 门控，而由下方 `target_agent` 字段单独门控（v1.11.0 起；v1.11.1 起不再因 `workbuddy` 而抑制）。
 
 ## 跨 Agent 字段 `target_agent`
 
-`agent_coupling`（Agent 平台耦合）按 SKILL.md frontmatter 的 `target_agent` 字段门控，维度是「目标 Agent 平台」而非 OS。规则：声明含 `workbuddy` → 耦合是有意的，抑制；声明跨 Agent 目标（如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合 → 升为 WARN（跨 Agent 会失效）；未声明 → INFO 提示。
+`agent_coupling`（Agent 平台耦合）按 SKILL.md frontmatter 的 `target_agent` 字段门控，维度是「目标 Agent 平台」而非 OS。规则：声明跨 Agent 目标（不含 `workbuddy`，如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合 → 升为 WARN（跨 Agent 会失效）；其余（未声明 / 声明含 `workbuddy` / 推断 `workbuddy`）→ 均 INFO 提示（v1.11.1 起不再因声明 `workbuddy` 而抑制，耦合提示对所有技能均有价值，供作者评估跨 Agent 可移植性）。
 
-`target_agent` 取值为**自由列表**（如 `workbuddy` / `claude-code` / `[workbuddy, claude-code]` / `cross-agent`），仅特判 `workbuddy` 作为抑制信号，避免硬锁枚举随生态演进漂移；开放标准技能的 `compatibility` 字段（如 `[claude-code, cursor]`）视作 `target_agent`。未写字段时按信号推断：技能内容含 `mcp__`/`.workbuddy` 等 WorkBuddy 特征 → 视为 `workbuddy`。
+`target_agent` 取值为**自由列表**（如 `workbuddy` / `claude-code` / `[workbuddy, claude-code]` / `cross-agent`）；开放标准技能的 `compatibility` 字段（如 `[claude-code, cursor]`）视作 `target_agent`。未写字段时按信号推断：技能内容含 `mcp__`/`.workbuddy` 等 WorkBuddy 特征 → 视为 `workbuddy`。`workbuddy` 仅作为「是否升 WARN」的边界判定（声明跨 Agent 但不含 `workbuddy` 才升 WARN），不再作为抑制信号。
 
 | 声明值 | 语义 | agent_coupling 效果 |
 |---|---|---|
 | 省略 / 无 WorkBuddy 信号 | 未知 | INFO 提示（跨 Agent 分发需抽象） |
-| `workbuddy` | 仅 WorkBuddy | 抑制（耦合有意） |
+| `workbuddy` | 仅 WorkBuddy | INFO 提示（不再抑制，供评估跨 Agent 可移植性） |
 | `claude-code` / `[claude-code, cursor]` | 跨 Agent，未含 workbuddy | WARN（仍耦合 WorkBuddy 会失效） |
-| `[workbuddy, claude-code]` | 多 Agent 含 workbuddy | 抑制 |
+| `[workbuddy, claude-code]` | 多 Agent 含 workbuddy | INFO（含 workbuddy 不升 WARN，但仍提示） |
 
 ## 判定提示
 
