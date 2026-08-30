@@ -16,6 +16,7 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
       runtime    脚本可运行性（py_compile 语法、脚本引用存在性、能力预检清单）
       deps      依赖与平台声明（外部 CLI 调用未声明 / Windows 专属 API 未标注平台）
       deadcode   死代码检测（未使用定义/导入、不可达代码、孤儿资源文件；已纳入 --all-checks，运行前询问精度模式）
+      portability 跨平台可移植性（硬编码绝对路径/cwd依赖/平台专属shell/解释器锁/编码分隔符假设/Agent平台耦合；已纳入 --all-checks；按 SKILL.md 的 target_platform 字段豁免对应平台项）
   - --all-checks  启用全部检查器（含 deadcode；已装 vulture 则自动高精度，否则运行前询问 vulture/ast/skip 模式）
   检查器只扫描不改写；description 四要素、制作质量评分等需语义判断的项仅给提示(INFO)。
 
@@ -36,6 +37,7 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
   python audit_docs.py --source github --ref https://github.com/owner/repo @dev --check structure
   python audit_docs.py --source skillhub --ref <slug> --all-checks       # 经 skillhub CLI 拉取集市技能并审计
   python audit_docs.py --source github --ref owner/repo --keep-temp      # 保留克隆临时目录供排查
+  python audit_docs.py --skill <目录> --check portability                # 仅跨平台可移植性；SKILL.md 声明 target_platform: windows 可豁免对应 Unix 专有项
 """
 
 import argparse
@@ -164,6 +166,13 @@ CATEGORY_LABELS = {
     "unreachable": "不可达代码",
     "orphan_asset": "孤立资源文件",
     "vulture": "高精度死代码（可选）",
+    # portability：跨平台可移植性（零依赖静态分析；默认进入 --all-checks；按 target_platform 字段豁免）
+    "hardcoded_abs_path": "硬编码绝对路径",
+    "cwd_dependence": "启动目录依赖(os.getcwd)",
+    "platform_shell": "平台专属 shell/命令",
+    "interpreter_lock": "解释器/运行时锁",
+    "encoding_sep": "编码/路径分隔符假设",
+    "agent_coupling": "Agent 平台耦合",
 }
 
 
@@ -908,6 +917,125 @@ def check_deadcode(ctx):
 
 
 # --------------------------------------------------------------------------- #
+# 检查器：portability（跨平台可移植性，零依赖纯静态分析；已纳入 --all-checks）
+#   按 frontmatter 的 target_platform 字段豁免：声明平台「覆盖」该发现会崩的平台才抑制。
+#   规则：fire iff (声明平台 ∩ breaks_on) 非空；cross-platform(默认/省略) = 全平台 → 始终 fire。
+#   全部 WARN/INFO，绝不 ERROR（可移植性是程度问题，结论需人判；同 deadcode 提示项）。
+# --------------------------------------------------------------------------- #
+PLAT_WIN = {"windows"}
+PLAT_UNIX = {"linux", "macos"}
+PLAT_ALL = {"windows", "linux", "macos"}
+
+
+def _normalize_target_platform(raw):
+    """frontmatter 的 target_platform 原始值 → 标准化平台集合。
+    空/未知/跨平台(cross-platform|all|*) → 全平台（安全默认：仍报告）。"""
+    if isinstance(raw, (list, tuple, set)):
+        toks = [str(t).strip().lower() for t in raw]
+    else:
+        toks = [str(raw).strip().lower()]
+    out = set()
+    for t in toks:
+        if t in ("cross-platform", "all", "*", ""):
+            return set(PLAT_ALL)
+        if t in PLAT_ALL:
+            out.add(t)
+    return out or set(PLAT_ALL)
+
+
+def _port_fire(declared, breaks_on):
+    """声明平台与「该发现会崩的平台」有交集才 fire；否则该缺陷只存在于未声明的平台上 → 抑制。"""
+    return bool(declared & breaks_on)
+
+
+SHELL_SCAN_TOKENS = ("subprocess", "os.system", "Popen", "os.popen", "shell=True", "run(")
+
+
+def check_portability(ctx):
+    findings = []
+    code = ctx["code"]
+    declared = _normalize_target_platform(ctx.get("target_platform", "cross-platform"))
+
+    def add(sev, cat, msg, suggestion, breaks_on):
+        if _port_fire(declared, breaks_on):
+            findings.append(finding("portability", sev, cat, msg, suggestion=suggestion))
+
+    for rel, content in code.items():
+        for ln, line in enumerate(content.splitlines(), 1):
+            if line.strip().startswith("#"):
+                continue
+            if any(tok in line for tok in SELF_REF_TOKENS) or any(tok in line for tok in SCAN_SKIP_TOKENS):
+                continue
+            in_shell = any(s in line for s in SHELL_SCAN_TOKENS)
+
+            # #1 硬编码绝对路径（用户/家目录）
+            m_win = re.search(r"\b[A-Za-z]:\\", line)
+            if m_win:
+                add(SEVERITY_WARN, "hardcoded_abs_path",
+                    "%s:%d 硬编码 Windows 绝对路径（%s），非 Windows 平台将失效" % (rel, ln, m_win.group(0)),
+                    suggestion="改用 os.path.expanduser('~') / pathlib.Path.home() 等相对用户目录的方式",
+                    breaks_on=PLAT_UNIX)
+            m_unix = re.search(r"(/Users/|/home/)[A-Za-z0-9_\-]+", line)
+            if m_unix:
+                add(SEVERITY_WARN, "hardcoded_abs_path",
+                    "%s:%d 硬编码 Unix 家目录路径（%s），Windows 上通常不存在" % (rel, ln, m_unix.group(0)),
+                    suggestion="改用 os.path.expanduser('~') / pathlib.Path.home()",
+                    breaks_on=PLAT_WIN)
+
+            # #2 启动目录依赖
+            if re.search(r"\b(os\.getcwd\(|os\.getcwdb\(|Path\.cwd\(|\.cwd\(\)|process\.cwd)", line):
+                add(SEVERITY_WARN, "cwd_dependence",
+                    "%s:%d 依赖当前工作目录（%s），从其他目录启动时资源定位会失败" % (rel, ln, line.strip()[:60]),
+                    suggestion="基于 __file__ / __dirname / pathlib.Path(__file__) 定位资源，而非 os.getcwd()",
+                    breaks_on=PLAT_ALL)
+
+            # #3 平台专属 shell/命令（仅看子进程/系统调用语义的行）
+            if in_shell:
+                mw = re.search(r"\b(cmd\.exe|powershell|pwsh)\b", line)
+                if mw:
+                    add(SEVERITY_WARN, "platform_shell",
+                        "%s:%d 调用 Windows 专属命令 %s，非 Windows 平台不可用" % (rel, ln, mw.group(0)),
+                        suggestion="为跨平台提供分支兜底，或用跨平台库替代 shell 调用",
+                        breaks_on=PLAT_UNIX)
+                mu = re.search(r"\b(rm\s+-rf|rm\s+-r|/bin/sh|/bin/bash|ls\s|mkdir\s+-p|grep\s|sed\s|awk\s|cat\s)", line)
+                if mu:
+                    add(SEVERITY_WARN, "platform_shell",
+                        "%s:%d 调用 Unix 专属命令 %s，Windows 上不可用" % (rel, ln, mu.group(0).strip()),
+                        suggestion="为 Windows 提供分支兜底，或用跨平台库（pathlib/shutil）替代",
+                        breaks_on=PLAT_WIN)
+
+                # #4 解释器/运行时锁
+                if re.search(r"\bpython\b(?!3)", line) and "python3" not in line:
+                    add(SEVERITY_WARN, "interpreter_lock",
+                        "%s:%d 调用裸 python（非 python3），部分 Linux 仅装 python3 会找不到" % (rel, ln),
+                        suggestion="统一用 python3，或在文档声明解释器依赖",
+                        breaks_on={"linux"})
+                if re.search(r"\bpy\b", line) and "python" not in line and "pyproject" not in line and "happy" not in line:
+                    add(SEVERITY_WARN, "interpreter_lock",
+                        "%s:%d 使用 Windows py 启动器，非 Windows 不可用" % (rel, ln),
+                        suggestion="跨平台改用 python3 直接调用",
+                        breaks_on=PLAT_UNIX)
+
+            # #5 编码/路径分隔符假设：open 不指定 encoding（非二进制模式；引号内的 "open(" 视为描述性文本，跳过）
+            if ("open(" in line and '"open("' not in line and "'open('" not in line
+                    and "encoding=" not in line and "rb" not in line and "wb" not in line and "ab" not in line):
+                add(SEVERITY_WARN, "encoding_sep",
+                    "%s:%d 以 open 打开文件未指定 encoding，Windows 下文本模式默认编码非 UTF-8 易致解码错误" % (rel, ln),
+                    suggestion="打开文件时显式指定 encoding='utf-8'",
+                    breaks_on=PLAT_ALL)
+
+            # #6 Agent 平台耦合（INFO 咨询；无 target_agent 字段，始终提示，见 Phase 4 跨 Agent 分发）
+            coupled = [t for t in (".workbuddy", "allowed-tools") if t in line]
+            if coupled:
+                add(SEVERITY_INFO, "agent_coupling",
+                    "%s:%d 耦合 WorkBuddy 平台约定（%s），跨 Agent 分发需抽象" % (rel, ln, " / ".join(coupled)),
+                    suggestion="若计划跨 Agent 分发，将平台专有路径/约定抽取为可配置项（Phase 4 待办）",
+                    breaks_on=PLAT_ALL)
+
+    return findings
+
+
+# --------------------------------------------------------------------------- #
 # 调度
 # --------------------------------------------------------------------------- #
 CHECKERS = {
@@ -917,10 +1045,11 @@ CHECKERS = {
     "runtime": check_runtime,
     "deps": check_deps,
     "deadcode": check_deadcode,
+    "portability": check_portability,
 }
 DEFAULT_CHECKERS = ["doc"]
-# deadcode 已纳入 --all-checks；ask 模式下已装 vulture 自动高精度，否则运行前询问精度（默认 ask，超时 30s→ast 零依赖）。
-ALL_CHECKERS = ["doc", "structure", "security", "runtime", "deps", "deadcode"]
+# deadcode / portability 已纳入 --all-checks；deadcode ask 模式下已装 vulture 自动高精度，否则运行前询问精度（默认 ask，超时 30s→ast 零依赖）。
+ALL_CHECKERS = ["doc", "structure", "security", "runtime", "deps", "deadcode", "portability"]
 
 
 def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=BACKUP_LIMIT):
@@ -964,6 +1093,18 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
             for _m in re.finditer(r"mcp__[A-Za-z0-9_]+__([A-Za-z0-9_]+)", _t):
                 declared_tools.add(_m.group(1))
 
+    # 目标运行平台（portability 检查器用）：frontmatter 的 target_platform 字段。
+    # 取值：cross-platform(默认/省略) / windows / linux / macos / 列表如 [windows, linux]。
+    target_platform = "cross-platform"
+    if _fm:
+        _tp = re.search(r"^target_platform:\s*(.+)$", _fm.group(1), re.M)
+        if _tp:
+            _raw = _tp.group(1).strip()
+            if _raw.startswith("[") and _raw.endswith("]"):
+                target_platform = [v.strip() for v in _raw[1:-1].split(",") if v.strip()]
+            else:
+                target_platform = _raw
+
     backup_path = None
     if do_backup:
         prune_backups(doc_path, backup_limit)
@@ -980,6 +1121,7 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         "scripts_dir": scripts_dir,
         "args": args,
         "declared_tools": declared_tools,
+        "target_platform": target_platform,
     }
     findings = []
     for name in enabled:
@@ -1234,7 +1376,7 @@ def main():
     ap.add_argument("--skill", help="技能目录")
     ap.add_argument("--all", action="store_true", help="审计 ~/.workbuddy/skills 下全部技能")
     ap.add_argument("--check", action="append", metavar="NAME",
-                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode)，可重复；doc 常驻默认开")
+                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability)，可重复；doc 常驻默认开")
     ap.add_argument("--all-checks", action="store_true", help="启用全部检查器")
     ap.add_argument("--backup", action="store_true", help="审计前备份 SKILL.md")
     ap.add_argument("--backup-limit", type=int, default=BACKUP_LIMIT,

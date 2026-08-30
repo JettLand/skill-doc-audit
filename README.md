@@ -38,6 +38,7 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 | 1.8.1 | 已发布 | 交互体验改进：deadcode 询问超时 10s→30s（给用户更充裕思考时间）；`ask` 模式检测到 vulture 已安装时直接采用高精度模式、不再交互询问 |修复 vulture API 调用；vulture 模式去重（不重复报 AST 项）；`# keep` 白名单统一作用于 vulture 分支；vulture 异常改 stderr 告警不静默；ast/vulture 分工明确。`doc` 检查器 `UNKNOWN_IDENT` 误报修复：自动识别 frontmatter `allowed-tools`/`tools` 与文档中的 `mcp__*__<name>` 外部工具名并跳过，不再对 MCP/Agent 类技能刷海量误报；该检查由 ERROR 降级为 WARN（本就是「可能拼写有误」的猜测），并按标识符去重。**同窗口内追加三项打磨**：① 死代码 `unused_def` 增加跨文件引用感知（多文件技能「本文件定义、他文件调用」不再误报），`orphan_asset` 增加 import 模块名豁免；② 代码/配置文件扫描扩展至多语言（.ts/.tsx/.vue/.go/.rs/.java/.c/.cpp/.h/.rb/.php/.swift/.kt/.lua 等），含多语言硬编码密钥检测；③ 新增 `--preview` 检查预览（只列出将运行的检查器与将扫描的文件，不产出发现，退出码 0），缓解「参数偏多/文档偏长」的首次使用门槛 |
 | 1.8.2 | 已发布（平台审核中） | 文档补全：SKILL.md 错误码对照表补全额 deadcode 检查器 5 个 category（`unused_def`/`unused_import`/`unreachable`/`orphan_asset`/`vulture`），与 `references/checkers.md` 权威表对齐（原速查表漏列 deadcode）；dist 同步重打包 |
 | 1.9.0 | 已发布（平台审核中） | **多平台来源抽象（--source）**：新增 `github` / `skillhub` 来源，经 `git clone --depth 1` / `skillhub install` 把远程/集市技能落到临时目录后照常审计；`analyze_skill` 核心逻辑零改动；新增 `--ref` / `--keep-temp` 参数；支持仓库内嵌套/多技能自动定位 SKILL.md |
+| 1.10.0 | 已发布（平台审核中） | **portability 检查器组（跨平台可移植性）**：新增第 7 个检查器 `portability`，已纳入 `--all-checks` 默认集；6 类全做（硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合）；按 SKILL.md 的 `target_platform` 字段豁免对应平台项（fire iff 声明平台∩breaks_on 非空），全 WARN/INFO 不报 ERROR；#6 Agent 耦合为 INFO 咨询（暂不加 `target_agent` 字段，列入 Phase 4 跨 Agent 分发待办） |
 
 > 评测由 SkillHub 平台在每次发布后自动重跑（TRACE 五维）。
 
@@ -80,3 +81,16 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 | 文档同步 | SKILL.md 新增「多平台来源」小节 + 快速开始速查表 2 行 + 用法示例；README 增加自测示例与 1.9.0 明细；模块 docstring 用法段补充 `--source` 示例 | — |
 
 > 注：1.9.0 暂未做 `portability` 检查器组（Phase 3）与跨平台 frontmatter 归一化（Phase 4），按决策后续视情况推进。
+
+## 1.10.0 打磨明细（portability 跨平台可移植性检查器）
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| portability 检查器 | 新增 `check_portability(ctx)`：6 类全做（hardcoded_abs_path / cwd_dependence / platform_shell / interpreter_lock / encoding_sep / agent_coupling）；纯静态正则扫描 `ctx["code"]`，复用现有基建；注册进 `CHECKERS` + `ALL_CHECKERS`，零依赖可进默认集 | 自审本项目 `--all-checks` 仅剩 6 条 INFO `agent_coupling`（本项目确耦合 `.workbuddy`/allowed-tools，属真实提示非误报） |
+| `target_platform` 豁免 | `analyze_skill` 从 frontmatter 提取 `target_platform` 注入 `ctx`；`_normalize_target_platform` 归一（空/未知/cross-platform/all/* → 全平台）；`_port_fire` 实现 `fire iff 声明平台∩breaks_on 非空`；`code` 扫描跳过注释行与自检令牌（SELF_REF_TOKENS/SCAN_SKIP_TOKENS），避免扫描器自身字符串误报 | 构造破损测试技能：Case A（无声明）7 WARN + 1 INFO 全命中；Case B（声明 `windows`）正确抑制 `C:\`/powershell/裸python，但 `/Users/`/rm -rf/cwd/open()无encoding 仍报（符合「Windows 目标上才真坏」设计） |
+| 级别与口径 | 全部 WARN/INFO、绝不 ERROR（可移植性是程度问题，结论需人判）；#6 `agent_coupling` 为 INFO 咨询；`target_platform` 任意取值均不抑制 #6（本期无 `target_agent` 字段），列入 Phase 4 跨 Agent 分发待办 | — |
+| 文档同步 | SKILL.md 升 1.10.0 + 检查器列表 + 快速开始速查表 + 新增「portability 跨平台可移植性」小节；`references/checkers.md` 权威表新增 6 行 + `target_platform` 豁免字段说明；README 版本表 + 本明细 | — |
+
+> 待办（Phase 4）：① `deps.platform_undeclared` 升级——由散文关键词扫描改为读取结构化 `target_platform` 字段（与 portability 共用同一提取逻辑）；② 跨 Agent 分发——新增 `target_agent` 字段轴（`workbuddy`/`cross-agent`/列表），让 #6 `agent_coupling` 可按字段抑制，并支持非 WorkBuddy 平台（Claude Code / Cursor / Cline 等）frontmatter 归一化。
+
+复测总览：`py_compile` 通过；自审 `--all-checks` 0 ERROR（仅 INFO 咨询项）；`target_platform` 豁免两用例行为与设计完全一致；`--source github/skillhub` 多源能力回归无变化。

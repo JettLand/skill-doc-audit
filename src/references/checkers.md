@@ -12,6 +12,7 @@
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
 - `deadcode`（已纳入 `--all-checks`；运行前按 `--deadcode-mode` 选精度，已装 vulture 则自动高精度、不询问）：死代码检测（未使用定义/导入、不可达代码、孤立资源文件）
+- `portability`（已纳入 `--all-checks`；零依赖纯静态分析，全部 WARN/INFO 不报 ERROR）：跨平台可移植性——硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合。按 SKILL.md 的 `target_platform` 字段豁免对应平台项
 
 ## 检查项明细（权威错误码对照表）
 
@@ -62,6 +63,25 @@
 | deadcode | `unreachable` | 不可达代码 | return/raise 之后紧跟的无条件语句 | WARN |
 | deadcode | `orphan_asset` | 孤立资源文件 | `scripts/` 或 `references/` 中从未被引用/加载的文件 | WARN |
 | deadcode | `vulture` | 高精度死代码（可选） | 仅当 `--deadcode-mode vulture` 且环境已安装 vulture 时产出（高精度检测） | WARN |
+| portability | `hardcoded_abs_path` | 硬编码绝对路径 | 硬编码用户/家目录绝对路径（Windows `C:\...` 或 Unix `/Users/`/`/home/`），非对应平台将失效 | WARN |
+| portability | `cwd_dependence` | 启动目录依赖 | 依赖 `os.getcwd()`/`process.cwd()` 定位资源，从其他目录启动时失败 | WARN |
+| portability | `platform_shell` | 平台专属 shell/命令 | 调用平台专属命令（`cmd.exe`/`powershell` 或 `rm -rf`/`ls`/`mkdir -p` 等），无跨平台分支兜底 | WARN |
+| portability | `interpreter_lock` | 解释器/运行时锁 | 裸 `python`（非 python3）或 Windows `py` 启动器，跨平台不可用 | WARN |
+| portability | `encoding_sep` | 编码/路径分隔符假设 | `open()` 未指定 `encoding`，Windows 文本模式默认非 UTF-8 易致解码错误 | WARN |
+| portability | `agent_coupling` | Agent 平台耦合 | 耦合 WorkBuddy 平台约定（`.workbuddy`/`allowed-tools`），跨 Agent 分发需抽象（INFO 咨询，始终提示，见 Phase 4 跨 Agent 分发） | INFO |
+
+## 平台豁免字段 `target_platform`
+
+`portability` 检查器读取 SKILL.md frontmatter 的 `target_platform` 字段来抑制「有意绑定某平台」的误报。规则：某条发现**仅当声明平台与该发现会崩的平台有交集时才报**（`fire iff 声明平台 ∩ breaks_on ≠ ∅`）；未声明 / `cross-platform` / `all` / `*` → 视为全平台 → 始终报。
+
+| 声明值 | 语义 | 典型抑制效果 |
+|---|---|---|
+| 省略 / `cross-platform` / `all` / `*` | 全平台 | 无豁免，6 类全报 |
+| `windows` | 仅 Windows | 抑制 `C:\` 路径 / `powershell` / 裸 `python` 告警；但 `/Users/` 路径、`rm -rf`、`cwd` 依赖、`open()` 无 encoding（这些在 Windows 上才真坏）仍报 |
+| `linux` / `macos` | 单一 Unix | 抑制 `rm -rf`/`ls` 等 Unix 命令告警；`C:\` 路径 / `powershell` 仍报 |
+| `[windows, linux]` | 多平台列表 | 仅抑制两平台均覆盖的项 |
+
+> `#6 agent_coupling` 的 `breaks_on` 为全平台，且本期（v1.10.0）无 `target_agent` 字段，故声明任何 `target_platform` 都**不会被抑制**，始终以 INFO 提示。`target_agent` 轴（跨 Agent 分发）列入 Phase 4 待办。
 
 ## 判定提示
 
