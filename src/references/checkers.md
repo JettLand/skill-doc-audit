@@ -85,6 +85,8 @@
 
 ## 跨 Agent 字段 `target_agent`
 
+> **Phase 5 归一化内核**：审计引擎以 `detect_format()` 按 frontmatter 特征推断技能格式（`workbuddy` / `agentskills` / `claude-code` / `cursor-mdc` / `generic`），并构建统一 `SkillModel` 承载 name/description/fmt/platform/target_platform/target_agent/tools/license/version/extra，供各检查器与后续矩阵/转译消费。格式判定「按特征推断」而非硬锁枚举，以适配生态演进。
+
 `agent_coupling`（Agent 平台耦合）按 SKILL.md frontmatter 的 `target_agent` 字段门控，维度是「目标 Agent 平台」而非 OS。规则：声明跨 Agent 目标（不含 `workbuddy`，如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合 → 升为 WARN（跨 Agent 会失效）；其余（未声明 / 声明含 `workbuddy` / 推断 `workbuddy`）→ 均 INFO 提示（v1.11.1 起不再因声明 `workbuddy` 而抑制，耦合提示对所有技能均有价值，供作者评估跨 Agent 可移植性）。
 
 `target_agent` 取值为**自由列表**（如 `workbuddy` / `claude-code` / `[workbuddy, claude-code]` / `cross-agent`）；开放标准技能的 `compatibility` 字段（如 `[claude-code, cursor]`）视作 `target_agent`。未写字段时按信号推断：技能内容含 `mcp__`/`.workbuddy` 等 WorkBuddy 特征 → 视为 `workbuddy`。`workbuddy` 仅作为「是否升 WARN」的边界判定（声明跨 Agent 但不含 `workbuddy` 才升 WARN），不再作为抑制信号。

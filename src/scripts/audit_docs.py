@@ -1127,6 +1127,72 @@ DEFAULT_CHECKERS = ["doc"]
 ALL_CHECKERS = ["doc", "structure", "security", "runtime", "deps", "deadcode", "portability"]
 
 
+# ---- 跨 Agent 格式检测与统一模型（Phase 5 归一化内核）----
+
+# 各格式的特征 frontmatter 键（按特征推断，不硬锁枚举——遵循 v1.11.0 自由列表原则，防格式漂移）
+_FMT_WB_ONLY = {"slug", "displayname", "target_platform", "target_agent", "agent_created"}
+_FMT_CC_ONLY = {"argument-hint", "model", "context", "agent", "user-invocable",
+                "disable-model-invocation", "hooks", "paths"}
+_FMT_STD = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
+
+
+def _fm_keys(fm_text):
+    """从 frontmatter 文本提取小写键名集合（兼容 `key:` 与块列表首行）。"""
+    if not fm_text:
+        return set()
+    return {m.group(1).lower() for m in re.finditer(r"^([A-Za-z0-9_\-]+):", fm_text, re.M)}
+
+
+def _fm_scalar(fm_text, key):
+    """取 frontmatter 标量值（去引号）。找不到返回空串。"""
+    if not fm_text:
+        return ""
+    m = re.search(r"^%s:\s*(.+)$" % re.escape(key), fm_text, re.M)
+    if not m:
+        return ""
+    return m.group(1).strip().strip('"').strip("'")
+
+
+def detect_format(fm_text, filename=""):
+    """推断技能格式（归一化枚举）。
+    - .mdc 且含 description/alwaysApply/globs → cursor-mdc（Cursor 规则文件）
+    - SKILL.md 含 WorkBuddy 专有键 → workbuddy
+    - SKILL.md 含 Claude Code 专有扩展键 → claude-code
+    - 含 compatibility 或仅开放标准键 → agentskills（Cursor Plugin 的 SKILL.md 同此处理）
+    - 其它 → generic
+    判定「按特征推断」而非按枚举硬锁，避免生态演进导致漏判（同 v1.11.0 自由列表原则）。
+    """
+    keys = _fm_keys(fm_text)
+    if filename.endswith(".mdc"):
+        return "cursor-mdc" if (keys & {"description", "alwaysapply", "globs"}) else "generic"
+    if keys & _FMT_WB_ONLY:
+        return "workbuddy"
+    if keys & _FMT_CC_ONLY:
+        return "claude-code"
+    if "compatibility" in keys:
+        return "agentskills"
+    if keys and keys <= (_FMT_STD | {"version", "author", "tags"}):
+        return "agentskills"
+    return "generic"
+
+
+class SkillModel:
+    """跨格式统一技能模型（Phase 5 归一化内核），供检查器与 Phase 6 矩阵 / Phase 7 转译消费。"""
+    def __init__(self, name="", description="", fmt="generic", platform="generic",
+                 target_platform="cross-platform", target_agent=None, tools=None,
+                 license="", version="", extra=None):
+        self.name = name
+        self.description = description
+        self.fmt = fmt
+        self.platform = platform
+        self.target_platform = target_platform
+        self.target_agent = target_agent or set()
+        self.tools = tools or set()
+        self.license = license
+        self.version = version
+        self.extra = extra or {}
+
+
 def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=BACKUP_LIMIT):
     doc_path = os.path.join(skill_dir, "SKILL.md")
     if not os.path.isfile(doc_path):
@@ -1195,6 +1261,25 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
             else:
                 target_platform = _raw
 
+    # 跨 Agent 格式检测（Phase 5 归一化内核）
+    fmt = detect_format(_fm_text, os.path.basename(doc_path))
+    _sm_extra = {}
+    if _fm:
+        for _k in _fm_keys(_fm_text):
+            _sm_extra[_k] = _fm_scalar(_fm_text, _k)
+    sm = SkillModel(
+        name=_fm_scalar(_fm_text, "name") if _fm else "",
+        description=_fm_scalar(_fm_text, "description") if _fm else "",
+        fmt=fmt,
+        platform=platform,
+        target_platform=target_platform,
+        target_agent=target_agent,
+        tools=declared_tools,
+        license=_fm_scalar(_fm_text, "license") if _fm else "",
+        version=_fm_scalar(_fm_text, "version") if _fm else "",
+        extra=_sm_extra,
+    )
+
     backup_path = None
     if do_backup:
         prune_backups(doc_path, backup_limit)
@@ -1214,6 +1299,8 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         "target_platform": target_platform,
         "target_agent": target_agent,
         "platform": platform,
+        "format": fmt,
+        "skill_model": sm,
     }
     findings = []
     for name in enabled:
@@ -1242,6 +1329,8 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         "backup": backup_path,
         "checkers": enabled,
         "findings": findings,
+        "format": fmt,
+        "skill_model": sm,
     }
 
 

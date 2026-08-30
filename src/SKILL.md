@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库或 SkillHub 集市里的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。
-version: "1.11.1"
+version: "1.12.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -290,6 +290,8 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 > 死代码误报抑制（详见 `references/checkers.md`）：字符串键/装饰器/入口启发、跨文件引用感知、`# keep` 白名单；`orphan_asset` 仅当文件名或相对路径未出现在任何文档/代码、也未被其他 `.py` 以模块名 import 时才报（只可能漏报、不会误标孤儿）。
 
 ### portability（跨平台可移植性，按 target_platform 豁免）
+
+> **跨 Agent 格式归一化内核（Phase 5）**：审计引擎在执行检查前先用 `detect_format()` 按 frontmatter 特征推断技能格式——`workbuddy` / `agentskills` / `claude-code` / `cursor-mdc` / `generic`——并构建统一 `SkillModel`（name/description/fmt/platform/target_platform/target_agent/tools/license/version/extra），供各检查器与后续矩阵/转译消费。格式判定「按特征推断」而非硬锁枚举，以适配生态演进（同 v1.11.0 自由列表原则）。`analyze_skill` 的返回结果现含 `format` 与 `skill_model` 字段。
 
 | category | 中文含义 | 默认级别 |
 |---|---|---|

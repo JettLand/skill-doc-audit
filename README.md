@@ -41,6 +41,7 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 | 1.10.0 | 已发布（平台审核中） | **portability 检查器组（跨平台可移植性）**：新增第 7 个检查器 `portability`，已纳入 `--all-checks` 默认集；6 类全做（硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合）；按 SKILL.md 的 `target_platform` 字段豁免对应平台项（fire iff 声明平台∩breaks_on 非空），全 WARN/INFO 不报 ERROR；#6 Agent 耦合为 INFO 咨询（暂不加 `target_agent` 字段，列入 Phase 4 跨 Agent 分发待办） |
 | 1.11.0 | 已实现待发布（等用户命令） | **Phase 4 跨 Agent 分发 + Schema Normalizer**：新增 `target_agent` 字段轴（自由列表，`compatibility` 映射，按 mcp__/`.workbuddy` 信号推断 workbuddy），#6 `agent_coupling` 可按字段抑制（声明 workbuddy）/升级（声明跨 Agent 目标仍含 WorkBuddy 耦合→WARN）；`deps.platform_undeclared` 由散文扫描升级为读取结构化 `target_platform`；Schema Normalizer 支持 Claude Code/Cursor 等开放标准技能——YAML 列表式 `allowed-tools` 解析、`version`/`license` 检查平台感知（外部平台不强制 version）。经 `--source github --ref anthropics/skills` 真实外部仓库验证无 version/license 误报洪泛 |
 | 1.11.1 | 已实现待发布（等用户命令） | **portability #6 行为修正**：移除 `agent_coupling` 对 `workbuddy` 的抑制——本 skill 自身亦开发跨平台/跨 Agent 能力，故 WorkBuddy 目标的耦合提示同样有价值，不再免报。新口径：声明跨 Agent 目标（不含 `workbuddy`，如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合→WARN；其余（未声明/声明含 `workbuddy`/推断 `workbuddy`）→均 INFO 提示。文档同步（SKILL.md/checkers.md/README） |
+| 1.12.0 | 已实现待发布（等用户命令） | **Phase 5 跨 Agent 格式归一化内核**：新增 `detect_format()` 按 frontmatter 特征推断技能格式（workbuddy/agentskills/claude-code/cursor-mdc/generic），并构建统一 `SkillModel`（name/description/fmt/platform/target_platform/target_agent/tools/license/version/extra）；`analyze_skill` 返回结果新增 `format` 与 `skill_model` 字段，供各检查器与后续 Phase 6 矩阵 / Phase 7 转译消费。格式判定「按特征推断」而非硬锁枚举，延续 v1.11.0 自由列表原则以防生态演进漏判。自审 0 ERROR、WARN 无回归 |
 
 > 评测由 SkillHub 平台在每次发布后自动重跑（TRACE 五维）。
 
@@ -116,3 +117,14 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 | 文档同步 | SKILL.md 升 1.11.1 + 速查表/portability 豁免说明改写；`references/checkers.md` 权威表 + `target_agent` 小节改写（workbuddy 不再作为抑制信号）；README 版本表 + 本明细 | — |
 
 > 修正动机：本 skill 自身亦在开发跨平台/跨 Agent 分发能力，故 WorkBuddy 目标的耦合提示对所有技能（含 workbuddy 目标）均有参考价值，不应抑制。
+
+## 1.12.0 打磨明细（Phase 5 跨 Agent 格式归一化内核）
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| 格式检测 `detect_format()` | 新增函数：按特征推断 5 类格式——`.mdc` + description/globs/alwaysApply → `cursor-mdc`；含 WorkBuddy 专有键（slug/displayName/target_platform/target_agent/agent_created）→ `workbuddy`；含 Claude Code 专有扩展键（argument-hint/model/context/agent/...）→ `claude-code`；含 `compatibility` 或仅开放标准键 → `agentskills`；其余 → `generic`。判定「按特征推断」而非硬锁枚举（延续 v1.11.0 自由列表原则，防生态演进漏判） | 5/5 夹具分类正确（workbuddy/agentskills/claude-code/cursor-mdc/generic） |
+| 统一模型 `SkillModel` | 新增普通类承载 name/description/fmt/platform/target_platform/target_agent/tools/license/version/extra；`analyze_skill` 计算 `fmt` 并构建 `SkillModel`，注入 `ctx` 与返回结果（`format` / `skill_model` 字段），供检查器与后续 Phase 6 矩阵 / Phase 7 转译消费 | 本技能自检：`fmt=workbuddy`、`platform=workbuddy`、`version=1.11.1`、`target_agent=['workbuddy']`；字段经 ctx 与返回值双向可见 |
+| 避免误报 | 未引入未使用常量（`FORMAT_ALL` 不落地）；`SkillModel` 用普通类而非 `@dataclass`，规避 vulture 对 dataclass 字段的死代码误报 | 自审 `--all-checks`：ERROR 0 / WARN 2（name_mismatch + hardcoded_path，均预期）/ INFO 11，WARN 较改动前无新增（无回归） |
+| 文档同步 | SKILL.md 升 1.12.0 + portability 节补充「跨 Agent 格式归一化内核」说明；`references/checkers.md` 跨 Agent 字段节补充 Phase 5 内核说明；README 版本表 + 本明细 | — |
+
+> 设计要点：Phase 5 是「地基」，不直接改变任何检查器的发现口径（现有 findings 与改动前完全一致），仅为跨格式审计建立统一表示层。下一步 Phase 6 将在此之上构建跨格式可移植性矩阵（字段映射 / 工具名 crosswalk / lossy-port 分级警告）。
