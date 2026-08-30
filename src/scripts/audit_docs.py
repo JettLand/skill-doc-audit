@@ -328,8 +328,8 @@ def check_doc(ctx):
             findings.append(finding("doc", SEVERITY_WARN, "UNKNOWN_IDENT",
                                     "文档里提到的名称 %s 在代码里找不到（可能拼写有误或已被删除；若为外部 MCP/插件工具请在 frontmatter 的 allowed-tools 声明）" % ident, file="SKILL.md"))
 
-    # A5 版本号
-    if not VERSION_RE.search(doc):
+    # A5 版本号（仅 WorkBuddy 平台强制；开放标准 agentskills/generic 不强制 version，避免审计外部技能误报）
+    if ctx.get("platform", "workbuddy") == "workbuddy" and not VERSION_RE.search(doc):
         findings.append(finding("doc", SEVERITY_ERROR, "VERSION_MISSING",
                                 "SKILL.md 缺少 version 声明", file="SKILL.md",
                                 suggestion="添加 version: x.y.z"))
@@ -369,6 +369,7 @@ def check_structure(ctx):
 
     fm = re.match(r"^---\s*\n(.*?)\n---\s*\n", doc, re.S)
     dir_name = os.path.basename(skill_dir.rstrip(os.sep))
+    platform = ctx.get("platform", "workbuddy")  # workbuddy 强制 version/license；agentskills/generic 为开放标准，不强制
 
     if fm:
         fm_text = fm.group(1)
@@ -380,17 +381,24 @@ def check_structure(ctx):
                                     "frontmatter name 与目录名不一致",
                                     suggestion="改为 '%s'" % dir_name))
         if not ver_m:
-            findings.append(finding("structure", SEVERITY_ERROR, "version_missing",
-                                    "frontmatter 缺少合规 version",
-                                    suggestion="添加 version: x.y.z"))
+            if platform == "workbuddy":
+                findings.append(finding("structure", SEVERITY_ERROR, "version_missing",
+                                        "frontmatter 缺少合规 version",
+                                        suggestion="添加 version: x.y.z"))
+            # 非 WorkBuddy 平台（开放标准 agentskills/generic）不强制 version，跳过避免误报
         if not name_m:
             findings.append(finding("structure", SEVERITY_ERROR, "name_missing",
                                     "frontmatter 缺少 name 声明",
                                     suggestion="添加 name: <技能目录名>"))
         if not re.search(r"^license:", fm_text, re.M):
-            findings.append(finding("structure", SEVERITY_WARN, "license_missing",
-                                    "frontmatter 缺少 license 声明",
-                                    suggestion="添加 license: MIT 等"))
+            if platform == "workbuddy":
+                findings.append(finding("structure", SEVERITY_WARN, "license_missing",
+                                        "frontmatter 缺少 license 声明",
+                                        suggestion="添加 license: MIT 等"))
+            else:
+                findings.append(finding("structure", SEVERITY_INFO, "license_missing",
+                                        "frontmatter 缺少 license 声明（非 WorkBuddy 平台，建议补充）",
+                                        suggestion="添加 license: MIT 等"))
         if desc_m:
             desc = desc_m.group(1).strip().strip("\"'")
             if not (20 <= len(desc) <= 1024):
@@ -609,11 +617,14 @@ def check_deps(ctx):
                 if mk in line:
                     win_hits.add(mk)
     if win_hits:
-        if not re.search(r"windows|仅.*windows|平台.*windows|platform", doc, re.I):
+        _declared_plat = _normalize_target_platform(ctx.get("target_platform", "cross-platform"))
+        if _declared_plat != set(PLAT_ALL):
+            pass  # 已显式声明运行平台（非跨平台默认）→ 结构化字段即是声明，抑制散文扫描
+        elif not re.search(r"windows|仅.*windows|平台.*windows|platform", doc, re.I):
             findings.append(finding("deps", SEVERITY_INFO, "platform_undeclared",
                                     "代码含 Windows 专属 API（%s 等），建议声明运行平台" %
                                     ", ".join(sorted(win_hits)[:5]),
-                                    suggestion="在文档注明「仅支持 Windows」或补充平台元信息"))
+                                    suggestion="在文档注明「仅支持 Windows」或补充平台元信息（SKILL.md 的 target_platform 字段）"))
     return findings
 
 
@@ -925,6 +936,7 @@ def check_deadcode(ctx):
 PLAT_WIN = {"windows"}
 PLAT_UNIX = {"linux", "macos"}
 PLAT_ALL = {"windows", "linux", "macos"}
+AGENT_ALL = {"workbuddy", "claude-code", "cursor", "codex", "copilot", "cline", "generic"}
 
 
 def _normalize_target_platform(raw):
@@ -948,6 +960,60 @@ def _port_fire(declared, breaks_on):
     return bool(declared & breaks_on)
 
 
+def _parse_frontmatter_list(fm_text, key):
+    """frontmatter 中 key 的值 → 字符串列表。兼容两种写法：
+      - 内联：allowed-tools: Read, Grep, Bash(npm run:*)  （逗号/空格分隔；含括号权限时取工具名部分）
+      - YAML 块列表：
+          allowed-tools:
+            - Read
+            - Grep
+    找不到返回 []。"""
+    m = re.search(r"^%s:\s*(.*)$" % re.escape(key), fm_text, re.M)
+    if not m:
+        return []
+    val = m.group(1).strip()
+    if val:
+        out = []
+        for tok in re.split(r"[,;\s]+", val):
+            tok = tok.strip()
+            if tok:
+                out.append(tok.split("(", 1)[0].strip())  # Bash(npm run:*) -> Bash
+        return out
+    # 块列表：后续以 "- " 开头的行（遇非列表/空行即止，允许空行）
+    lines = fm_text.splitlines()
+    idx = None
+    for i, ln in enumerate(lines):
+        if re.match(r"^%s:\s*$" % re.escape(key), ln):
+            idx = i
+            break
+    if idx is None:
+        return []
+    out = []
+    for ln in lines[idx + 1:]:
+        if ln.strip() == "":
+            continue
+        lm = re.match(r"^\s*-\s*(.+)$", ln)
+        if not lm:
+            break
+        tok = lm.group(1).strip()
+        if tok:
+            out.append(tok.split("(", 1)[0].strip())
+    return out
+
+
+def _normalize_target_agent(tokens):
+    """frontmatter 的 target_agent / compatibility 值列表 → 标准化 Agent 集合。
+    含 all/*/cross-agent → 全平台（安全默认：仍提示/报告）；否则取显式列表（自由形式）。"""
+    out = set()
+    for t in tokens:
+        t = str(t).strip().lower()
+        if t in ("all", "*", "cross-agent", "cross_agent", "any"):
+            return set(AGENT_ALL)
+        if t:
+            out.add(t)
+    return out
+
+
 SHELL_SCAN_TOKENS = ("subprocess", "os.system", "Popen", "os.popen", "shell=True", "run(")
 
 
@@ -955,6 +1021,7 @@ def check_portability(ctx):
     findings = []
     code = ctx["code"]
     declared = _normalize_target_platform(ctx.get("target_platform", "cross-platform"))
+    declared_agent = _normalize_target_agent(ctx.get("target_agent", []))
 
     def add(sev, cat, msg, suggestion, breaks_on):
         if _port_fire(declared, breaks_on):
@@ -1024,13 +1091,20 @@ def check_portability(ctx):
                     suggestion="打开文件时显式指定 encoding='utf-8'",
                     breaks_on=PLAT_ALL)
 
-            # #6 Agent 平台耦合（INFO 咨询；无 target_agent 字段，始终提示，见 Phase 4 跨 Agent 分发）
+            # #6 Agent 平台耦合（按 target_agent 字段抑制/升级；自由列表，仅特判 workbuddy）
+            # 注意：本项门控维度是 Agent 而非 OS，故不走 add() 的 OS 平台 _port_fire 闭包，直接判定。
             coupled = [t for t in (".workbuddy", "allowed-tools") if t in line]
             if coupled:
-                add(SEVERITY_INFO, "agent_coupling",
-                    "%s:%d 耦合 WorkBuddy 平台约定（%s），跨 Agent 分发需抽象" % (rel, ln, " / ".join(coupled)),
-                    suggestion="若计划跨 Agent 分发，将平台专有路径/约定抽取为可配置项（Phase 4 待办）",
-                    breaks_on=PLAT_ALL)
+                if "workbuddy" in declared_agent:
+                    pass  # 声明/推断为 WorkBuddy，耦合是有意的 → 抑制
+                elif declared_agent:
+                    findings.append(finding("portability", SEVERITY_WARN, "agent_coupling",
+                        "%s:%d 耦合 WorkBuddy 平台约定（%s），但 target_agent 未包含 workbuddy，跨 Agent 分发将失效" % (rel, ln, " / ".join(coupled)),
+                        suggestion="若仅面向 WorkBuddy，声明 target_agent: workbuddy；若跨 Agent，抽象平台专有路径/约定"))
+                else:
+                    findings.append(finding("portability", SEVERITY_INFO, "agent_coupling",
+                        "%s:%d 耦合 WorkBuddy 平台约定（%s），跨 Agent 分发需抽象" % (rel, ln, " / ".join(coupled)),
+                        suggestion="若计划跨 Agent 分发，将平台专有路径/约定抽取为可配置项；或声明 target_agent: workbuddy"))
 
     return findings
 
@@ -1067,18 +1141,33 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
     # 以及全仓库 .md 中出现的 mcp__*__<name> 标记。这些名称只出现在文档/声明里、不在本地
     # 代码内，UNKNOWN_IDENT 检查应跳过，避免对 Agent / MCP 类技能刷出海量误报。
     declared_tools = set()
+    target_agent = set()
+    platform = "workbuddy"
     _fm = re.match(r"^---\s*\n(.*?)\n---\s*\n", doc, re.S)
+    _fm_text = _fm.group(1) if _fm else ""
     if _fm:
         for _key in ("allowed-tools", "tools"):
-            _kv = re.search(r"^%s:\s*(.+)$" % re.escape(_key), _fm.group(1), re.M)
-            if _kv:
-                for _tok in re.split(r"[,;\s]+", _kv.group(1).strip()):
-                    _tok = _tok.strip()
-                    if not _tok:
-                        continue
-                    declared_tools.add(_tok)
-                    if "__" in _tok:
-                        declared_tools.add(_tok.rsplit("__", 1)[-1])
+            for _tok in _parse_frontmatter_list(_fm_text, _key):
+                if not _tok:
+                    continue
+                declared_tools.add(_tok)
+                if "__" in _tok:
+                    declared_tools.add(_tok.rsplit("__", 1)[-1])
+        # 跨 Agent 目标（target_agent 自由列表；兼容开放标准 compatibility 字段）
+        _ta_vals = _parse_frontmatter_list(_fm_text, "target_agent")
+        _compat_vals = _parse_frontmatter_list(_fm_text, "compatibility")
+        target_agent = _normalize_target_agent(_ta_vals + _compat_vals)
+        if not target_agent:
+            # 推断：仅当含 WorkBuddy 强特征(mcp__*__ / .workbuddy) 才视为 WorkBuddy（allowed-tools 为跨平台共享键，不可据此推断）
+            if "mcp__" in doc or ".workbuddy" in doc or re.search(r"~/.workbuddy", doc):
+                target_agent = {"workbuddy"}
+        # 平台推断：开放标准(agentskills, 含 compatibility) / workbuddy / generic（开放标准兼容）
+        if re.search(r"^compatibility:", _fm_text, re.M):
+            platform = "agentskills"
+        elif "mcp__" in doc or ".workbuddy" in doc or re.search(r"~/.workbuddy", _fm_text, re.M):
+            platform = "workbuddy"
+        else:
+            platform = "generic"
     for _root, _dirs, _names in os.walk(skill_dir):
         _dirs[:] = [d for d in _dirs if d not in SKIP_DIRS and not d.startswith(".")]
         for _n in _names:
@@ -1122,6 +1211,8 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         "args": args,
         "declared_tools": declared_tools,
         "target_platform": target_platform,
+        "target_agent": target_agent,
+        "platform": platform,
     }
     findings = []
     for name in enabled:
