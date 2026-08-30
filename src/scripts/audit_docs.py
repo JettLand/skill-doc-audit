@@ -95,10 +95,13 @@ SCAN_SKIP_TOKENS = ("re.compile", "re.search", "re.match", "re.findall",
 # Phase 8 供应链安全启发式（跨 Agent 生态级批量审计用）：硬编码远端端点 / 动态导入
 ENDPOINT_RE = re.compile(r"https?://([\w.\-]+)")
 # 排除明显文档 / 示例 / SDK 主机，避免把文档链接误报为硬编码端点
+# 含 url 源归一化的规范主机（如 raw.githubusercontent.com），非真实可被篡改的远端端点
 EXCLUDE_ENDPOINT_HOSTS = {
     "localhost", "127.0.0.1", "0.0.0.0", "example.com", "example.org",
     "docs.github.com", "github.com", "w3.org", "developer.mozilla.org",
     "python.org", "nodejs.org", "developer.mozilla.org", "docs.python.org",
+    "raw.githubusercontent.com", "raw.githack.com", "gitee.com", "raw.gitee.com",
+    "gitlab.com", "raw.gitlab.com", "codeload.github.com", "objects.githubusercontent.com",
 }
 DYNAMIC_IMPORT_RE = re.compile(
     r"(importlib\s*\.\s*import_module|__import__\s*\(|getattr\s*\(\s*(sys\s*\.\s*modules|__import__))")
@@ -468,11 +471,24 @@ def check_structure(ctx):
                                     "文档里引用加载的脚本或文件 %s 不存在（请检查引用路径是否写错）" % ref, file="SKILL.md",
                                     suggestion="修正路径或补充文件"))
 
-    # 硬编码用户绝对路径
-    for m in re.finditer(r"[A-Za-z]:\\Users\\[^\s`]+|/home/[^\s`]+|/Users/[^\s`]+", doc):
-        findings.append(finding("structure", SEVERITY_WARN, "hardcoded_path",
-                                "文档含硬编码用户绝对路径: %s" % m.group(0), file="SKILL.md",
-                                suggestion="改用相对路径或 <用户目录> 占位"))
+    # 硬编码用户绝对路径（上下文感知，降低文档示例误报）
+    # 仅对「真实指令行」报：跳过代码围栏、表格行、引用块、以及含豁免/示例性语言的描述行，
+    # 这些上下文里的路径多为规则说明 / 命令行示例，并非要求用户照做的真实绝对路径。
+    _in_fence = False
+    for i, line in enumerate(lines, 1):
+        if line.strip().startswith("```"):
+            _in_fence = not _in_fence
+            continue
+        if _in_fence:
+            continue
+        if "|" in line or line.lstrip().startswith(">"):
+            continue
+        if re.search(r"豁免|示例|example|如[：:]|比如|例如|说明|文档|描述", line, re.I):
+            continue
+        for m in re.finditer(r"[A-Za-z]:\\Users\\[^\s`]+|/home/[^\s`]+|/Users/[^\s`]+", line):
+            findings.append(finding("structure", SEVERITY_WARN, "hardcoded_path",
+                                    "文档含硬编码用户绝对路径: %s" % m.group(0), file="SKILL.md", line=i,
+                                    suggestion="改用相对路径或 <用户目录> 占位"))
 
     # TODO / 占位 / 历史记录（跳过表格行，避免把"描述检查器本身"的单元格误判为真实标记）
     for i, line in enumerate(lines, 1):
@@ -1117,9 +1133,12 @@ def check_portability(ctx):
                         suggestion="跨平台改用 python3 直接调用",
                         breaks_on=PLAT_UNIX)
 
-            # #5 编码/路径分隔符假设：open 不指定 encoding（非二进制模式；引号内的 "open(" 视为描述性文本，跳过）
-            if ("open(" in line and '"open("' not in line and "'open('" not in line
-                    and "encoding=" not in line and "rb" not in line and "wb" not in line and "ab" not in line):
+            # #5 编码/路径分隔符假设：open 不指定 encoding（仅真实文件 open() 告警）
+            # 排除：引号内描述性文本、带前缀的方法名（urlopen / io.open / os.open 等非文件 open）、
+            #       已显式 encoding、二进制模式（rb/wb/ab）。负向环视保证 open( 前非单词/点字符，
+            #       从而 urlopen( / io.open( 等不会被误判为缺 encoding 的文件打开。
+            if re.search(r"(?<![A-Za-z0-9_.])open\(", line) and '"open("' not in line and "'open('" not in line \
+                    and "encoding=" not in line and "rb" not in line and "wb" not in line and "ab" not in line:
                 add(SEVERITY_WARN, "encoding_sep",
                     "%s:%d 以 open 打开文件未指定 encoding，Windows 下文本模式默认编码非 UTF-8 易致解码错误" % (rel, ln),
                     suggestion="打开文件时显式指定 encoding='utf-8'",

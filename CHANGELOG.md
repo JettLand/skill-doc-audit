@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.18.0 打磨明细（回应 SkillHub TRACE 评测反馈）
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| 检查器误报修复（评测不足②/③） | `structure/hardcoded_path` 上下文感知：逐行扫描，跳过代码围栏、表格行、引用块、含豁免/示例性语言的行，仅对真实指令行报硬编码绝对路径；`portability/encoding_sep` 改用负向环视 `(?<![A-Za-z0-9_.])open\(`，排除 `urlopen`/`io.open`/`os.open` 等非文件 `open`（如 `--source url` 的 `urllib.request.urlopen`）；`security/hardcoded_endpoint` 的 `EXCLUDE_ENDPOINT_HOSTS` 新增 `raw.githubusercontent.com`/`raw.githack.com`/`gitee.com`/`gitlab.com` 等 url 源规范主机白名单 | 自身 `--all-checks` 自审：WARN 由 4 降至 1（仅剩审计 `src/` 目录名≠技能名的 harness 假象，真实部署副本不触发）；原本 3 个误报（hardcoded_path/encoding_sep/hardcoded_endpoint）全部消除，ERROR 维持 0 |
+| 文档增强（评测 C 4.6 / A 边界分散） | 新增「5 分钟上手（极简路径）」「能力边界速查（一句话）」「完整运行示例（真实输出+解读）」「新手常见误区 FAQ（Q6–Q8：误用 github 源/把误报当 bug/vulture 未装以为跑不了）」；并引导远端审计优先用 `--source url`、明确 vulture 可选自动降级 `ast` | 文档体量适度增加但结构更清晰，新手可凭极简路径与误区清单快速上手 |
+| 国内适配性回应（评测 4.3 扣分） | `多平台来源` 节新增「审计远端技能优先用 `--source url`」引导（零外部 CLI、绕开 `git clone` 网络限制） | 与 v1.17.0 url 源能力一致，正面回应评测的网络受限扣分 |
+
 ## 1.17.0 打磨明细（泛化来源 --source url）
 
 | 打磨项 | 改动 | 验证（均通过） |

@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.17.0"
+version: "1.18.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -34,6 +34,17 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
 
 脚本只能枚举差异、不能判定对错的，以及完全查不出、必须 AI 读代码判断的语义项（如描述是否仍成立、提示是否误导、跨文件一致性），详见 `references/checkers.md`。**不要只用脚本结论就下判断**——扫描报告是线索，不是裁决。
+
+### 能力边界速查（一句话）
+
+为减少「多处查阅 checkers.md 才看清边界」，这里把关键边界浓缩成一张表，细节仍以 `references/checkers.md` 为准：
+
+| 你能指望脚本可靠判定的 | 脚本只能给线索、必须你/AI 复核的 | 脚本根本查不出的 |
+|---|---|---|
+| 死引用（`DEAD_PATH`/`DEAD_FLAG`/失效退出码）、frontmatter 缺字段、语法错误、未声明外部 CLI、硬编码密钥/路径穿越、`portability` 各项 OS 级破损、死代码 | 描述是否仍成立、提示是否误导、跨文件语义一致性、文档示例是否过时、某 `WARN` 是否为有意为之 | 业务正确性、用户体验、是否「应该」有这个功能、安全设计的合理性 |
+| 报告给出 `category`（机器码）+ `category_cn`（中文标签）+ `suggestion`（修复建议），每条发现自解释 | `WARN`/`INFO` 通常需结合上下文，勿直接当错误处置 | — |
+
+> 铁律：**报告是线索，不是裁决。** 任何改动前先读源码核对，尤其 `WARN`/`INFO` 与语义项。
 
 ## 快速开始
 
@@ -72,10 +83,27 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 
 其余参数（`--json` / `--timeout` / `--max-file-size` / `--deadcode-mode` / `--backup-limit` / `--source` / `--ref` / `--keep-temp`）与完整检查项口径见下方「用法」与 `references/checkers.md`。
 
+## 5 分钟上手（极简路径）
+
+只想最快跑起来，只需记住一条命令：
+
+```sh
+python scripts/audit_docs.py --skill <技能目录> --all-checks
+```
+
+它会自动备份 `SKILL.md`、跑完全部检查器、输出带中文标签的报告。`deadcode` 若环境已装 `vulture` 会自动用高精度模式，没装则自动降级为零依赖 `ast`（**不需要额外安装任何东西就能跑**，见下）。其余 90% 场景用「快速开始」那张表查对应命令要点即可，无需通读全文。
+
+> 最常见的三个疑问，30 秒答完：
+> - **要装 vulture 吗？** 不用。没装时自动降级 `ast` 模式（仅死代码检测精度略低），其它检查器完全不受影响。想用高精度再 `pip install vulture`。
+> - **审计远程技能要装 git / skillhub 吗？** 不用。用 `--source url --ref <SKILL.md 的 https 地址>` 即可，标准库直抓、零外部 CLI（见「多平台来源」）。
+> - **报告里一堆 WARN/INFO 要不要全改？** 不要。只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是线索，需你/AI 读源码复核后再决定。
+
 ## 多平台来源（--source github / skillhub / url）
 
 默认 `--source local`：用 `--skill <目录>` 或 `--all`（扫 `~/.workbuddy/skills`）审计本机技能。
 新增 `--source` 可把**远程仓库 / 集市技能**拉到临时目录后照常审计，`analyze_skill` 核心逻辑零改动。
+
+> **审计远端技能优先用 `--source url`**：它仅用 Python 标准库 `urllib` 直接抓取 `SKILL.md`（及文档显式引用的 `scripts/`/`references/` 文件），**零外部 CLI 依赖、HTTPS 对 OS 透明**，不受本机是否安装 `git`/`skillhub` 限制，也不受某些网络环境下 `git clone` 不通的影响。仅在需要完整克隆仓库（含嵌套子目录/多技能）时才用 `--source github`（需 `git`）或 `--source skillhub`（需 `skillhub` CLI）。
 
 | 来源 | 说明 | --ref 取值 |
 |---|---|---|
@@ -175,7 +203,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 
 > 触发判据：用户意图围绕「文档与代码一致性 / 结构 / 安全红线 / 可运行性 / 依赖平台」的静态审计时使用；纯运行期、动态行为或部署类诉求不在范围内。
 
-**误报自纠错能力**：`security` 检查器对所有正则统一采用上下文感知过滤，自动排除注释、文档 URL、自引用资源上溯，避免上下文盲误报。完整机制见 `references/checkers.md`。
+**误报自纠错能力**：`security` 检查器对所有正则统一采用上下文感知过滤，自动排除注释、文档 URL、自引用资源上溯，避免上下文盲误报；**v1.18.0 起该能力扩展到 `structure`/`portability`**——`hardcoded_path` 已跳过表格/引用块/示例性描述行，`encoding_sep` 已排除 `urlopen`/`io.open` 等非文件 `open`（如 `--source url` 的 `urllib.request.urlopen` 不再误报），`hardcoded_endpoint` 已对 `raw.githubusercontent.com` 等 url 源规范主机白名单放行。完整机制见 `references/checkers.md`。
 
 ## 常见问题（FAQ）与避坑
 
@@ -194,29 +222,44 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 **Q5：只想查某一类问题，怎么缩小范围？**
 用 `--check` 按需启用（如 `--check security`），或 `--all-checks` 全开；`--strict` 让 WARN 也计入退出码，适合 CI 门禁。
 
-## 示例输出
+**Q6：审计远程技能时报「网络不通 / git clone 失败」，是技能坏了吗？**
+很可能是本机没装 `git` 或网络限制 `git clone`。**新手误区**：以为远程审计必须 `--source github`。其实优先用 `--source url --ref <SKILL.md 的 https 地址>` 即可——标准库直抓、零外部 CLI、绕开 `git clone`，绝大多数远端技能都能审计（见「多平台来源」）。
 
-对 `~/.workbuddy/skills/workbuddy-checkin` 运行：
+**Q7：报告里有个 WARN/INFO，是不是文档有 bug、我得马上改？**
+**最常见误区**：把线索当裁决。只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是「这里可能有问题，请你/AI 读源码确认」的提示。例如 `agent_coupling` 的 INFO 是跨 Agent 咨询、非缺陷；`hardcoded_path` 的 WARN 若出现在表格/引用块里多半是示例误报（v1.18.0 已做上下文感知过滤）。**先读源码，再决定改不改。**
+
+**Q8：没装 vulture，是不是跑不了死代码检测 / 整个工具用不了？**
+不是。没装 `vulture` 时 `deadcode` 自动降级为零依赖 `ast` 模式（仅死代码检测精度略低），其余检查器完全不受影响；整工具零第三方依赖即可运行。想用高精度再 `pip install vulture`。
+
+## 完整运行示例（真实输出 + 解读）
+
+对某个技能目录运行全套体检：
 
 ```sh
-python scripts/audit_docs.py --skill ~/.workbuddy/skills/workbuddy-checkin --all-checks
+python scripts/audit_docs.py --skill ~/.workbuddy/skills/<技能名> --all-checks
 ```
 
-典型可读报告（节选，每条发现均带中文标签与机器码，自解释）：
+真实输出（节选，每条发现均带中文标签与机器码，自解释）：
 
 ```
-[doc]      ERROR  失效命令行参数【DEAD_FLAG】 文档提到的 `--retry` 在代码中无实现 (SKILL.md:42)
-          → 建议：补实现或删除文档描述
-[doc]      WARN   缺少版本声明【VERSION_MISSING】 未声明 version (SKILL.md)
-[security] ERROR  疑似硬编码密钥【hardcoded_secret】 疑似硬编码 Token (scripts/audit_docs.py)
-          → 建议：改为环境变量读取
-[security] INFO   路径穿越【path_traversal】 被上下文过滤忽略（文档 URL，非真实穿越）
-[structure] OK    名称不一致【name_mismatch】 frontmatter name 与目录名一致
-...
-Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
+  [doc]       ERROR 0 / WARN 0 / INFO 1
+  [structure] ERROR 0 / WARN 1 / INFO 0
+  [security] ERROR 0 / WARN 0 / INFO 0
+  [runtime]   ERROR 0 / WARN 0 / INFO 1
+  [deps]      ERROR 0 / WARN 0 / INFO 0
+  [deadcode]  ERROR 0 / WARN 0 / INFO 0
+  [portability] ERROR 0 / WARN 0 / INFO 18
+
+  本技能汇总：ERROR 0 / WARN 1 / INFO 20    通过
 ```
 
-说明：`ERROR` 默认计入退出码（`1`）；`WARN`/`INFO` 不计入，需结合上下文判断，勿直接当错误处置。`--json` 可输出机读明细（每条含 `checker/severity/category/category_cn/message/file/line/suggestion`）。`category` 为稳定机器码，`category_cn` 为同一含义的中文标签。
+**如何解读（关键）**
+- **`通过` = 未发现 ERROR 级问题**，退出码 `0`。只有 `ERROR` 默认计入退出码；`--strict` 才把 `WARN` 也算失败。
+- **`WARN`/`INFO` 不是错误**：上面 `structure` 的 1 个 WARN 是提示性项（如「名称不一致」），需读源码判断是否有意为之，**不要直接改文档**。
+- **`portability` 的 18 条 INFO 几乎都是 `agent_coupling`**（提示 `.workbuddy`/`allowed-tools` 耦合，属跨 *Agent* 咨询，**非** OS 级破损），是本技能自身开发跨 Agent 能力的正常产物，可放心忽略。
+- 每条发现的机器码（`category`）稳定、可用于跨版本比对；`--json` 输出供 CI 消费（每条含 `checker/severity/category/category_cn/message/file/line/suggestion`）。
+
+> 练习：把上面这条命令对你的一个技能跑一遍，对照「能力边界速查」表判断每条 WARN/INFO 是否真要处理。绝大多数技能首跑都会有几个 INFO，属正常。
 
 ## 错误码对照表
 
