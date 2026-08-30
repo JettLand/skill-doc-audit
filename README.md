@@ -1,6 +1,6 @@
 # skill-doc-audit 技能工程仓库
 
-本仓库是 SkillHub 技能 **skill-doc-audit（技能文档审计）** 的源管理与发布工程仓库，并非技能本身。正式上架版本发布于 SkillHub（slug：`skill-doc-audit`），平台综合评测 **4.8/5（优秀）**。
+本仓库是 SkillHub 技能 **skill-doc-audit（技能文档审计）** 的源管理与发布工程仓库，并非技能本身。正式上架版本发布于 SkillHub（slug：`skill-doc-audit`），平台综合评测 **4.7/5（优秀，最新为 v1.17.0 TRACE 评测；v1.18.x 尚未复评）**。
 
 ## 仓库布局
 - `src/`：技能根目录（即发布包内容）
@@ -30,6 +30,7 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 ## 版本与评测
 | 版本 | 综合评分 | 说明 |
 |---|---|---|
+| 1.18.1 | 已发布 SkillHub（v1.18.1，reviewStatus pending，2026-08-31） | **Agent 执行 deadcode 精度模式修复（非能力变更，补丁级）**：根因——`deadcode` 默认 `ask` 的「询问」依赖人类 TTY 的 `input()`，Agent 经管道调用（stdin 非 TTY）时脚本静默降级为 `ast`，用户精度选择权被吞掉，与设计初衷相悖。新增「Agent 执行约定（deadcode 精度模式必须显式决策）」专节：Agent 跑 `--all-checks` 前须先探测 vulture，未装则主动用 AskUserQuestion 询问用户三选一（装 vulture/直接 ast/跳过），并以 `--deadcode-mode` 显式传入，绝不依赖 `ask` 默认；同步在「能力边界」deadcode 项与「5 分钟上手」补充 Agent 上下文提示。仅改文档与一处版本常量，无审计口径变化；自身 `--check doc` 自审 ERROR 0 / WARN 0 |
 | 1.18.0 | 待复评（回应 1.17.0 评测反馈） | **回应评测误报与文档短板**：①检查器误报修复——`hardcoded_path` 上下文感知（跳过表格/引用块/示例性描述行）、`encoding_sep` 排除 `urlopen`/`io.open`/`os.open` 等非文件 `open`（如 `--source url` 的 `urllib.request.urlopen` 不再误报）、`hardcoded_endpoint` 对 `raw.githubusercontent.com` 等 url 源规范主机白名单放行；自审 WARN 由 4 降至 1（仅剩审计 `src/` 目录名≠技能名的 harness 假象，部署副本不触发）；②文档增强——新增「5 分钟上手（极简路径）」「能力边界速查」「完整运行示例（真实输出+解读）」「新手常见误区 FAQ（Q6–Q8）」，并引导远端审计优先用 `--source url`（零外部 CLI、绕开 git clone 网络限制，回应国内适配性扣分）与明确 vulture 可选自动降级 ast。回归自审 ERROR 0 / WARN 1 / EXIT 0 |
 | 1.17.0 | 4.7/5 优秀（SkillHub TRACE 评测） | **泛化来源 `--source url`（零依赖直抓任意 SKILL.md）**：新增 `url` 来源，用标准库 `urllib` 直接抓取 SKILL.md 文本到临时目录后照常审计，无需 `git`/`skillhub` 等外部 CLI、对 OS 透明；`github.com` blob 链接自动转 `raw.githubusercontent.com`；抓取 SKILL.md 后自动补全其显式引用的 `scripts/` 与 `references/` 文件，使远程单文件技能与本地克隆等价，避免「引用缺失」刷屏（单次补全长上限 50）。审计能力格式无关，故加来源只加「抓取适配器」、不增加审计口径。`SOURCES` 注册 `url`，`--source`/`--ref` 帮助文本同步。自审 0 ERROR、WARN 维持 4 无回归；url 源实测（抓取本仓库已发布 SKILL.md + 引用补全）ERROR 0 / WARN 2 / EXIT 0 |
 | 1.16.0 | 待复评 | **Phase 7 ⑤落地·agentskills 全生态枢纽标注 + generic 兜底目标 + 跨平台证明**：①文档标注 `--target agentskills`/`cursor-plugin` 即 Agent Skills 开放标准（agentskills.io），一次转译可被 40+ 工具（Claude Code、Cursor、Gemini CLI、Codex、Copilot、Windsurf、Kiro、OpenCode、Cline、Roo Code 等）直接消费；③新增 `generic` 降级兜底目标（`--target` 枚举扩展），仅保留 name/description，报告前置「⚠ 高损失」警告并提示优先用 agentskills/cursor-plugin；补全「跨平台可移植性证明」专节（纯标准库/零第三方依赖、无平台专属 API 实际调用、portability 自检 0 OS 级发现）。自审 0 ERROR、WARN 维持基线 2 无回归 |

@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.18.1 打磨明细（Agent 执行 deadcode 精度模式修复）
+
+> 发布：2026-08-31 经 SkillHub CLI 发布 v1.18.1（versionId 277173，reviewStatus pending）。
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| Agent 跳过 deadcode 询问的根因修复 | 根因：`deadcode` 默认 `ask` 模式的「询问」依赖人类 TTY 的 `input()` 提示；Agent 经管道调用（stdin 非 TTY）时脚本静默降级为 `ast`，用户的精度选择权被吞掉。新增「Agent 执行约定（deadcode 精度模式必须显式决策）」专节，明确 Agent 在跑 `--all-checks` 前必须先探测 vulture、再主动用 AskUserQuestion 询问用户三选一、并以 `--deadcode-mode` 显式传入，绝不依赖 `ask` 默认；同步在「能力边界」deadcode 项与「5 分钟上手」补充 Agent 上下文提示 | 自身 `--check doc` 自审 ERROR 0 / WARN 0（仅 1 条预存 `audit.json` 裸文件名 INFO，非本次引入）；`audit_docs.py` py_compile 通过 |
+
 ## 1.18.0 打磨明细（回应 SkillHub TRACE 评测反馈）
 
 | 打磨项 | 改动 | 验证（均通过） |

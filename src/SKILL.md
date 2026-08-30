@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.18.0"
+version: "1.18.1"
 license: MIT
 author: Jett
 agent_created: true
@@ -28,7 +28,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
-- `deadcode`（运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask`：环境已装 vulture 则自动采用高精度（不询问），未装则交互询问，30 秒超时或无输入回退零依赖 `ast`。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
+- `deadcode`（运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask`：环境已装 vulture 则自动采用高精度（不询问），未装则交互询问，30 秒超时或无输入回退零依赖 `ast`。**⚠️ Agent 执行重要约定**：`ask` 的交互询问依赖人类 TTY 的 `input()` 提示；当由 Agent 经管道调用（stdin 非 TTY）时，脚本无法真正触达用户，会**静默降级为 `ast`**——这正是「Agent 跑全量检测时 deadcode 只跑 AST、跳过询问」的根因。故 Agent 绝不可依赖 `ask` 默认，必须**先探测 vulture、再主动向用户询问三选一、并以 `--deadcode-mode` 显式传入**（具体流程见下方「Agent 执行约定」）。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
 - `portability`（零依赖纯静态分析）：跨平台可移植性——硬编码绝对路径、启动目录依赖（`os.getcwd`）、平台专属 shell/命令、解释器/运行时锁、编码/路径分隔符假设、Agent 平台耦合。按 SKILL.md 的 `target_platform` 字段豁免对应平台项（`target_platform: windows` 仅抑制 Windows 专属项的误报，仍保留在 Windows 上真会崩的项；不写=跨平台，全检）；`agent_coupling`（Agent 平台耦合）另受同级 `target_agent` 字段门控：声明含 `workbuddy` 则抑制，声明 `claude-code`/`cross-agent` 等跨 Agent 目标且仍含 WorkBuddy 耦合时升为 WARN；全部 WARN/INFO，绝不 ERROR
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
@@ -91,7 +91,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 python scripts/audit_docs.py --skill <技能目录> --all-checks
 ```
 
-它会自动备份 `SKILL.md`、跑完全部检查器、输出带中文标签的报告。`deadcode` 若环境已装 `vulture` 会自动用高精度模式，没装则自动降级为零依赖 `ast`（**不需要额外安装任何东西就能跑**，见下）。其余 90% 场景用「快速开始」那张表查对应命令要点即可，无需通读全文。
+它会自动备份 `SKILL.md`、跑完全部检查器、输出带中文标签的报告。`deadcode` 若环境已装 `vulture` 会自动用高精度模式，没装则自动降级为零依赖 `ast`（**不需要额外安装任何东西就能跑**，见下）。其余 90% 场景用「快速开始」那张表查对应命令要点即可，无需通读全文。**注意**：上一段的「自动降级」仅在人类交互终端成立；**Agent 经管道执行时不会真正询问用户，须按上方『Agent 执行约定』显式传 `--deadcode-mode`**，勿依赖静默降级。
 
 > 最常见的三个疑问，30 秒答完：
 > - **要装 vulture 吗？** 不用。没装时自动降级 `ast` 模式（仅死代码检测精度略低），其它检查器完全不受影响。想用高精度再 `pip install vulture`。
@@ -113,6 +113,28 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 | `url` | 用标准库 `urllib` 直接抓取 SKILL.md 文本到临时目录后审计；零外部依赖、对 OS 透明；`github.com` blob 链接自动转 `raw.githubusercontent.com` | SKILL.md 的 https 地址（可指向文件或所在目录） |
 
 审计结束后临时目录默认自动清理；加 `--keep-temp` 可保留并打印路径，便于排查。
+
+## Agent 执行约定（deadcode 精度模式必须显式决策）
+
+本技能的 `deadcode` 默认精度模式为 `ask`，其「询问」是基于**人类交互终端（TTY）**的 `input()` 现场提示。但当你（Agent）替用户执行 `--all-checks` 时，脚本是通过管道运行的（`stdin` 非 TTY），`input()` 既无法显示也无法接收用户输入，于是脚本只能**静默降级为零依赖 `ast` 模式**——用户的精度选择权被悄悄吞掉，与设计初衷（精度应由用户决定）相悖。实测表现即「Agent 跑全量检测时 deadcode 只跑 AST、跳过询问」。
+
+因此，**Agent 在运行任何包含 deadcode 的全量审计前，必须显式决策并把结果以 `--deadcode-mode` 传入，绝不依赖 `ask` 默认**。标准动作如下：
+
+1. **探测 vulture 是否已安装**（零副作用）：
+   ```sh
+   python -c "import vulture" 2>/dev/null && echo HAVE || echo NONE
+   ```
+2. **已装** → 直接以高精度运行：
+   ```sh
+   python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture
+   ```
+3. **未装** → **主动用 AskUserQuestion 询问用户三选一**（不要替用户默认 ast），再把选择显式传入：
+   - 「安装 vulture 后走高精度」：先 `pip install vulture`，再 `--deadcode-mode vulture`；
+   - 「直接零依赖 AST 跑（精度略低）」：`--deadcode-mode ast`；
+   - 「本次跳过 deadcode」：`--deadcode-mode skip`。
+4. **仅当明确处于无人值守的 CI / 自动化链路**时，才允许不经询问直接 `--deadcode-mode ast`（此时静默降级即预期行为）。
+
+一句话：**Agent 场景下的 deadcode 精度，永远由「Agent 显式传参」决定，而不是脚本的 `ask` 默认。** 这样精度选择权始终在用户手里，符合设计初衷。
 
 ## 流程
 
