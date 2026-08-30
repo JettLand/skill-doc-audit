@@ -15,8 +15,8 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
       security   安全红线静态子集（硬编码密钥/混淆/路径穿越/eval 外部内容/注入句式）
       runtime    脚本可运行性（py_compile 语法、脚本引用存在性、能力预检清单）
       deps      依赖与平台声明（外部 CLI 调用未声明 / Windows 专属 API 未标注平台）
-      deadcode   死代码检测（未使用定义/导入、不可达代码、孤儿资源文件；已纳入 --all-checks，运行前询问精度模式）
-      portability 跨平台可移植性（硬编码绝对路径/cwd依赖/平台专属shell/解释器锁/编码分隔符假设/Agent平台耦合；已纳入 --all-checks；按 SKILL.md 的 target_platform 字段豁免对应平台项）
+      deadcode   死代码检测（未使用定义/导入、不可达代码、孤儿资源文件；运行前询问精度模式）
+      portability 跨平台可移植性（硬编码绝对路径/cwd依赖/平台专属shell/解释器锁/编码分隔符假设/Agent平台耦合；按 SKILL.md 的 target_platform 字段豁免对应平台项）
   - --all-checks  启用全部检查器（含 deadcode；已装 vulture 则自动高精度，否则运行前询问 vulture/ast/skip 模式）
   检查器只扫描不改写；description 四要素、制作质量评分等需语义判断的项仅给提示(INFO)。
 
@@ -160,7 +160,7 @@ CATEGORY_LABELS = {
     # deps：依赖与平台声明
     "undeclared_cli": "未声明外部 CLI",
     "platform_undeclared": "未声明运行平台",
-    # deadcode：死代码检测（已纳入 --all-checks，运行前按 --deadcode-mode 询问精度）
+    # deadcode：死代码检测（运行前按 --deadcode-mode 询问精度）
     "unused_def": "未使用的定义",
     "unused_import": "未使用的导入",
     "unreachable": "不可达代码",
@@ -618,7 +618,7 @@ def check_deps(ctx):
 
 
 # --------------------------------------------------------------------------- #
-# 检查器：deadcode（死代码检测，已纳入 --all-checks；运行前按 --deadcode-mode 询问精度模式）
+# 检查器：deadcode（死代码检测；运行前按 --deadcode-mode 询问精度模式）
 #   零依赖：基于 ast 静态分析 .py 的未使用定义/导入、不可达代码；
 #   孤儿资源：scripts/ 与 references/ 下从未被引用的文件；
 #   可选增强：环境装了 vulture 则额外跑高精度死代码（未装静默跳过）。
@@ -917,7 +917,7 @@ def check_deadcode(ctx):
 
 
 # --------------------------------------------------------------------------- #
-# 检查器：portability（跨平台可移植性，零依赖纯静态分析；已纳入 --all-checks）
+# 检查器：portability（跨平台可移植性，零依赖纯静态分析）
 #   按 frontmatter 的 target_platform 字段豁免：声明平台「覆盖」该发现会崩的平台才抑制。
 #   规则：fire iff (声明平台 ∩ breaks_on) 非空；cross-platform(默认/省略) = 全平台 → 始终 fire。
 #   全部 WARN/INFO，绝不 ERROR（可移植性是程度问题，结论需人判；同 deadcode 提示项）。
@@ -1048,7 +1048,7 @@ CHECKERS = {
     "portability": check_portability,
 }
 DEFAULT_CHECKERS = ["doc"]
-# deadcode / portability 已纳入 --all-checks；deadcode ask 模式下已装 vulture 自动高精度，否则运行前询问精度（默认 ask，超时 30s→ast 零依赖）。
+# deadcode / portability：deadcode ask 模式下已装 vulture 自动高精度，否则运行前询问精度（默认 ask，超时 30s→ast 零依赖）。
 ALL_CHECKERS = ["doc", "structure", "security", "runtime", "deps", "deadcode", "portability"]
 
 
