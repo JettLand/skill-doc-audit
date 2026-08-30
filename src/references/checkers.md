@@ -110,6 +110,19 @@
 - **等价映射（固化 v1.11.0 约定）**：`target_agent` ↔ `compatibility`；`slug`/`displayName` → `name`。
 - **Cursor 两种形态**：Cursor Plugin 的 `SKILL.md` 等同 `agentskills`（支持 `allowed-tools`/`compatibility`）；若以 `.mdc` 规则文件分发（`cursor-mdc`），则无 `name`/`allowed-tools`，损失更大——矩阵报告中对 `cursor-mdc` 单列呈现以提示差异。
 
+## 跨格式转译报告（Phase 7，只读预览·不落盘）
+
+在 Phase 5/6 底座之上新增 `--report translate`，把「检测/矩阵」升级为「可预览的转译方案」。核心约束：**只出报告、不落盘**，守住本技能「只读扫描、绝不自动改写」的立身之本。
+
+- **复用底座**：直接消费 `SkillModel`（P5）+ `FMT_CAPS`/`EQUIV`/`build_portability_matrix`（P6），无新增扫描逻辑，避免与 P5/6 漂移。
+- **用法**：`--report translate --target <fmt>`。`--target` 取值 `workbuddy`/`agentskills`/`claude-code`/`cursor-plugin`/`generic`，与源格式**双向**（源可为任一已识别格式）。`--verify` 在此之上做内存往返保真（emit→re-parse→比对，不写文件）。
+- **agentskills = 全生态通用枢纽**：`--target agentskills` 与 `--target cursor-plugin` 产出的 frontmatter 即 **Agent Skills 开放标准（agentskills.io，Anthropic 2025-12 开源）** 形态（`name`/`description`/`license`/`allowed-tools`/`compatibility`/`metadata`）。该标准截至 2026 年已被 **40+ AI 工具**采纳——Claude Code、Cursor、Gemini CLI、OpenAI Codex、GitHub Copilot、Windsurf、Kiro、OpenCode、Cline、Roo Code 等。即**一次转译到 `agentskills`，即可被上述 40+ 工具直接消费**；`claude-code` 仅叠加 `model`/`context`/`agent`/`hooks`/`argument-hint` 等可选扩展键。故「更多目标格式」诉求已被现有目标覆盖，`generic` 仅作兜底。
+- **报告内容**（决策①+②）：① 仅出报告不生成文件；② 仅 **frontmatter 字段映射表**（保留/降级/丢失逐项标注）+ **目标 SKILL.md 脚手架预览**（仅 frontmatter + 标题骨架，正文散文不翻译、留人工）。脚手架输出明确标注「仅展示，不落盘」。
+- **字段映射内核**：`emit_frontmatter(model, target_fmt)` 依 `FMT_CAPS` 逐字段映射；命中 `EQUIV`（如 `target_agent`→`compatibility`、`slug`/`displayName`→`name`）记降级；目标格式无对应记丢失。多个源字段映射到同一目标字段（如 `slug`/`displayName` 与 `name`）时，保留 canon `name`、其余价值并入并记降级、不重复写入。
+- **往返保真（`--verify`，决策④）**：复用 `build_portability_matrix` 中该目标行的 `status`——`preserved` 完整往返、`degraded` 可往返（重命名）、`lost` 不可逆。整体结论 `RECOVERABLE`（无丢失）/ `LOSSY`（仅重命名类字段丢失，可人工补回）/ `IRREVERSIBLE`（含不可恢复字段如 `version`/`slug`/`displayname`）。全程内存计算，不落盘。
+- **JSON**：`--json` 时每个技能结果附 `translate` 字段（`source_format`/`target_format`/`frontmatter`/`lost_fields`/`degraded_fields`；`--verify` 追加 `round_trip`）。
+- **范围（决策③ + v1.16.0 追加 `generic`）**：先支持 `workbuddy`↔`agentskills`/`claude-code`/`cursor-plugin`；v1.16.0 起追加 `generic` 作为**降级兜底**目标——仅保留 `name`/`description`，其余字段（version/license/allowed-tools/target_agent/slug/displayname/metadata 等）全部丢失，报告前置「⚠ 高损失」警告并提示「如需完整跨 Agent 分发，优先用 agentskills/cursor-plugin（一次转译全生态通用）」。`.mdc` 规则文件（`cursor-mdc`）损失更大，本期仍不纳入 emit 目标（仅矩阵单列呈现）。
+
 ## 生态级批量审计与供应链安全（Phase 8）
 
 面向「作者/组织自检整库或整组织技能健康度」场景（对标 Snyk ToxicSkills，但服务于作者而非攻击者）：

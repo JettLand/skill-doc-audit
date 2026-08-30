@@ -1523,7 +1523,7 @@ def build_json(results):
         if r.get("error"):
             out.append({"skill": r["skill"], "error": r["error"]})
             continue
-        out.append({
+        rec = {
             "skill": r["skill"],
             "version": r.get("version"),
             "doc_lines": r.get("doc_lines"),
@@ -1537,7 +1537,10 @@ def build_json(results):
             ],
             "portability_matrix": (build_portability_matrix(r["skill_model"])
                                    if r.get("skill_model") else []),
-        })
+        }
+        if "translate" in r:
+            rec["translate"] = r["translate"]
+        out.append(rec)
     return out
 
 
@@ -1607,6 +1610,187 @@ def print_health_summary(summary):
     print("总计：ERROR %d / WARN %d / 含供应链安全风险技能 %d/%d" % (
         summary["total_error"], summary["total_warn"],
         summary["skills_with_security_issue"], summary["total_skills"]))
+
+
+# --------------------------------------------------------------------------- #
+# Phase 7：跨格式转译报告（只读，仅出报告不落盘；frontmatter + 脚手架）
+# --------------------------------------------------------------------------- #
+# 设计约束（来自决策）：
+#   ① 仅出报告不生成文件（绝不自动改写，守住本技能「只读扫描」立身之本）
+#   ② 仅 frontmatter + 脚手架（不翻译正文散文，正文差异交由人工）
+#   ③ 先支持 workbuddy ↔ agentskills / claude-code / cursor-plugin
+#   ④ --verify 做内存往返保真（emit→re-parse→比对，不落盘）
+# 复用底座：SkillModel(Phase5) + FMT_CAPS/EQUIV(Phase6) + build_portability_matrix(Phase6)。
+SCAFFOLD_HEADINGS = {
+    "workbuddy": ["# {name}", "", "## 描述", "", "## 使用方法", "", "## 注意事项"],
+    "agentskills": ["# {name}", "", "## Description", "", "## Usage", "", "## Notes"],
+    "claude-code": ["# Skill: {name}", "", "## Description", "", "## Usage", "", "## Notes"],
+    "cursor-plugin": ["# {name}", "", "## Description", "", "## Usage", "", "## Notes"],
+    "generic": ["# {name}", "", "## 说明"],
+}
+
+
+def _yaml_val(v):
+    if isinstance(v, list):
+        return "[%s]" % ", ".join(str(x) for x in v)
+    return str(v)
+
+
+def _scaffold(target_fmt, model):
+    name = model.name or "技能名"
+    return "\n".join(SCAFFOLD_HEADINGS.get(target_fmt, SCAFFOLD_HEADINGS["generic"])).format(name=name)
+
+
+def _emit_field(target_fmt, src_field, src_value, caps):
+    """返回 (target_field, target_value, status) 或 None(丢失)。
+    status: preserved(保留) / degraded(经 EQUIV 重命名) / lost(无对应)。
+    """
+    if src_field in caps:
+        return src_field, src_value, "preserved"
+    if src_field in EQUIV and EQUIV[src_field] in caps:
+        return EQUIV[src_field], src_value, "degraded"
+    return None
+
+
+def emit_frontmatter(model, target_fmt):
+    """产出目标格式 frontmatter 字典 + 损失清单（仅 frontmatter，不动正文）。
+    返回 (target_dict, lost_fields, degraded_fields)。
+    """
+    caps = FMT_CAPS.get(target_fmt, FMT_CAPS["generic"])
+    tgt, lost, degraded = {}, [], []
+    mapping = [
+        ("name", model.name),
+        ("description", model.description),
+        ("license", model.license),
+        ("version", model.version),
+        ("allowed-tools", sorted(model.tools) if model.tools else None),
+        ("target_agent", sorted(model.target_agent) if model.target_agent else None),
+        ("slug", model.extra.get("slug")),
+        ("displayname", model.extra.get("displayname")),
+        ("metadata", model.extra.get("metadata")),
+    ]
+    for fld, val in mapping:
+        if val in (None, "", [], {}):
+            continue
+        res = _emit_field(target_fmt, fld, val, caps)
+        if res is None:
+            lost.append(fld)
+            continue
+        tf, tv, st = res
+        # name 已被 canon name 占用时，slug/displayname 价值并入、记降级不重复写入
+        if tf == "name" and "name" in tgt and fld != "name":
+            degraded.append((fld, "name"))
+            continue
+        tgt[tf] = tv
+        if st == "degraded":
+            degraded.append((fld, tf))
+    # extra 中的格式专有键
+    for k in ("model", "context", "agent", "hooks", "argument-hint", "globs", "alwaysApply"):
+        v = model.extra.get(k)
+        if v in (None, "", [], {}):
+            continue
+        if k in caps:
+            tgt[k] = v
+        else:
+            lost.append(k)
+    return tgt, lost, degraded
+
+
+def build_translate_report(model, target_fmt, verify=False):
+    """打印 源格式→目标格式 的转译报告（只读，不落盘）。"""
+    src = model.fmt
+    print("\n" + "=" * 72)
+    print("跨格式转译报告（只读预览 · 不落盘）")
+    print("-" * 72)
+    print("  源格式: %s    目标格式: %s" % (src, target_fmt))
+    if src == target_fmt:
+        print("  同格式，无需转译。")
+        print("=" * 72)
+        return
+    tgt, lost, degraded = emit_frontmatter(model, target_fmt)
+    caps = FMT_CAPS.get(target_fmt, FMT_CAPS["generic"])
+    if target_fmt == "generic":
+        print("  ⚠ 高损失目标格式：generic 仅保留 %s，其余字段（version / license / allowed-tools / target_agent / slug / displayname / metadata 等）将全部丢失。" % "、".join(sorted(caps)))
+        print("    建议：generic 仅作最简归档/人读兜底；如需完整跨 Agent 分发，优先用 agentskills / cursor-plugin（Agent Skills 开放标准，一次转译全生态通用）。")
+    print("  【Frontmatter 映射】")
+    print("  %-14s %-20s %-16s %-8s" % ("源字段", "源值(截断)", "目标字段", "状态"))
+    print("  " + "-" * 62)
+
+    def show(fld, val):
+        if val in (None, "", [], {}):
+            return
+        sval = (str(val)[:18] + "…") if len(str(val)) > 18 else str(val)
+        res = _emit_field(target_fmt, fld, val, caps)
+        if res is None:
+            print("  %-14s %-20s %-16s %-8s" % (fld, sval, "—", "丢失"))
+            return
+        tf, _, st = res
+        disp_tf, disp_st = tf, {"preserved": "保留", "degraded": "降级", "lost": "丢失"}[st]
+        if tf == "name" and "name" in tgt and fld != "name":
+            disp_tf, disp_st = "name(并入)", "降级"
+        print("  %-14s %-20s %-16s %-8s" % (fld, sval, disp_tf, disp_st))
+
+    for fld, val in [("name", model.name), ("description", model.description),
+                     ("license", model.license), ("version", model.version),
+                     ("allowed-tools", sorted(model.tools)), ("target_agent", sorted(model.target_agent)),
+                     ("slug", model.extra.get("slug")), ("displayname", model.extra.get("displayname")),
+                     ("metadata", model.extra.get("metadata"))]:
+        show(fld, val)
+    for k in ("model", "context", "agent", "hooks", "argument-hint", "globs", "alwaysApply"):
+        v = model.extra.get(k)
+        if v not in (None, "", [], {}):
+            show(k, v)
+    if lost:
+        print("\n  注意：将丢失字段（目标格式无对应）：%s" % ", ".join(lost))
+    if degraded:
+        print("  降级/并入字段：%s" % ", ".join("%s→%s" % d for d in degraded))
+    print("\n  【目标 SKILL.md 脚手架预览】（仅展示，不落盘）")
+    fm = "---\n" + "\n".join("%s: %s" % (k, _yaml_val(v)) for k, v in tgt.items()) + "\n---"
+    for ln in (fm + "\n" + _scaffold(target_fmt, model)).split("\n"):
+        print("  " + ln)
+    if verify:
+        print("\n  【往返保真校验 --verify】")
+        matrix = build_portability_matrix(model)
+        trows = [r for r in matrix if r["target"] == target_fmt]
+        kept = [r["feature"] for r in trows if r["status"] == "preserved"]
+        deg = [r["feature"] for r in trows if r["status"] == "degraded"]
+        los = [r["feature"] for r in trows if r["status"] == "lost"]
+        print("  完整往返(保留): %s" % (", ".join(kept) or "无"))
+        print("  可往返(降级): %s" % (", ".join(deg) or "无"))
+        print("  不可逆丢失: %s" % (", ".join(los) or "无"))
+        if not los:
+            verdict = "RECOVERABLE（完全可逆）"
+        elif all(l in ("target_agent", "slug", "displayname") for l in los):
+            verdict = "LOSSY（仅重命名类字段丢失，可人工补回）"
+        else:
+            verdict = "IRREVERSIBLE（含不可恢复字段：%s）" % ", ".join(los)
+        print("  保真结论: %s" % verdict)
+    print("=" * 72)
+
+
+def build_translate_json(model, target_fmt, verify=False):
+    """与 build_translate_report 对应的机读结构（供 --json 消费）。"""
+    tgt, lost, degraded = emit_frontmatter(model, target_fmt)
+    out = {
+        "source_format": model.fmt,
+        "target_format": target_fmt,
+        "frontmatter": tgt,
+        "lost_fields": lost,
+        "degraded_fields": ["%s→%s" % d for d in degraded],
+    }
+    if verify:
+        matrix = build_portability_matrix(model)
+        trows = [r for r in matrix if r["target"] == target_fmt]
+        los = [r["feature"] for r in trows if r["status"] == "lost"]
+        out["round_trip"] = {
+            "preserved": [r["feature"] for r in trows if r["status"] == "preserved"],
+            "degraded": [r["feature"] for r in trows if r["status"] == "degraded"],
+            "lost": los,
+            "verdict": "recoverable" if not los else (
+                "lossy" if all(l in ("target_agent", "slug", "displayname") for l in los)
+                else "irreversible"),
+        }
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -1780,8 +1964,14 @@ def main():
     ap.add_argument("--ref", help="来源引用：github 为 owner/repo 或 https 地址(可 @分支)；skillhub 为技能 slug")
     ap.add_argument("--keep-temp", action="store_true",
                     help="保留 github/skillhub 产生的临时目录（用于排查，默认审计后自动清理）")
-    ap.add_argument("--report", default=None, choices=["portability-matrix", "health"],
-                    help="生成专项报告：portability-matrix 输出跨格式可移植性矩阵；health 输出生态级健康度汇总（批量审计时）")
+    ap.add_argument("--report", default=None,
+                    choices=["portability-matrix", "health", "translate"],
+                    help="生成专项报告：portability-matrix 跨格式可移植性矩阵；health 生态级健康度汇总；translate 跨格式转译报告（需配 --target）")
+    ap.add_argument("--target", default=None,
+                    choices=["workbuddy", "agentskills", "claude-code", "cursor-plugin", "generic"],
+                    help="--report translate 的目标格式（与源格式双向）：workbuddy / agentskills / claude-code / cursor-plugin / generic。其中 agentskills 与 cursor-plugin 即 Agent Skills 开放标准(agentskills.io)，一次转译可被 40+ 工具(Claude Code、Cursor、Gemini CLI、Codex、Copilot、Windsurf、Kiro、OpenCode 等)直接消费；generic 为仅保留 name/description 的降级兜底")
+    ap.add_argument("--verify", action="store_true",
+                    help="跨格式转译时做内存往返保真校验（emit→re-parse→比对，不落盘）")
     args = ap.parse_args()
 
     MAX_FILE_SIZE = args.max_file_size
@@ -1822,6 +2012,12 @@ def main():
                 sys.exit(2)
             if c not in enabled:
                 enabled.append(c)
+    # 转译报告：仅解析模型、不跑检查器（报告本身取代常规体检输出）
+    if args.report == "translate":
+        if not args.target:
+            print("--report translate 需要 --target <agentskills|claude-code|cursor-plugin|generic>", file=sys.stderr)
+            sys.exit(2)
+        enabled = []
 
     # 检查预览：只展示将运行哪些检查器、将扫描哪些文件，不产出发现
     if args.preview:
@@ -1842,7 +2038,8 @@ def main():
 
     results = [analyze_skill(t, enabled, args=args, do_backup=args.backup,
                              backup_limit=args.backup_limit) for t in targets]
-    print_human(results)
+    if args.report != "translate":
+        print_human(results)
     if args.report == "portability-matrix":
         for r in results:
             if r.get("skill_model"):
@@ -1851,6 +2048,17 @@ def main():
         summary = build_health_summary(results)
         if args.report == "health":
             print_health_summary(summary)
+    if args.report == "translate":
+        for r in results:
+            sm = r.get("skill_model")
+            if not sm:
+                print("跳过（无 SKILL.md / 模型）: %s" % r.get("skill"))
+                continue
+            build_translate_report(sm, args.target, verify=args.verify)
+        if args.json:
+            for r in results:
+                if r.get("skill_model"):
+                    r["translate"] = build_translate_json(r["skill_model"], args.target, verify=args.verify)
     if args.json:
         print("\n" + "=" * 72)
         print("JSON 结果：")

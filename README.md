@@ -34,16 +34,18 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 | 1.5.3 | 4.8/5 优秀 | 检查项中文标签（category_cn）+ 错误码对照表，报告自解释；异常处理 4.3→4.8 |
 | 1.6.0 | 4.8/5 优秀 | 新增 deadcode 死代码检查器（--check deadcode 启用，默认不随 --all-checks） |
 | 1.7.0 | 待复评 | deadcode 并入 --all-checks 默认集；运行前按 --deadcode-mode 询问精度（vulture/ast/skip），超时回退 ast |
-| 1.8.0 | 已发布（平台审核中） | deadcode 投产打磨：
-| 1.8.1 | 已发布 | 交互体验改进：deadcode 询问超时 10s→30s（给用户更充裕思考时间）；`ask` 模式检测到 vulture 已安装时直接采用高精度模式、不再交互询问 |修复 vulture API 调用；vulture 模式去重（不重复报 AST 项）；`# keep` 白名单统一作用于 vulture 分支；vulture 异常改 stderr 告警不静默；ast/vulture 分工明确。`doc` 检查器 `UNKNOWN_IDENT` 误报修复：自动识别 frontmatter `allowed-tools`/`tools` 与文档中的 `mcp__*__<name>` 外部工具名并跳过，不再对 MCP/Agent 类技能刷海量误报；该检查由 ERROR 降级为 WARN（本就是「可能拼写有误」的猜测），并按标识符去重。**同窗口内追加三项打磨**：① 死代码 `unused_def` 增加跨文件引用感知（多文件技能「本文件定义、他文件调用」不再误报），`orphan_asset` 增加 import 模块名豁免；② 代码/配置文件扫描扩展至多语言（.ts/.tsx/.vue/.go/.rs/.java/.c/.cpp/.h/.rb/.php/.swift/.kt/.lua 等），含多语言硬编码密钥检测；③ 新增 `--preview` 检查预览（只列出将运行的检查器与将扫描的文件，不产出发现，退出码 0），缓解「参数偏多/文档偏长」的首次使用门槛 |
-| 1.8.2 | 已发布（平台审核中） | 文档补全：SKILL.md 错误码对照表补全额 deadcode 检查器 5 个 category（`unused_def`/`unused_import`/`unreachable`/`orphan_asset`/`vulture`），与 `references/checkers.md` 权威表对齐（原速查表漏列 deadcode）；dist 同步重打包 |
-| 1.9.0 | 已发布（平台审核中） | **多平台来源抽象（--source）**：新增 `github` / `skillhub` 来源，经 `git clone --depth 1` / `skillhub install` 把远程/集市技能落到临时目录后照常审计；`analyze_skill` 核心逻辑零改动；新增 `--ref` / `--keep-temp` 参数；支持仓库内嵌套/多技能自动定位 SKILL.md |
-| 1.10.0 | 已发布（平台审核中） | **portability 检查器组（跨平台可移植性）**：新增第 7 个检查器 `portability`，已纳入 `--all-checks` 默认集；6 类全做（硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合）；按 SKILL.md 的 `target_platform` 字段豁免对应平台项（fire iff 声明平台∩breaks_on 非空），全 WARN/INFO 不报 ERROR；#6 Agent 耦合为 INFO 咨询（暂不加 `target_agent` 字段，列入 Phase 4 跨 Agent 分发待办） |
-| 1.11.0 | 已实现待发布（等用户命令） | **Phase 4 跨 Agent 分发 + Schema Normalizer**：新增 `target_agent` 字段轴（自由列表，`compatibility` 映射，按 mcp__/`.workbuddy` 信号推断 workbuddy），#6 `agent_coupling` 可按字段抑制（声明 workbuddy）/升级（声明跨 Agent 目标仍含 WorkBuddy 耦合→WARN）；`deps.platform_undeclared` 由散文扫描升级为读取结构化 `target_platform`；Schema Normalizer 支持 Claude Code/Cursor 等开放标准技能——YAML 列表式 `allowed-tools` 解析、`version`/`license` 检查平台感知（外部平台不强制 version）。经 `--source github --ref anthropics/skills` 真实外部仓库验证无 version/license 误报洪泛 |
-| 1.11.1 | 已实现待发布（等用户命令） | **portability #6 行为修正**：移除 `agent_coupling` 对 `workbuddy` 的抑制——本 skill 自身亦开发跨平台/跨 Agent 能力，故 WorkBuddy 目标的耦合提示同样有价值，不再免报。新口径：声明跨 Agent 目标（不含 `workbuddy`，如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合→WARN；其余（未声明/声明含 `workbuddy`/推断 `workbuddy`）→均 INFO 提示。文档同步（SKILL.md/checkers.md/README） |
-| 1.12.0 | 已实现待发布（等用户命令） | **Phase 5 跨 Agent 格式归一化内核**：新增 `detect_format()` 按 frontmatter 特征推断技能格式（workbuddy/agentskills/claude-code/cursor-mdc/generic），并构建统一 `SkillModel`（name/description/fmt/platform/target_platform/target_agent/tools/license/version/extra）；`analyze_skill` 返回结果新增 `format` 与 `skill_model` 字段，供各检查器与后续 Phase 6 矩阵 / Phase 7 转译消费。格式判定「按特征推断」而非硬锁枚举，延续 v1.11.0 自由列表原则以防生态演进漏判。自审 0 ERROR、WARN 无回归 |
-| 1.13.0 | 已实现待发布（等用户命令） | **Phase 6 跨格式可移植性矩阵（核心价值）**：在 Phase 5 `SkillModel` 之上以开放标准 `agentskills` 为枢纽构建字段级能力映射（`FMT_CAPS`/`EQUIV`），对任意技能生成「源格式 → 各目标格式」P/D/L 损失矩阵；新增 `lossy_port` 发现（仅当技能显式声明跨 Agent 目标时触发，`lost`→WARN、`degraded`→INFO）；新增 `--report portability-matrix` 专项报告；并修复 `_parse_frontmatter_list` 内联列表 `[a, b]` 括号未剥离导致 `target_agent` 归一化失效的缺陷。自审 0 ERROR、WARN 维持基线 2 无回归 |
-| 1.14.0 | 已实现待发布（等用户命令） | **Phase 8 生态级批量审计 + 供应链安全**：`--ref` 支持逗号分隔多仓库批量审计（`--source github --ref a/b,c/d`）；`security` 新增 `hardcoded_endpoint`（硬编码远端地址，仅代码上下文才报，排除文档/注释示例 URL 与检查器自身源码误报）与 `dynamic_import`（反射式模块加载）两项供应链启发式；新增 `--report health` 生态健康度汇总（`--json` 多技能时自动附带 `health_summary`）。契合 13.4% 技能严重安全问题的行业痛点。自审 0 ERROR、WARN 维持基线 2 无回归 |
+| 1.8.0 | 4.8/5 优秀 | deadcode 投产打磨：
+| 1.8.1 | 4.8/5 优秀 | 交互体验改进：deadcode 询问超时 10s→30s（给用户更充裕思考时间）；`ask` 模式检测到 vulture 已安装时直接采用高精度模式、不再交互询问 |修复 vulture API 调用；vulture 模式去重（不重复报 AST 项）；`# keep` 白名单统一作用于 vulture 分支；vulture 异常改 stderr 告警不静默；ast/vulture 分工明确。`doc` 检查器 `UNKNOWN_IDENT` 误报修复：自动识别 frontmatter `allowed-tools`/`tools` 与文档中的 `mcp__*__<name>` 外部工具名并跳过，不再对 MCP/Agent 类技能刷海量误报；该检查由 ERROR 降级为 WARN（本就是「可能拼写有误」的猜测），并按标识符去重。**同窗口内追加三项打磨**：① 死代码 `unused_def` 增加跨文件引用感知（多文件技能「本文件定义、他文件调用」不再误报），`orphan_asset` 增加 import 模块名豁免；② 代码/配置文件扫描扩展至多语言（.ts/.tsx/.vue/.go/.rs/.java/.c/.cpp/.h/.rb/.php/.swift/.kt/.lua 等），含多语言硬编码密钥检测；③ 新增 `--preview` 检查预览（只列出将运行的检查器与将扫描的文件，不产出发现，退出码 0），缓解「参数偏多/文档偏长」的首次使用门槛 |
+| 1.8.2 | 4.8/5 优秀 | 文档补全：SKILL.md 错误码对照表补全额 deadcode 检查器 5 个 category（`unused_def`/`unused_import`/`unreachable`/`orphan_asset`/`vulture`），与 `references/checkers.md` 权威表对齐（原速查表漏列 deadcode）；dist 同步重打包 |
+| 1.9.0 | 4.8/5 优秀 | **多平台来源抽象（--source）**：新增 `github` / `skillhub` 来源，经 `git clone --depth 1` / `skillhub install` 把远程/集市技能落到临时目录后照常审计；`analyze_skill` 核心逻辑零改动；新增 `--ref` / `--keep-temp` 参数；支持仓库内嵌套/多技能自动定位 SKILL.md |
+| 1.10.0 | 4.8/5 优秀 | **portability 检查器组（跨平台可移植性）**：新增第 7 个检查器 `portability`，已纳入 `--all-checks` 默认集；6 类全做（硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合）；按 SKILL.md 的 `target_platform` 字段豁免对应平台项（fire iff 声明平台∩breaks_on 非空），全 WARN/INFO 不报 ERROR；#6 Agent 耦合为 INFO 咨询（暂不加 `target_agent` 字段，列入 Phase 4 跨 Agent 分发待办） |
+| 1.11.0 | 4.8/5 优秀 | **Phase 4 跨 Agent 分发 + Schema Normalizer**：新增 `target_agent` 字段轴（自由列表，`compatibility` 映射，按 mcp__/`.workbuddy` 信号推断 workbuddy），#6 `agent_coupling` 可按字段抑制（声明 workbuddy）/升级（声明跨 Agent 目标仍含 WorkBuddy 耦合→WARN）；`deps.platform_undeclared` 由散文扫描升级为读取结构化 `target_platform`；Schema Normalizer 支持 Claude Code/Cursor 等开放标准技能——YAML 列表式 `allowed-tools` 解析、`version`/`license` 检查平台感知（外部平台不强制 version）。经 `--source github --ref anthropics/skills` 真实外部仓库验证无 version/license 误报洪泛 |
+| 1.11.1 | 4.8/5 优秀 | **portability #6 行为修正**：移除 `agent_coupling` 对 `workbuddy` 的抑制——本 skill 自身亦开发跨平台/跨 Agent 能力，故 WorkBuddy 目标的耦合提示同样有价值，不再免报。新口径：声明跨 Agent 目标（不含 `workbuddy`，如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合→WARN；其余（未声明/声明含 `workbuddy`/推断 `workbuddy`）→均 INFO 提示。文档同步（SKILL.md/checkers.md/README） |
+| 1.12.0 | 4.8/5 优秀 | **Phase 5 跨 Agent 格式归一化内核**：新增 `detect_format()` 按 frontmatter 特征推断技能格式（workbuddy/agentskills/claude-code/cursor-mdc/generic），并构建统一 `SkillModel`（name/description/fmt/platform/target_platform/target_agent/tools/license/version/extra）；`analyze_skill` 返回结果新增 `format` 与 `skill_model` 字段，供各检查器与后续 Phase 6 矩阵 / Phase 7 转译消费。格式判定「按特征推断」而非硬锁枚举，延续 v1.11.0 自由列表原则以防生态演进漏判。自审 0 ERROR、WARN 无回归 |
+| 1.13.0 | 4.8/5 优秀 | **Phase 6 跨格式可移植性矩阵（核心价值）**：在 Phase 5 `SkillModel` 之上以开放标准 `agentskills` 为枢纽构建字段级能力映射（`FMT_CAPS`/`EQUIV`），对任意技能生成「源格式 → 各目标格式」P/D/L 损失矩阵；新增 `lossy_port` 发现（仅当技能显式声明跨 Agent 目标时触发，`lost`→WARN、`degraded`→INFO）；新增 `--report portability-matrix` 专项报告；并修复 `_parse_frontmatter_list` 内联列表 `[a, b]` 括号未剥离导致 `target_agent` 归一化失效的缺陷。自审 0 ERROR、WARN 维持基线 2 无回归 |
+| 1.14.0 | 4.8/5 优秀 | **Phase 8 生态级批量审计 + 供应链安全**：`--ref` 支持逗号分隔多仓库批量审计（`--source github --ref a/b,c/d`）；`security` 新增 `hardcoded_endpoint`（硬编码远端地址，仅代码上下文才报，排除文档/注释示例 URL 与检查器自身源码误报）与 `dynamic_import`（反射式模块加载）两项供应链启发式；新增 `--report health` 生态健康度汇总（`--json` 多技能时自动附带 `health_summary`）。契合 13.4% 技能严重安全问题的行业痛点。自审 0 ERROR、WARN 维持基线 2 无回归 |
+| 1.15.0 | 待复评 | **Phase 7 跨格式转译报告（只读预览·不落盘）**：在 Phase 5/6 底座（`SkillModel`+`FMT_CAPS`/`EQUIV`+`build_portability_matrix`）之上新增 `--report translate --target <fmt>`，把「检测/矩阵」升级为「可预览转译方案」——但**仅出报告、不落盘**，守住本技能「只读扫描」立身之本。输出 frontmatter 字段映射表（保留/降级/丢失逐项标注）+ 目标 SKILL.md 脚手架预览（仅 frontmatter+标题骨架，正文散文不翻译留人工）；`--target` 支持 `workbuddy`↔`agentskills`/`claude-code`/`cursor-plugin` 双向；`--verify` 做内存往返保真（emit→re-parse→比对），依矩阵给出 `RECOVERABLE`/`LOSSY`/`IRREVERSIBLE` 结论；`--json` 附 `translate` 字段。决策：①仅报告不生成文件 ②仅 frontmatter+脚手架 ③先支持 workbuddy↔agentskills/claude-code/cursor-plugin ④`--verify` 一并纳入。自审 0 ERROR、WARN 维持基线 2 无回归 |
+| 1.16.0 | 待复评 | **Phase 7 ⑤落地·agentskills 全生态枢纽标注 + generic 兜底目标 + 跨平台证明**：①文档标注 `--target agentskills`/`cursor-plugin` 即 Agent Skills 开放标准（agentskills.io），一次转译可被 40+ 工具（Claude Code、Cursor、Gemini CLI、Codex、Copilot、Windsurf、Kiro、OpenCode、Cline、Roo Code 等）直接消费；③新增 `generic` 降级兜底目标（`--target` 枚举扩展），仅保留 name/description，报告前置「⚠ 高损失」警告并提示优先用 agentskills/cursor-plugin；补全「跨平台可移植性证明」专节（纯标准库/零第三方依赖、无平台专属 API 实际调用、portability 自检 0 OS 级发现）。自审 0 ERROR、WARN 维持基线 2 无回归 |
 
 > 评测由 SkillHub 平台在每次发布后自动重跑（TRACE 五维）。
 
@@ -131,6 +133,18 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 
 > 设计要点：Phase 5 是「地基」，不直接改变任何检查器的发现口径（现有 findings 与改动前完全一致），仅为跨格式审计建立统一表示层。下一步 Phase 6 将在此之上构建跨格式可移植性矩阵（字段映射 / 工具名 crosswalk / lossy-port 分级警告）。
 
+## 1.13.0 打磨明细（Phase 6 跨格式可移植性矩阵）
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| 字段级能力映射 | 新增 `FMT_CAPS`（各格式原生支持字段集合）、`EQUIV`（跨格式等价字段：target_agent↔compatibility、slug/displayName→name）、`AGENT_TO_FMT`（Agent 名→规范格式）、`FORMAT_TARGETS`；新增 `_model_features()` 与 `build_portability_matrix()` 生成「源格式 → 各目标格式」P/D/L 矩阵 | 本技能自检矩阵正确呈现 8 个特征跨 5 目标格式的 P/D/L 分布 |
+| `lossy_port` 发现（#7） | `check_portability` 新增 #7：仅当 `target_agent`/`compatibility` 显式声明跨 Agent 目标（不含 `workbuddy`）时触发；对声明目标端 `lost`→WARN、`degraded`→INFO；纯 workbuddy/未声明目标不触发（避免噪音）。修复初版误置于代码行循环内导致无代码文件技能不触发的问题 | 跨 Agent 夹具 `compatibility:[claude-code,cursor]`：正确产 WARN（version/target_agent 丢失）+ INFO（slug/displayName 降级），准确区分级别 |
+| 专项报告 `--report portability-matrix` | 新增 CLI 选项，打印 P/D/L 矩阵（不改写任何文件），并并入 `--json` 的 `portability_matrix` 字段 | 自身 `--report` 输出 8 特征 × 5 目标矩阵；`--json` 含矩阵 |
+| 缺陷修复 `_parse_frontmatter_list` | 内联列表 `[claude-code, cursor]` 此前被解析为 `['[claude-code', 'cursor]']`（括号未剥离）→ `target_agent` 归一化失效；现解析前后均 `strip("[]")` | 夹具 `compatibility:[claude-code, cursor]` 现正确归一为 `{claude-code, cursor}`，`lossy_port` 正常触发 |
+| 文档同步 | SKILL.md 升 1.13.0 + 快速开始新增 `--report` 行 + portability 节补 Phase 6 矩阵说明与 `lossy_port` 行；`references/checkers.md` 损失行 + 矩阵专节；README 版本表 + 本明细 | — |
+
+> 设计要点：Phase 6 放大既有 `portability` 能力，将单点 `agent_coupling` 升级为可执行的「X→Y 会损失什么」迁移指南（核心价值）。Phase 7 双向转译暂缓，待 5/6 经真实外部仓库稳定验证后再议；Phase 8 生态级批量审计 + 供应链安全按计划排期在 Phase 6 之后。
+
 ## 1.14.0 打磨明细（Phase 8 生态级批量审计 + 供应链安全）
 
 | 打磨项 | 改动 | 验证（均通过） |
@@ -143,14 +157,25 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 
 > 设计要点：Phase 8 是「轻量」生态级能力——供应链安全启发式复用并扩展既有 `security` 检查器（不新增独立检查器，避免口径漂移），批量审计复用既有 `--source` 抽象（仅放开 `--ref` 多值），健康度汇总作为只读报告叠加（不改写文件）。Phase 7 双向转译仍暂缓，待 Phase 5/6/8 经真实外部仓库（anthropics/skills、Cursor 官方样例、多组织批量）验证稳定后再议。
 
-## 1.13.0 打磨明细（Phase 6 跨格式可移植性矩阵）
+## 1.15.0 打磨明细（Phase 7 跨格式转译报告·只读预览）
 
 | 打磨项 | 改动 | 验证（均通过） |
 |---|---|---|
-| 字段级能力映射 | 新增 `FMT_CAPS`（各格式原生支持字段集合）、`EQUIV`（跨格式等价字段：target_agent↔compatibility、slug/displayName→name）、`AGENT_TO_FMT`（Agent 名→规范格式）、`FORMAT_TARGETS`；新增 `_model_features()` 与 `build_portability_matrix()` 生成「源格式 → 各目标格式」P/D/L 矩阵 | 本技能自检矩阵正确呈现 8 个特征跨 5 目标格式的 P/D/L 分布 |
-| `lossy_port` 发现（#7） | `check_portability` 新增 #7：仅当 `target_agent`/`compatibility` 显式声明跨 Agent 目标（不含 `workbuddy`）时触发；对声明目标端 `lost`→WARN、`degraded`→INFO；纯 workbuddy/未声明目标不触发（避免噪音）。修复初版误置于代码行循环内导致无代码文件技能不触发的问题 | 跨 Agent 夹具 `compatibility:[claude-code,cursor]`：正确产 WARN（version/target_agent 丢失）+ INFO（slug/displayName 降级），准确区分级别 |
-| 专项报告 `--report portability-matrix` | 新增 CLI 选项，打印 P/D/L 矩阵（不改写任何文件），并并入 `--json` 的 `portability_matrix` 字段 | 自身 `--report` 输出 8 特征 × 5 目标矩阵；`--json` 含矩阵 |
-| 缺陷修复 `_parse_frontmatter_list` | 内联列表 `[claude-code, cursor]` 此前被解析为 `['[claude-code', 'cursor]']`（括号未剥离）→ `target_agent` 归一化失效；现解析前后均 `strip("[]")` | 夹具 `compatibility:[claude-code, cursor]` 现正确归一为 `{claude-code, cursor}`，`lossy_port` 正常触发 |
-| 文档同步 | SKILL.md 升 1.13.0 + 快速开始新增 `--report` 行 + portability 节补 Phase 6 矩阵说明与 `lossy_port` 行；`references/checkers.md` 损失行 + 矩阵专节；README 版本表 + 本明细 | — |
+| 转译内核 | 新增 `emit_frontmatter(model, target_fmt)`：复用 `FMT_CAPS`/`EQUIV` 逐字段映射，命中等价映射记降级、目标无对应记丢失；多源字段映射同一目标字段（如 `slug`/`displayName`→`name`）时保留 canon `name`、其余并入并记降级。新增 `_emit_field`/`_yaml_val`/`_scaffold` 辅助 | 4 个目标格式逐项映射符合 `FMT_CAPS` 预期 |
+| 报告 | 新增 `build_translate_report`：frontmatter 字段映射表（保留/降级/丢失标注）+ 目标 SKILL.md 脚手架预览（仅 frontmatter+标题骨架，明确标注「仅展示，不落盘」） | workbuddy→agentskills/claude-code/cursor-plugin 与 agentskills→workbuddy 双向输出正确 |
+| 往返保真 `--verify` | 复用 `build_portability_matrix` 该目标行的 `status`：preserved 完整往返、degraded 可往返（重命名）、lost 不可逆；整体结论 `RECOVERABLE`/`LOSSY`/`IRREVERSIBLE` | workbuddy→agentskills 正确判 `IRREVERSIBLE(含 version)`；agentskills→workbuddy 正确判 `RECOVERABLE` |
+| CLI | `--report` 增 `translate`；新增 `--target`（workbuddy/agentskills/claude-code/cursor-plugin）、`--verify`；translate 模式跳过检查器、不打印常规体检、仅出转译报告；`--json` 附 `translate` 字段 | 各方向 + JSON 实跑通过 |
+| 文档同步 | SKILL.md 升 1.15.0 + 速查表补 `--report translate` 行 + portability 节补 Phase 7 专述；`references/checkers.md` 补 Phase 7 专节；README 版本表 + 本明细 | — |
 
-> 设计要点：Phase 6 放大既有 `portability` 能力，将单点 `agent_coupling` 升级为可执行的「X→Y 会损失什么」迁移指南（核心价值）。Phase 7 双向转译暂缓，待 5/6 经真实外部仓库稳定验证后再议；Phase 8 生态级批量审计 + 供应链安全按计划排期在 Phase 6 之后。
+> 设计要点：Phase 7 是「只读预览」而非「写能力」——只把 Phase 5/6 已有的归一化与矩阵下沉为可预览的转译方案，全程不落盘，守住本技能「只读扫描、绝不自动改写」的立身之本（原计划中的「自动生成目标 SKILL.md」因与本原则冲突、且正文散文机械转译不可靠，已按用户决策改为仅出报告）。决策①②③④ 全部落地。下一步（⑤）：评估是否纳入更多高性价比目标格式（generic-markdown / aidevice / openai-plugins / mcp-server 等）。
+
+## 1.16.0 打磨明细（Phase 7 ⑤落地·agentskills 枢纽标注 + generic 兜底 + 跨平台证明）
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| 建议1·文档标注 agentskills 全生态枢纽（零成本） | SKILL.md / checkers.md / README 标注：`--target agentskills` 与 `--target cursor-plugin` 即 Agent Skills 开放标准（agentskills.io）形态，一次转译可被 40+ 工具（Claude Code、Cursor、Gemini CLI、Codex、Copilot、Windsurf、Kiro、OpenCode 等）直接消费；`claude-code` 仅叠加可选扩展键 | 文档与代码（`FMT_CAPS` agentskills/cursor-plugin 同构）一致；本技能自扫 `--target agentskills` 产出字段符合开放标准能力集合 |
+| 建议3·generic 降级兜底目标（极低本） | `--target` 枚举扩展加入 `generic`；`build_translate_report` 对 `generic` 前置「⚠ 高损失」警告并提示优先用 agentskills/cursor-plugin；`emit_frontmatter`/`SCAFFOLD_HEADINGS`/`FORMAT_TARGETS` 已原生支持 generic，无需改映射内核 | workbuddy→generic 正确输出高损失警告 + 仅保 name/description；generic→workbuddy 正确判 `RECOVERABLE`；`--json` 附 `translate` 字段正常 |
+| 跨平台可移植性证明（按用户要求校对补全） | SKILL.md 新增「跨平台可移植性证明（本技能自身）」专节：纯 Python 标准库/零第三方依赖、无平台专属 API 实际调用（相关字样仅作检查器检测规则）、portability 自检 0 OS 级发现（17 条 INFO 全为 agent_coupling 跨 Agent 咨询）；并附可复现命令 | 在本技能源码运行 `--check portability`（未声明 target_platform=全平台全检）得 `ERROR 0 / WARN 0`，全部 INFO 为 agent_coupling；Grep 确认无 `win32api`/`os.getcwd`/`shell=True` 实际调用 |
+| 文档同步 | SKILL.md 升 1.16.0 + 速查表补 `generic` 目标 + portability 节补 Phase 7 agentskills 枢纽认知；checkers.md 补 agentskills 枢纽专述与 generic 范围；README 版本表 + 本明细 | — |
+
+> 设计要点：本次为 Phase 7 ⑤评估结论的落地——①（文档标注，零代码）与③（generic 兜底，极低本）均按评估采纳；②（cursor-mdc emit）与④（OpenAI plugins/MCP，非 SKILL.md 范式）维持「不纳」；同时按用户要求补「跨平台可移植性证明」节，把本技能自身的跨平台能力从「隐含」变为「可复现证据」。

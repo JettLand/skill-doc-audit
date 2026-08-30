@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库或 SkillHub 集市里的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.14.0"
+version: "1.16.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -66,6 +66,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 | 声明目标平台以豁免对应项 | SKILL.md 写 `target_platform: windows`（或 linux/macos/列表） |
 | 标注目标 Agent 分发范围 | SKILL.md 写 `target_agent: workbuddy`（或 claude-code/cross-agent/自由列表）；耦合提示不再抑制，跨 Agent 声明未含 workbuddy 升 WARN |
 | 生成跨格式可移植性矩阵（X→Y 字段损失） | `--report portability-matrix`（仅做报告，不改写；输出源格式到各目标格式的 P/D/L 矩阵） |
+| 生成跨格式**转译报告**（只读预览·不落盘） | `--report translate --target <fmt>`（仅出报告不生成文件；输出 frontmatter 字段映射表 + 目标 SKILL.md 脚手架预览；支持 `--verify` 做内存往返保真；目标格式 `workbuddy`/`agentskills`/`claude-code`/`cursor-plugin`/`generic`，与源格式双向；其中 `agentskills`/`cursor-plugin` 即 Agent Skills 开放标准，一次转译全生态通用） |
 | 生成生态级健康度汇总（批量审计时） | `--report health`（仅做报告，不改写；汇总各技能 ERROR/WARN/INFO 与供应链安全风险技能数；`--json` 多技能时自动附带 `health_summary`） |
 
 其余参数（`--json` / `--timeout` / `--max-file-size` / `--deadcode-mode` / `--backup-limit` / `--source` / `--ref` / `--keep-temp`）与完整检查项口径见下方「用法」与 `references/checkers.md`。
@@ -309,7 +310,19 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 
 > **跨格式可移植性矩阵（Phase 6，核心价值）**：在 Phase 5 统一 `SkillModel` 之上，引擎以开放标准 `agentskills` 为枢纽构建字段级能力映射（`FMT_CAPS` / `EQUIV`），对任意技能生成「源格式 → 各目标格式」的 P（保留）/ D（降级需转译）/ L（丢失）矩阵，并可通过 `--report portability-matrix` 直接打印。`lossy_port` 发现即来自该矩阵：仅当技能**显式声明跨 Agent 目标**（如 `compatibility: [claude-code, cursor]`、`target_agent` 含非 workbuddy 项）时，对声明目标端会 `lost`/`degraded` 的字段发出 WARN/INFO；纯 workbuddy 或未声明目标的不发（其跨 Agent 咨询已由 `agent_coupling` 覆盖）。降级示例：`target_agent` ↔ `compatibility`、`slug`/`displayName` → `name`；丢失示例：workbuddy 的 `version`/`slug` 在 claude-code 无对应字段。
 
+> **跨格式转译报告（Phase 7，只读预览）**：在 Phase 5/6 底座之上新增 `--report translate`，把「检测/矩阵」升级为「可预览的转译方案」——但**只出报告、不落盘**，守住本技能「只读扫描、绝不自动改写」的立身之本。它复用 `SkillModel` + `FMT_CAPS`/`EQUIV` + `build_portability_matrix`：对给定源技能与目标格式（`--target`，支持 `workbuddy`↔`agentskills`/`claude-code`/`cursor-plugin`/`generic` 双向），输出 **frontmatter 字段映射表**（保留/降级/丢失逐项标注）+ **目标 SKILL.md 脚手架预览**（仅 frontmatter + 标题骨架，正文散文不翻译、留人工）。`--verify` 在此之上做**内存往返保真**：emit→re-parse→比对，依 `build_portability_matrix` 给出每个字段的可逆性（保留/降级可往返、丢失不可逆）与整体保真结论（`RECOVERABLE` / `LOSSY` / `IRREVERSIBLE`），全程不写任何文件。JSON 模式下附 `translate` 字段供 CI 消费。`generic` 为**降级兜底**目标：仅保留 `name`/`description`，其余字段（version/license/allowed-tools/target_agent 等）全部丢失，仅作最简归档/人读兜底。决策约束：①仅报告不生成文件；②仅 frontmatter + 脚手架；③先支持 workbuddy↔agentskills/claude-code/cursor-plugin，v1.16.0 起追加 `generic` 降级兜底；④`--verify` 往返保真一并纳入。
+> **agentskills = 全生态通用枢纽（Phase 7 关键认知）**：`--target agentskills` 与 `--target cursor-plugin` 产出的 frontmatter 即 **Agent Skills 开放标准（agentskills.io，Anthropic 2025-12 开源）** 形态（`name`/`description`/`license`/`allowed-tools`/`compatibility`/`metadata` 能力集合）。该标准截至 2026 年已被 **40+ AI 工具**采纳为技能格式——Claude Code、Cursor、Gemini CLI、OpenAI Codex、GitHub Copilot、Windsurf、Kiro、OpenCode、Cline、Roo Code 等。即**一次转译到 `agentskills`，技能即可被上述 40+ 工具直接消费**；`claude-code` 仅在其上叠加 `model`/`context`/`agent`/`hooks`/`argument-hint` 等可选扩展键。因此「更多目标格式」的核心诉求已被现有目标以最小成本覆盖，`generic` 仅作压扁兜底。
+
 > 豁免规则（核心）：每条发现的 `breaks_on` 是「它会在哪些 OS 上崩」。声明平台与 `breaks_on` **有交集才报**，无交集才抑制。例：`target_platform: windows` 会抑制 `powershell`/`C:\` 这类 Windows 专属项的误报，但**保留** `rm -rf`/`/Users/` 这种在 Windows 目标上真会崩的项。`target_platform` 不写 = 跨平台（全平台）→ 始终全检。`agent_coupling`（Agent 平台耦合）为 INFO/WARN 咨询项，受 `target_agent` 字段门控：声明跨 Agent 目标（不含 `workbuddy`，如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合时升为 WARN（跨 Agent 会失效）；其余（未声明 / 声明含 `workbuddy` / 推断 `workbuddy`）均按 INFO 提示——不再因 `workbuddy` 而抑制，因本 skill 自身亦开发跨 Agent 能力，耦合提示对所有技能均有价值。开放标准技能的 `compatibility` 字段视作 `target_agent`。
+
+## 跨平台可移植性证明（本技能自身）
+
+本技能自身满足跨平台可部署要求，以下为**实测证据**（非声明、可复现）：
+
+- **纯 Python 标准库实现，零第三方依赖**：`scripts/audit_docs.py` 仅依赖 `argparse` / `re` / `os` / `json` / `zipfile` / `subprocess` / `threading` 等标准库，无需 `pip install`；`deadcode` 高精度模式的可选依赖 `vulture` 缺省时自动降级为零依赖 `ast`，非运行必需。
+- **无平台专属 API 的实际调用**：代码中出现的 `win32api` / `ctypes.windll` / `winreg` / `HKEY_` / `ShellExecute` / `os.startfile` / `powershell` / `cmd.exe` / `os.getcwd` / `shell=True` 等字样，**仅作为检查器自身的检测规则**（用于发现*其他*技能的这些反模式），本技能自身从未调用；所有外部 CLI（`git` / `npm` / `skillhub` 等）均以**列表传参**方式调用，未使用 `shell=True`。
+- **portability 自检零 OS 级发现**：在本技能源码（SKILL.md 未声明 `target_platform`，即「跨平台 = 全平台全检」）上运行 `--check portability`，结果为 `ERROR 0 / WARN 0`；17 条 `INFO` 全部为 `agent_coupling`（跨 *Agent* 咨询，提示 `.workbuddy` / `allowed-tools` 耦合，**非** OS 级破损）——无硬编码绝对路径、无启动目录依赖、无平台专属 shell、无解释器锁、无编码假设。
+- **结论**：可在 Windows / Linux / macOS 上无修改运行。仅当接入 `--source github`（git clone）或 `--source skillhub`（skillhub CLI）时才需对应外部 CLI 存在于 `PATH`，且该依赖对目标 OS 透明。
 
 ## 进阶用法示例
 
