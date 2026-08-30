@@ -2,8 +2,8 @@
 name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
-description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库或 SkillHub 集市里的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。
-version: "1.13.0"
+description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库或 SkillHub 集市里的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
+version: "1.14.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -66,6 +66,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 | 声明目标平台以豁免对应项 | SKILL.md 写 `target_platform: windows`（或 linux/macos/列表） |
 | 标注目标 Agent 分发范围 | SKILL.md 写 `target_agent: workbuddy`（或 claude-code/cross-agent/自由列表）；耦合提示不再抑制，跨 Agent 声明未含 workbuddy 升 WARN |
 | 生成跨格式可移植性矩阵（X→Y 字段损失） | `--report portability-matrix`（仅做报告，不改写；输出源格式到各目标格式的 P/D/L 矩阵） |
+| 生成生态级健康度汇总（批量审计时） | `--report health`（仅做报告，不改写；汇总各技能 ERROR/WARN/INFO 与供应链安全风险技能数；`--json` 多技能时自动附带 `health_summary`） |
 
 其余参数（`--json` / `--timeout` / `--max-file-size` / `--deadcode-mode` / `--backup-limit` / `--source` / `--ref` / `--keep-temp`）与完整检查项口径见下方「用法」与 `references/checkers.md`。
 
@@ -257,6 +258,8 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 | `hardcoded_secret` | 疑似硬编码密钥/凭据 | ERROR |
 | `obfuscation` | 疑似混淆编码 | WARN |
 | `dynamic_exec` | 动态执行（eval/exec 外部内容） | WARN |
+| `hardcoded_endpoint` | 硬编码远端端点（供应链风险，需代码上下文才报告，避免文档链接误报） | WARN |
+| `dynamic_import` | 动态导入（importlib/__import__ 等反射式模块加载） | WARN |
 | `path_traversal` | 路径穿越（`../`，上下文感知过滤） | ERROR |
 | `destructive_wildcard` | 危险通配删除（`rm -rf *`） | ERROR |
 | `injection_phrasing` | 疑似提示词注入句式 | INFO |

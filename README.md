@@ -43,6 +43,7 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 | 1.11.1 | 已实现待发布（等用户命令） | **portability #6 行为修正**：移除 `agent_coupling` 对 `workbuddy` 的抑制——本 skill 自身亦开发跨平台/跨 Agent 能力，故 WorkBuddy 目标的耦合提示同样有价值，不再免报。新口径：声明跨 Agent 目标（不含 `workbuddy`，如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合→WARN；其余（未声明/声明含 `workbuddy`/推断 `workbuddy`）→均 INFO 提示。文档同步（SKILL.md/checkers.md/README） |
 | 1.12.0 | 已实现待发布（等用户命令） | **Phase 5 跨 Agent 格式归一化内核**：新增 `detect_format()` 按 frontmatter 特征推断技能格式（workbuddy/agentskills/claude-code/cursor-mdc/generic），并构建统一 `SkillModel`（name/description/fmt/platform/target_platform/target_agent/tools/license/version/extra）；`analyze_skill` 返回结果新增 `format` 与 `skill_model` 字段，供各检查器与后续 Phase 6 矩阵 / Phase 7 转译消费。格式判定「按特征推断」而非硬锁枚举，延续 v1.11.0 自由列表原则以防生态演进漏判。自审 0 ERROR、WARN 无回归 |
 | 1.13.0 | 已实现待发布（等用户命令） | **Phase 6 跨格式可移植性矩阵（核心价值）**：在 Phase 5 `SkillModel` 之上以开放标准 `agentskills` 为枢纽构建字段级能力映射（`FMT_CAPS`/`EQUIV`），对任意技能生成「源格式 → 各目标格式」P/D/L 损失矩阵；新增 `lossy_port` 发现（仅当技能显式声明跨 Agent 目标时触发，`lost`→WARN、`degraded`→INFO）；新增 `--report portability-matrix` 专项报告；并修复 `_parse_frontmatter_list` 内联列表 `[a, b]` 括号未剥离导致 `target_agent` 归一化失效的缺陷。自审 0 ERROR、WARN 维持基线 2 无回归 |
+| 1.14.0 | 已实现待发布（等用户命令） | **Phase 8 生态级批量审计 + 供应链安全**：`--ref` 支持逗号分隔多仓库批量审计（`--source github --ref a/b,c/d`）；`security` 新增 `hardcoded_endpoint`（硬编码远端地址，仅代码上下文才报，排除文档/注释示例 URL 与检查器自身源码误报）与 `dynamic_import`（反射式模块加载）两项供应链启发式；新增 `--report health` 生态健康度汇总（`--json` 多技能时自动附带 `health_summary`）。契合 13.4% 技能严重安全问题的行业痛点。自审 0 ERROR、WARN 维持基线 2 无回归 |
 
 > 评测由 SkillHub 平台在每次发布后自动重跑（TRACE 五维）。
 
@@ -129,6 +130,18 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 | 文档同步 | SKILL.md 升 1.12.0 + portability 节补充「跨 Agent 格式归一化内核」说明；`references/checkers.md` 跨 Agent 字段节补充 Phase 5 内核说明；README 版本表 + 本明细 | — |
 
 > 设计要点：Phase 5 是「地基」，不直接改变任何检查器的发现口径（现有 findings 与改动前完全一致），仅为跨格式审计建立统一表示层。下一步 Phase 6 将在此之上构建跨格式可移植性矩阵（字段映射 / 工具名 crosswalk / lossy-port 分级警告）。
+
+## 1.14.0 打磨明细（Phase 8 生态级批量审计 + 供应链安全）
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| 批量来源 | `--ref` 由单仓库扩展为**逗号分隔多仓库**（`--source github --ref owner/repo1,owner/repo2`）；local/organization 单仓库语义不变（`refs` 为空时回落原路径）。每个仓库独立克隆、独立审计、独立聚合，单仓失败不影响其余 | 多 ref 拆分逻辑单测通过；单 ref 向后兼容 |
+| 供应链启发式 `hardcoded_endpoint` | `security` 新增：扫描 `http(s)://` 远端地址，标 WARN；**仅当行内含代码上下文**（`=`/`(`/`[`/`return`/`yield`）才报，排除文档/注释示例 URL；排除 localhost/example/SDK 文档主机；排除检查器自身源码（`re.compile` 等） | 夹具 `URL = "https://api.malicious-cdn.example.net/..."` 正确命中；自审 docstring 示例 URL 不误报（WARN 维持基线 2） |
+| 供应链启发式 `dynamic_import` | `security` 新增：反射式模块加载 `importlib.import_module` / `__import__` / `getattr(sys.modules)` 标 WARN | 夹具 `importlib.import_module("os")`、`__import__("sys")` 正确命中；自审 0 误报（提示文案已避免含正则字面量自匹配） |
+| 健康度汇总 | 新增 `build_health_summary()` / `print_health_summary()`；`--report health` 打印逐技能计数 + 含供应链风险技能数；`--json` 审计 ≥2 技能时自动包裹 `health_summary` 顶层键 | 单技能表格渲染正常；双结果单元验证 `total_skills=2`、风险类别分布正确、JSON 含 `health_summary` |
+| 文档同步 | SKILL.md 升 1.14.0 + 快速开始新增 `--report health` 行 + `security` 表补两项；`references/checkers.md` 补 `hardcoded_endpoint`/`dynamic_import` 行 + Phase 8 专节；README 版本表 + 本明细 | — |
+
+> 设计要点：Phase 8 是「轻量」生态级能力——供应链安全启发式复用并扩展既有 `security` 检查器（不新增独立检查器，避免口径漂移），批量审计复用既有 `--source` 抽象（仅放开 `--ref` 多值），健康度汇总作为只读报告叠加（不改写文件）。Phase 7 双向转译仍暂缓，待 Phase 5/6/8 经真实外部仓库（anthropics/skills、Cursor 官方样例、多组织批量）验证稳定后再议。
 
 ## 1.13.0 打磨明细（Phase 6 跨格式可移植性矩阵）
 

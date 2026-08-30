@@ -91,6 +91,17 @@ INJECT_RE = re.compile(r"(忽略|无视|disregard)\s*(the\s*)?(above|previous|�
 SCAN_SKIP_TOKENS = ("re.compile", "re.search", "re.match", "re.findall",
                     '"eval(', "subprocess|os.system")
 
+# Phase 8 供应链安全启发式（跨 Agent 生态级批量审计用）：硬编码远端端点 / 动态导入
+ENDPOINT_RE = re.compile(r"https?://([\w.\-]+)")
+# 排除明显文档 / 示例 / SDK 主机，避免把文档链接误报为硬编码端点
+EXCLUDE_ENDPOINT_HOSTS = {
+    "localhost", "127.0.0.1", "0.0.0.0", "example.com", "example.org",
+    "docs.github.com", "github.com", "w3.org", "developer.mozilla.org",
+    "python.org", "nodejs.org", "developer.mozilla.org", "docs.python.org",
+}
+DYNAMIC_IMPORT_RE = re.compile(
+    r"(importlib\s*\.\s*import_module|__import__\s*\(|getattr\s*\(\s*(sys\s*\.\s*modules|__import__))")
+
 
 def _security_irrelevant(line):
     """安全扫描上下文感知跳过：注释 / 文档 URL / 自引用资源上溯 不视为漏洞。
@@ -152,6 +163,8 @@ CATEGORY_LABELS = {
     "destructive_wildcard": "危险通配删除",
     "injection_phrasing": "疑似注入句式",
     "secret_in_doc": "文档含疑似密钥",
+    "hardcoded_endpoint": "硬编码远端端点",
+    "dynamic_import": "动态导入",
     # runtime：脚本可运行性
     "py_syntax": "Python 语法错误",
     "py_check_fail": "语法校验失败",
@@ -485,6 +498,21 @@ def check_security(ctx):
         for i, line in enumerate(content.splitlines(), 1):
             if any(tok in line for tok in SCAN_SKIP_TOKENS):
                 continue
+            # 硬编码远端端点（供应链风险）：须在 _security_irrelevant 跳过之前检测，
+            # 否则含 :// 的代码行会被整体跳过而漏报。仅排除注释行与检查器自身源码
+            # （re.compile 等），排除文档/示例/SDK 主机以避免把文档链接误报为硬编码端点。
+            _ep = ENDPOINT_RE.search(line)
+            _ep_comment = line.strip().startswith(("#", "//", "/*", "*", "<!--"))
+            # 仅当行内含代码上下文（赋值/调用/返回）才视为真实硬编码端点，
+            # 避免把文档叙述/注释中的示例 URL 误报（如检查器自身 docstring）。
+            _ep_context = re.search(r"[=(\[]|return |yield ", line) is not None
+            if _ep and not _ep_comment and not any(tok in line for tok in SCAN_SKIP_TOKENS) \
+                    and _ep_context and _ep.group(1) not in EXCLUDE_ENDPOINT_HOSTS \
+                    and not _ep.group(1).endswith(".example.com"):
+                findings.append(finding("security", SEVERITY_WARN, "hardcoded_endpoint",
+                                        "脚本硬编码远端端点: %s (%s)" % (_ep.group(0), rel),
+                                        file=rel, line=i,
+                                        suggestion="远端地址建议提取为配置/环境变量，避免供应链被定点篡改"))
             # 误报自纠错（上下文感知）：注释 / 文档 URL / 自引用资源上溯 不视为漏洞，
             # 统一作用于所有 security 正则，避免上下文盲误报。
             if _security_irrelevant(line):
@@ -506,6 +534,11 @@ def check_security(ctx):
             if WILDCARD_RM_RE.search(line):
                 findings.append(finding("security", SEVERITY_ERROR, "destructive_wildcard",
                                         "用户目录通配删除: %s" % rel, file=rel, line=i))
+            if DYNAMIC_IMPORT_RE.search(line):
+                findings.append(finding("security", SEVERITY_WARN, "dynamic_import",
+                                        "动态导入（importlib/__import__ 等反射式模块加载）: %s" % rel,
+                                        file=rel, line=i,
+                                        suggestion="确认导入目标来源可信，避免加载未预期的模块"))
 
     for i, line in enumerate(doc.splitlines(), 1):
         if INJECT_RE.search(line):
@@ -1526,6 +1559,56 @@ def print_portability_matrix(model):
     print("=" * 72)
 
 
+def build_health_summary(results):
+    """生态级健康度汇总（Phase 8：批量审计 + 供应链安全自检用）。
+
+    返回逐技能计数与跨 Agent 供应链风险（含安全 ERROR/WARN 的技能数与类别分布），
+    面向「作者自检整库/整组织技能健康度」场景，对标 Snyk ToxicSkills 但服务于作者而非攻击者。
+    """
+    rows = []
+    for r in results:
+        sm = r.get("skill_model")
+        name = (sm.name if sm else os.path.basename(r.get("skill", "")) or "?")
+        fmt = sm.fmt if sm else "unknown"
+        s = summarize(r.get("findings", []))
+        sec_issues = [f for f in r.get("findings", [])
+                      if f.get("checker") == "security"
+                      and f.get("severity") in (SEVERITY_ERROR, SEVERITY_WARN)]
+        rows.append({
+            "name": name,
+            "format": fmt,
+            "skill": r.get("skill", ""),
+            "error": s.get("error", 0),
+            "warn": s.get("warn", 0),
+            "info": s.get("info", 0),
+            "security_issues": len(sec_issues),
+            "security_categories": sorted({f["category"] for f in sec_issues}),
+        })
+    return {
+        "total_skills": len(rows),
+        "total_error": sum(x["error"] for x in rows),
+        "total_warn": sum(x["warn"] for x in rows),
+        "skills_with_security_issue": sum(1 for x in rows if x["security_issues"] > 0),
+        "skills": rows,
+    }
+
+
+def print_health_summary(summary):
+    """打印生态健康度汇总（--report health 用）。"""
+    print("\n" + "=" * 72)
+    print("生态健康度汇总（共审计 %d 个技能）" % summary["total_skills"])
+    print("-" * 72)
+    print("%-30s %-12s %5s %5s %5s %6s" % ("技能", "格式", "ERR", "WARN", "INFO", "安全项"))
+    for x in summary["skills"]:
+        print("%-30s %-12s %5d %5d %5d %6d" % (
+            x["name"][:30], x["format"], x["error"], x["warn"], x["info"],
+            x["security_issues"]))
+    print("-" * 72)
+    print("总计：ERROR %d / WARN %d / 含供应链安全风险技能 %d/%d" % (
+        summary["total_error"], summary["total_warn"],
+        summary["skills_with_security_issue"], summary["total_skills"]))
+
+
 # --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
@@ -1697,8 +1780,8 @@ def main():
     ap.add_argument("--ref", help="来源引用：github 为 owner/repo 或 https 地址(可 @分支)；skillhub 为技能 slug")
     ap.add_argument("--keep-temp", action="store_true",
                     help="保留 github/skillhub 产生的临时目录（用于排查，默认审计后自动清理）")
-    ap.add_argument("--report", default=None, choices=["portability-matrix"],
-                    help="生成专项报告：portability-matrix 输出跨格式可移植性矩阵（源格式 → 各目标格式的字段损失）")
+    ap.add_argument("--report", default=None, choices=["portability-matrix", "health"],
+                    help="生成专项报告：portability-matrix 输出跨格式可移植性矩阵；health 输出生态级健康度汇总（批量审计时）")
     args = ap.parse_args()
 
     MAX_FILE_SIZE = args.max_file_size
@@ -1712,8 +1795,17 @@ def main():
         watchdog.daemon = True
         watchdog.start()
     # 解析技能来源：本地/远程仓库/集市，统一落地为本地目录列表
+    # Phase 8：--ref 支持逗号分隔多仓库（org/多仓库批量审计）；local 忽略 ref
     src = get_source(args.source)
-    targets, cleanup_dirs = src.resolve(args.ref, args)
+    refs = [r.strip() for r in (args.ref or "").split(",") if r.strip()]
+    if args.source == "local" or not refs:
+        targets, cleanup_dirs = src.resolve(args.ref, args)
+    else:
+        targets, cleanup_dirs = [], []
+        for ref in refs:
+            d, c = src.resolve(ref, args)
+            targets += d
+            cleanup_dirs += c
     for t in targets:
         if not os.path.isdir(t):
             print("目录不存在: %s" % t, file=sys.stderr)
@@ -1755,10 +1847,18 @@ def main():
         for r in results:
             if r.get("skill_model"):
                 print_portability_matrix(r["skill_model"])
+    if args.report == "health" or (args.json and len(results) > 1):
+        summary = build_health_summary(results)
+        if args.report == "health":
+            print_health_summary(summary)
     if args.json:
         print("\n" + "=" * 72)
         print("JSON 结果：")
-        print(json.dumps(build_json(results), ensure_ascii=False, indent=2))
+        out = build_json(results)
+        # 多技能审计时附带健康度汇总，便于 CI / 批量巡检消费
+        if len(results) > 1:
+            out = {"health_summary": build_health_summary(results), "skills": out}
+        print(json.dumps(out, ensure_ascii=False, indent=2))
 
     # 清理来源产生的临时目录（--keep-temp 时保留并打印路径供排查）
     for d in cleanup_dirs:

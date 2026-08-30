@@ -50,6 +50,8 @@
 | security | `destructive_wildcard` | 危险通配删除 | 用户目录通配删除 'rm -rf *' | ERROR |
 | security | `obfuscation` | 疑似混淆编码 | 疑似混淆/编码隐藏执行 | WARN |
 | security | `dynamic_exec` | 动态执行 | 动态执行外部内容 eval/exec | WARN |
+| security | `hardcoded_endpoint` | 硬编码远端端点 | 脚本硬编码远端地址（供应链风险，仅当行内含代码上下文 `=`/`(`/`[`/`return`/`yield` 才报，避免文档/注释里的示例 URL 误报） | WARN |
+| security | `dynamic_import` | 动态导入 | 反射式模块加载（`importlib.import_module` / `__import__` / `getattr(sys.modules)`） | WARN |
 | security | `secret_in_doc` | 文档含疑似密钥 | 文档出现疑似密钥（可能为示例） | WARN |
 | security | `injection_phrasing` | 疑似注入句式 | 文档含疑似提示词注入句式，需 AI 复核 | INFO |
 | runtime | `py_syntax` | Python 语法错误 | Python 脚本语法错误 | ERROR |
@@ -107,6 +109,14 @@
 - **分级**：字段在声明目标端 `lost`（无对应字段，如 workbuddy 的 `version`/`slug` 在 claude-code）→ **WARN**；`degraded`（有等价字段需转译，如 `target_agent`→`compatibility`、`slug`/`displayName`→`name`）→ **INFO**。
 - **等价映射（固化 v1.11.0 约定）**：`target_agent` ↔ `compatibility`；`slug`/`displayName` → `name`。
 - **Cursor 两种形态**：Cursor Plugin 的 `SKILL.md` 等同 `agentskills`（支持 `allowed-tools`/`compatibility`）；若以 `.mdc` 规则文件分发（`cursor-mdc`），则无 `name`/`allowed-tools`，损失更大——矩阵报告中对 `cursor-mdc` 单列呈现以提示差异。
+
+## 生态级批量审计与供应链安全（Phase 8）
+
+面向「作者/组织自检整库或整组织技能健康度」场景（对标 Snyk ToxicSkills，但服务于作者而非攻击者）：
+
+- **批量来源**：`--source github --ref owner/repo1,owner/repo2`（逗号分隔多仓库）一次性审计多个远程仓库；`--source local --all` 审计本机全部已装技能。每个仓库/技能独立落地、独立审计、独立聚合，任一失败不影响其余。
+- **供应链安全启发式**（喂给 `security`）：在既有 `hardcoded_secret`/`obfuscation`/`dynamic_exec`/`path_traversal`/`destructive_wildcard` 之上新增两项——`hardcoded_endpoint`（脚本硬编码远端地址，仅当行内含代码上下文 `=`/`(`/`[`/`return`/`yield` 才报，排除文档/注释示例 URL 与检查器自身源码误报）、`dynamic_import`（反射式模块加载 `importlib.import_module`/`__import__`/`getattr(sys.modules)`）。两者均标 **WARN**，提示「远端地址/动态加载目标应提取为配置并核验来源可信」。
+- **健康度汇总报告**：`--report health` 输出逐技能 ERROR/WARN/INFO 计数与「含供应链安全风险技能数」汇总；`--json` 在审计 ≥2 个技能时自动附带 `health_summary` 顶层键，便于 CI / 批量巡检消费。
 
 ## 判定提示
 
