@@ -28,8 +28,8 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
-- `deadcode`（已纳入 `--all-checks`；运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask`：环境已装 vulture 则自动采用高精度（不询问），未装则交互询问，30 秒超时或无输入回退零依赖 `ast`。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
-- `portability`（已纳入 `--all-checks`，零依赖纯静态分析）：跨平台可移植性——硬编码绝对路径、启动目录依赖（`os.getcwd`）、平台专属 shell/命令、解释器/运行时锁、编码/路径分隔符假设、Agent 平台耦合。按 SKILL.md 的 `target_platform` 字段豁免对应平台项（`target_platform: windows` 仅抑制 Windows 专属项的误报，仍保留在 Windows 上真会崩的项；不写=跨平台，全检）；全部 WARN/INFO，绝不 ERROR
+- `deadcode`（运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask`：环境已装 vulture 则自动采用高精度（不询问），未装则交互询问，30 秒超时或无输入回退零依赖 `ast`。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
+- `portability`（零依赖纯静态分析）：跨平台可移植性——硬编码绝对路径、启动目录依赖（`os.getcwd`）、平台专属 shell/命令、解释器/运行时锁、编码/路径分隔符假设、Agent 平台耦合。按 SKILL.md 的 `target_platform` 字段豁免对应平台项（`target_platform: windows` 仅抑制 Windows 专属项的误报，仍保留在 Windows 上真会崩的项；不写=跨平台，全检）；全部 WARN/INFO，绝不 ERROR
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
 
@@ -276,7 +276,7 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 | `undeclared_cli` | 未声明外部 CLI 调用 | WARN |
 | `platform_undeclared` | 未声明运行平台（含 Windows 专属 API） | INFO |
 
-### deadcode（死代码检测，已纳入 --all-checks，运行前按 --deadcode-mode 选精度）
+### deadcode（死代码检测，运行前按 --deadcode-mode 选精度）
 
 | category | 中文含义 | 默认级别 |
 |---|---|---|
@@ -288,7 +288,7 @@ Summary: 2 ERROR, 1 WARN, 0 INFO  | exit code 1
 
 > 死代码误报抑制（详见 `references/checkers.md`）：字符串键/装饰器/入口启发、跨文件引用感知、`# keep` 白名单；`orphan_asset` 仅当文件名或相对路径未出现在任何文档/代码、也未被其他 `.py` 以模块名 import 时才报（只可能漏报、不会误标孤儿）。
 
-### portability（跨平台可移植性，已纳入 --all-checks，按 target_platform 豁免）
+### portability（跨平台可移植性，按 target_platform 豁免）
 
 | category | 中文含义 | 默认级别 |
 |---|---|---|
