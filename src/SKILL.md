@@ -233,10 +233,10 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 
 ## 完整运行示例（真实输出 + 解读）
 
-对某个技能目录运行全套体检：
+对技能源码目录运行全套体检（下方输出取自对本技能项目目录 `src/` 的审计；因目录名 `src` ≠ 技能名 `skill-doc-audit`，额外出现 1 个 `name_mismatch` WARN，审计正常部署的技能则无此项）：
 
 ```sh
-python scripts/audit_docs.py --skill ~/.workbuddy/skills/<技能名> --all-checks
+python scripts/audit_docs.py --skill src --all-checks
 ```
 
 真实输出（节选，每条发现均带中文标签与机器码，自解释）：
@@ -369,7 +369,7 @@ python scripts/audit_docs.py --skill ~/.workbuddy/skills/<技能名> --all-check
 
 - **纯 Python 标准库实现，零第三方依赖**：`scripts/audit_docs.py` 仅依赖 `argparse` / `re` / `os` / `json` / `zipfile` / `subprocess` / `threading` 等标准库，无需 `pip install`；`deadcode` 高精度模式的可选依赖 `vulture` 缺省时自动降级为零依赖 `ast`，非运行必需。
 - **无平台专属 API 的实际调用**：代码中出现的 `win32api` / `ctypes.windll` / `winreg` / `HKEY_` / `ShellExecute` / `os.startfile` / `powershell` / `cmd.exe` / `os.getcwd` / `shell=True` 等字样，**仅作为检查器自身的检测规则**（用于发现*其他*技能的这些反模式），本技能自身从未调用；所有外部 CLI（`git` / `npm` / `skillhub` 等）均以**列表传参**方式调用，未使用 `shell=True`。
-- **portability 自检零 OS 级发现**：在本技能源码（SKILL.md 未声明 `target_platform`，即「跨平台 = 全平台全检」）上运行 `--check portability`，结果为 `ERROR 0 / WARN 0`；17 条 `INFO` 全部为 `agent_coupling`（跨 *Agent* 咨询，提示 `.workbuddy` / `allowed-tools` 耦合，**非** OS 级破损）——无硬编码绝对路径、无启动目录依赖、无平台专属 shell、无解释器锁、无编码假设。
+- **portability 自检零 OS 级发现**：在本技能源码（SKILL.md 未声明 `target_platform`，即「跨平台 = 全平台全检」）上运行 `--check portability`，结果为 `ERROR 0 / WARN 0`；所有 `INFO` 均为 `agent_coupling`（跨 *Agent* 咨询，提示 `.workbuddy` / `allowed-tools` 耦合，**非** OS 级破损）——无硬编码绝对路径、无启动目录依赖、无平台专属 shell、无解释器锁、无编码假设。
 - **结论**：可在 Windows / Linux / macOS 上无修改运行。仅当接入 `--source github`（git clone）或 `--source skillhub`（skillhub CLI）时才需对应外部 CLI 存在于 `PATH`；`--source url` 使用标准库 `urllib`，无需任何外部 CLI，且 HTTPS 依赖对目标 OS 透明。
 
 ## 进阶用法示例
