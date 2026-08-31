@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.22.1"
+version: "1.23.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -30,6 +30,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `deps`：依赖与平台声明
 - `deadcode`（运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask`：环境已装 vulture 则自动采用高精度（不询问），未装则交互询问，30 秒超时或无输入回退零依赖 `ast`；**显式 `--deadcode-mode vulture` 但环境缺库时，脚本先尝试自动 `pip install vulture`（安装成功即高精度，失败才回退 `ast` 并标注 `precision_degraded`），尊重用户的显式高精度意图；`ast`/`skip` 与 ask 模式的自动回退不做安装尝试****⚠️ Agent 执行重要约定**：`ask` 的交互询问依赖人类 TTY 的 `input()` 提示；当由 Agent 经管道调用（stdin 非 TTY）时，脚本无法真正触达用户，会**降级为 `ast`**，并在报告中发出 `precision_degraded` 警告（v1.19.0 起由脚本自愈提示，此前为完全静默）——这正是「Agent 跑全量检测时 deadcode 只跑 AST、跳过询问」的根因。故 Agent 绝不可依赖 `ask` 默认，必须**先探测 vulture、再主动向用户询问三选一、并以 `--deadcode-mode` 显式传入**（具体流程见下方「Agent 执行约定」），让精度选择始终显式可控；即便 Agent 漏问，v1.19.0 也会在报告里显著标注精度降级，避免无提示地以低精度结果蒙混过关。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
 - `portability`（零依赖纯静态分析）：跨平台可移植性——硬编码绝对路径、启动目录依赖（`os.getcwd`）、平台专属 shell/命令、解释器/运行时锁、编码/路径分隔符假设、Agent 平台耦合。按 SKILL.md 的 `target_platform` 字段豁免对应平台项（`target_platform: windows` 仅抑制 Windows 专属项的误报，仍保留在 Windows 上真会崩的项；不写=跨平台，全检）；`agent_coupling`（Agent 平台耦合）另受同级 `target_agent` 字段门控：声明含 `workbuddy` 则抑制，声明 `claude-code`/`cross-agent` 等跨 Agent 目标且仍含 WorkBuddy 耦合时升为 WARN；全部 WARN/INFO，绝不 ERROR
+- `doc-llm`（v1.23.0 起纳入 `--all-checks` 全量集）：LLM 语义漂移检测（Vector 2）——覆盖 Vector 1 触及不到的自由散文语义漂移。全量检测时会**显式问询**是否启用：交互终端弹菜单（`1) 默认模式`：纯脚本、零依赖、0 token / `2) 增强模式`：启用 LLM 语义检测，依赖外部 LLM 服务、消耗额外 token / `3) 预览代价`：仅展示将发送的内容与预估 token，不实际调用），**30 秒超时或无输入一律回退默认模式**。非交互环境无法询问则跳过：`--all-checks` 全量自带时记 INFO `doc_llm_skipped`（不污染「全量检测 WARN 0」不变量）；用户显式 `--doc-llm-mode ask/auto` 却无法运行时记 WARN `doc_llm_unavailable`。**离线不变量：绝不自动联网**——只有用户在菜单中选「增强模式」或显式 `--doc-llm-mode auto` 且配置好 LLM（`SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`）才发起 OpenAI 兼容请求。不想被询问可显式 `--doc-llm-mode off`
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
 
@@ -111,7 +112,7 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 
 审计结束后临时目录默认自动清理；加 `--keep-temp` 可保留并打印路径，便于排查。
 
-## Agent 执行约定（deadcode 精度模式必须显式决策）
+## Agent 执行约定（deadcode 精度模式 / doc-llm 语义检测必须显式决策）
 
 本技能的 `deadcode` 默认精度模式为 `ask`，其「询问」是基于**人类交互终端（TTY）**的 `input()` 现场提示。但当你（Agent）替用户执行 `--all-checks` 时，脚本是通过管道运行的（`stdin` 非 TTY），`input()` 既无法显示也无法接收用户输入，于是脚本只能**静默降级为零依赖 `ast` 模式**——用户的精度选择权被悄悄吞掉，与设计初衷（精度应由用户决定）相悖。实测表现即「Agent 跑全量检测时 deadcode 只跑 AST、跳过询问」。
 
@@ -129,6 +130,16 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
    - 「安装 vulture 后走高精度」：先 `pip install vulture`，再 `--deadcode-mode vulture`；
    - 「直接零依赖 AST 跑（精度略低）」：`--deadcode-mode ast`；
    - 「本次跳过 deadcode」：`--deadcode-mode skip`。
+
+### doc-llm 语义检测同理（v1.23.0 起已纳入全量集）
+
+`--all-checks` 已包含 `doc-llm`，默认按 `ask` 处理——交互终端弹菜单询问、30 秒超时默认不启用。Agent 经管道调用（stdin 非 TTY）时**弹不出菜单**，会自动跳过并记 INFO `doc_llm_skipped`——**这是 INFO 不是 WARN**，不影响「全量检测 WARN 0」不变量，且**绝不联网**。
+
+为避免「用户的语义检测选择权被吞掉」，Agent 同样应显式决策并把结果传入：
+
+- **「本次不启用语义检测」**（默认、最省事）：加 `--doc-llm-mode off`，完全跳过、连 INFO 也不产生；
+- **「启用 LLM 语义检测」**：**先向用户确认代价**（依赖外部 LLM 服务、消耗额外 token），确认后配置 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`，再以 `--doc-llm-mode auto` 显式传入；
+- **「让用户自己在终端选」**：在真实交互终端运行，由菜单询问（Agent 不得替用户选「增强模式」）。
 4. **仅当明确处于无人值守的 CI / 自动化链路**时，才允许不经询问直接 `--deadcode-mode ast`（此时静默降级即预期行为）。
 
 一句话：**Agent 场景下的 deadcode 精度，永远由「Agent 显式传参」决定，而不是脚本的 `ask` 默认。** 这样精度选择权始终在用户手里，符合设计初衷。
@@ -245,7 +256,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 - **`WARN`/`INFO` 不是错误**：`structure` 的 `name_mismatch` 是提示性项，`portability` 的 `agent_coupling` INFO 是跨 *Agent* 咨询、**非** OS 级破损，均属正常产物，勿直接当错误处置。
 - **修改文档的五条原则**：① 只改文档，不改代码（代码问题整理出来交用户决策）；② 保留「已弃用」标注（不因「代码从不返回」就删）；③ 存疑时标注「待确认」而非臆断；④ 先读源码复核再决定；⑤ 版本号按语义化递增（修正文档表述属补丁级，修复功能缺陷属小版本级）。
 - **缩小审计范围**：用 `--check` 按需启用（如 `--check security`），或 `--all-checks` 全开；`--strict` 让 `WARN` 也计入退出码，适合 CI 门禁。
-- **`doc-llm` 默认不运行（离线不变量）**：它是选装 LLM 语义检测，依赖外部 LLM 服务。默认 `off`，且**不在 `--all-checks` 内**——`--all-checks` 不会触发任何联网。要启用须显式 `--doc-llm-mode auto/ask` 且配置 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`（或对应 `--doc-llm-*` 参数）；未配置/非交互时仅发 `doc_llm_unavailable` 显著告警、不影响其余检查。其调用流程刻意对齐 `deadcode` 检查器（`--doc-llm-mode` 与 `--deadcode-mode` 同构，降级即告警）。
+- **`doc-llm` 已纳入全量集，但绝不自动联网（离线不变量）**：v1.23.0 起 `--all-checks` 会跑 `doc-llm` 并**显式问询**是否启用 LLM 语义检测（全量检测理应包含语义漂移问询）。默认按 `ask`：交互终端弹菜单、30 秒超时默认不启用；非交互环境无法询问则跳过并记 INFO `doc_llm_skipped`。**任何情况下都不会自动联网**——只有在菜单中选「增强模式」或显式 `--doc-llm-mode auto`（且配置好 LLM）才发起请求。用户显式要求却被落空时才发 WARN `doc_llm_unavailable`。完全不想参加可显式 `--doc-llm-mode off`。调用流程刻意对齐 `deadcode` 检查器（`--doc-llm-mode` 与 `--deadcode-mode` 同构）。
 
 ## 完整运行示例（真实输出 + 解读）
 
@@ -296,13 +307,14 @@ python scripts/audit_docs.py --skill src --all-checks
 | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致（如 deadcode 模式列表） | WARN |
 | `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致（如「N 个检查器」） | WARN |
 | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | WARN |
-| `DOC_LLM_DRIFT` | 文档/代码语义漂移（LLM 判定，doc-llm 选装） | WARN |
-| `doc_llm_unavailable` | LLM 语义检测本应运行却未能运行（已跳过，显著告警） | WARN |
+| `DOC_LLM_DRIFT` | 文档/代码语义漂移（LLM 判定，doc-llm） | WARN |
+| `doc_llm_unavailable` | 用户显式要求 LLM 语义检测却未能运行（显著告警） | WARN |
+| `doc_llm_skipped` | 全量检测中 LLM 语义检测跳过（非交互环境，未调用 LLM） | INFO |
 | `doc_llm_ran` | LLM 语义检测已运行且未检出漂移（确认性 INFO） | INFO |
 
 > **内容漂移（Vector 1，v1.21.0 起）**：`doc` 检查器在既有「令牌存在性」校验之上，新增「结构化声明 ↔ 代码事实」交叉校验——`DOC_ENUM_DRIFT`（文档枚举的集合与代码权威集合不符）、`DOC_COUNT_DRIFT`（文档数量声明与代码实际计数不符）、`DOC_CAPABILITY_DRIFT`（能力声明行内出现代码不存在的标识符）。三者均 `WARN` 不 `ERROR`，仅作线索。该机制可捕获枚举/数量/能力集合类漂移；**自由散文的语义漂移（描述含义是否仍准确）仍须 AI 读代码复核**，非静态检查能及。
 >
-> **语义漂移（Vector 2，v1.22.1 起）——选装 `doc-llm` 检查器**：为覆盖 Vector 1 无法触及的自由散文语义漂移，新增**选装** LLM 语义检测 `doc-llm`，调用流程**刻意对齐 `deadcode` 检查器**（同构的 `(mode, degraded)` 元组 + 降级显著告警）。**交互征得同意、绝不替用户决定**：`--doc-llm-mode ask` 在交互终端向用户呈现实选项——`1) 默认模式`（纯脚本，零依赖，0 token）/`2) 增强模式`（启用 LLM 语义检测，依赖外部 LLM 服务、消耗额外 token）/`3) 预览代价`（仅展示将发送给 LLM 的内容与预估 token，不实际调用）；**30 秒超时或无输入一律回退默认模式**。非交互（自动化）环境无法询问 → 回退默认并显著告警（`doc_llm_unavailable`）。**离线不变量**：`doc-llm` 默认 `off` 且**不进入 `--all-checks` / 默认集**，绝不自动联网；仅当用户显式 `auto` 或交互选「增强模式」且配置好 LLM（环境变量 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`）时才发起 OpenAI 兼容请求；返回以「`- 文件:行 | 描述`」解析为 `DOC_LLM_DRIFT` 线索。
+> **语义漂移（Vector 2，v1.22.0 引入、v1.23.0 纳入全量）——`doc-llm` 检查器**：为覆盖 Vector 1 无法触及的自由散文语义漂移，提供 LLM 语义检测 `doc-llm`，调用流程**刻意对齐 `deadcode` 检查器**（同构的 `(mode, degraded)` 元组 + 降级可见化）。**v1.23.0 起纳入 `--all-checks` 全量集**——全量检测会跑本检查器并**显式问询**是否启用（默认 `ask`，不再需要额外传 `--doc-llm-mode`）。交互终端呈现实选项——`1) 默认模式`（纯脚本，零依赖，0 token）/`2) 增强模式`（启用 LLM 语义检测，依赖外部 LLM 服务、消耗额外 token）/`3) 预览代价`（仅展示将发送给 LLM 的内容与预估 token，不实际调用）；**30 秒超时或无输入一律回退默认模式**。非交互环境无法询问 → 跳过：**全量自带时记 INFO `doc_llm_skipped`（不污染「全量检测 WARN 0」不变量）；用户显式 `--doc-llm-mode ask/auto` 时记 WARN `doc_llm_unavailable`**。**离线不变量：绝不自动联网**——仅当用户在菜单中选「增强模式」或显式 `--doc-llm-mode auto` 且配置好 LLM（`SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`）时才发起 OpenAI 兼容请求；返回以「`- 文件:行 | 描述`」解析为 `DOC_LLM_DRIFT` 线索。显式 `--doc-llm-mode off` 可完全不参加（不询问、不联网）。
 
 ### structure（结构体检 + 元信息）
 

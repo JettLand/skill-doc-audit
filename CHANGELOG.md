@@ -5,6 +5,16 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.23.0 打磨明细（doc-llm 默认问询 + 纳入全量检测）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| `--check doc-llm` 默认弹菜单 | `--doc-llm-mode` 默认由 `off` 改为 `ask`（`None` 即解析为 `ask`）；`--check doc-llm` 不传 mode 即进入询问流程，30s 超时/无输入回退默认模式，绝不替用户决定 | 交互选增强/预览/超时默认均解析正确；`py_compile` 通过 |
+| doc-llm 纳入 `--all-checks` 全量集 | `ALL_CHECKERS` 追加 `doc-llm`；`check_doc_llm` 按「是否显式传入 `--doc-llm-mode`」区分可见级别——显式传入却未运行 → WARN `doc_llm_unavailable`；`--all-checks` 全量自带、非交互无法询问 → INFO `doc_llm_skipped`（不污染全量 WARN 0 不变量）；新增 `doc_llm_skipped` INFO 类别 | `--all-checks` 非交互 → INFO `doc_llm_skipped`、WARN 1（仅 deadcode 已知）；`--all-checks --doc-llm-mode ask` 非交互 → WARN `doc_llm_unavailable`；`--doc-llm-mode off` 全静默 |
+| 文档同步 | `SKILL.md`（检查器清单补 doc-llm、避坑条目改写、错误码表补 `doc_llm_skipped`、Vector 2 块改写、Agent 执行约定扩至 doc-llm）、`references/checkers.md`（补 `doc_llm_skipped` 行）、README/CHANGELOG 版本摘要；frontmatter 与两处 UA `1.22.1` → `1.23.0`；部署副本同步 | 部署副本自审 `[doc] ERROR 0 / WARN 0`；全文检索 `1.22.1` 残留仅历史说明 |
+
 ## 1.22.1 打磨明细（doc-llm `ask` 显式三选项交互 · 绝不替用户决定）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
