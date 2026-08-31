@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.19.0"
+version: "1.20.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -44,7 +44,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 | 死引用（`DEAD_PATH`/`DEAD_FLAG`/失效退出码）、frontmatter 缺字段、语法错误、未声明外部 CLI、硬编码密钥/路径穿越、`portability` 各项 OS 级破损、死代码 | 描述是否仍成立、提示是否误导、跨文件语义一致性、文档示例是否过时、某 `WARN` 是否为有意为之 | 业务正确性、用户体验、是否「应该」有这个功能、安全设计的合理性 |
 | 报告给出 `category`（机器码）+ `category_cn`（中文标签）+ `suggestion`（修复建议），每条发现自解释 | `WARN`/`INFO` 通常需结合上下文，勿直接当错误处置 | — |
 
-> 铁律：**报告是线索，不是裁决。** 任何改动前先读源码核对，尤其 `WARN`/`INFO` 与语义项。
+> 铁律：**报告是线索，不是裁决。**（新手误区、避坑要点与常见问答见「常见问题与避坑」）
 
 ## 快速开始
 
@@ -93,17 +93,14 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 
 它会自动备份 `SKILL.md`、跑完全部检查器、输出带中文标签的报告。`deadcode` 若环境已装 `vulture` 会自动用高精度模式，没装则自动降级为零依赖 `ast`（**不需要额外安装任何东西就能跑**，见下）。其余 90% 场景用「快速开始」那张表查对应命令要点即可，无需通读全文。**注意**：上一段的「自动降级」仅在人类交互终端成立；**Agent 经管道执行时不会真正询问用户，须按上方『Agent 执行约定』显式传 `--deadcode-mode`**，勿依赖静默降级。
 
-> 最常见的三个疑问，30 秒答完：
-> - **要装 vulture 吗？** 不用手动装。显式 `--deadcode-mode vulture` 但环境缺库时，脚本会先自动 `pip install vulture`（装好即用高精度）；装不上才降级 `ast` 并标注精度降级。其它情形（ast/skip 或 ask 的自动回退）不触发安装，缺库即零依赖 `ast`，其它检查器完全不受影响。
-> - **审计远程技能要装 git / skillhub 吗？** 不用。用 `--source url --ref <SKILL.md 的 https 地址>` 即可，标准库直抓、零外部 CLI（见「多平台来源」）。
-> - **报告里一堆 WARN/INFO 要不要全改？** 不要。只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是线索，需你/AI 读源码复核后再决定。
+> 三个最常见疑问（要装 vulture 吗 / 远程审计要装 git 吗 / WARN 要不要全改）见「常见问题与避坑」·速答三问。
 
 ## 多平台来源（--source github / skillhub / url）
 
 默认 `--source local`：用 `--skill <目录>` 或 `--all`（扫 `~/.workbuddy/skills`）审计本机技能。
 新增 `--source` 可把**远程仓库 / 集市技能**拉到临时目录后照常审计，`analyze_skill` 核心逻辑零改动。
 
-> **审计远端技能优先用 `--source url`**：它仅用 Python 标准库 `urllib` 直接抓取 `SKILL.md`（及文档显式引用的 `scripts/`/`references/` 文件），**零外部 CLI 依赖、HTTPS 对 OS 透明**，不受本机是否安装 `git`/`skillhub` 限制，也不受某些网络环境下 `git clone` 不通的影响。仅在需要完整克隆仓库（含嵌套子目录/多技能）时才用 `--source github`（需 `git`）或 `--source skillhub`（需 `skillhub` CLI）。
+> **审计远端技能优先用 `--source url`**（零外部 CLI、绕开 `git clone` 不通的网络限制；常见误区见「常见问题与避坑」·新手误区）。
 
 | 来源 | 说明 | --ref 取值 |
 |---|---|---|
@@ -155,10 +152,7 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 
 ## 修改原则
 
-- **只改文档，不改代码**。若审计中发现是代码有问题，整理出来交由用户决策，不要顺手改代码。
-- **保留「已弃用」标注**。例如某退出码已在文档标注弃用，那是刻意的向后兼容说明，不要因为它「代码从不返回」就删掉。
-- **存疑时标注而非臆断**。语义判断没有把握时，在文档中写明「待确认」，好过写下一个错误的断言。
-- 版本号按语义化规则递增：修正文档表述属补丁级，修复功能缺陷属小版本级。
+- 修改文档时的五条避坑原则（只改文档不改代码、保留「已弃用」标注、存疑标注、先读源码复核、语义化递增版本号）已归集到「常见问题与避坑」·避坑要点。
 
 ## 用法
 
@@ -227,31 +221,30 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 
 **误报自纠错能力**：`security` 检查器对所有正则统一采用上下文感知过滤，自动排除注释、文档 URL、自引用资源上溯，避免上下文盲误报；**v1.18.0 起该能力扩展到 `structure`/`portability`**——`hardcoded_path` 已跳过表格/引用块/示例性描述行，`encoding_sep` 已排除 `urlopen`/`io.open` 等非文件 `open`（如 `--source url` 的 `urllib.request.urlopen` 不再误报），`hardcoded_endpoint` 已对 `raw.githubusercontent.com` 等 url 源规范主机白名单放行。完整机制见 `references/checkers.md`。
 
-## 常见问题（FAQ）与避坑
+## 常见问题与避坑
 
-**Q1：报告里出现 `DEAD_PATH`，但那个路径确实在用，是误报吗？**
-很可能是。文档引用的路径若指向「运行期生成的产物」（如某技能会在目标项目创建 `.learnings/` 目录、或脚本在临时目录生成 state），本技能目录下确实不存在，却并非漂移。判定前留意引用处是否含「生成 / 创建 / 写入」等含义。详见 `references/checkers.md` 的「判定提示」。
+> **铁律：报告是线索，不是裁决。** 任何改动前先读源码核对，尤其 `WARN`/`INFO` 与语义项。脚本只枚举差异、不判定对错；语义项（描述是否仍成立、提示是否误导、跨文件一致性）必须 AI 读代码判断。
 
-**Q2：安全扫描报了 `path_traversal`（`../`），但我只是写文档 URL，怎么办？**
-这是上下文盲误报。`security` 检查器已对全部正则做上下文感知过滤，自动排除注释行、含 `://` 的文档 URL、以及含 `__file__`/`dirname`/`.asar` 的合法资源上溯。若仍报出，请贴出原行复核；真实漏洞（外部可控字符串拼入落盘路径并含相对上溯）会被正确保留。
+### 速答三问（30 秒）
 
-**Q3：扫描报告能直接当裁决改文档吗？**
-不能。脚本只枚举差异、不判定对错；语义项（描述是否仍成立、提示是否误导、跨文件一致性）必须 AI 读代码判断。报告是线索，不是裁决。
+- **要装 vulture 吗？** 不用手动装。显式 `--deadcode-mode vulture` 但环境缺库时，脚本会先自动 `pip install vulture`（装好即用高精度）；装不上才降级 `ast` 并标注精度降级。其它情形（ast/skip 或 ask 的自动回退）不触发安装，缺库即零依赖 `ast`，其它检查器完全不受影响。
+- **审计远程技能要装 git / skillhub 吗？** 不用。用 `--source url --ref <SKILL.md 的 https 地址>` 即可，标准库直抓、零外部 CLI。
+- **报告里一堆 WARN/INFO 要不要全改？** 不要。只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是线索，需你/AI 读源码复核后再决定。
 
-**Q4：退出码在文档列了但代码从不返回，是文档错了？**
-未必。若文档已标注「已弃用」，那是刻意的向后兼容说明，保留不要删。
+### 新手误区
 
-**Q5：只想查某一类问题，怎么缩小范围？**
-用 `--check` 按需启用（如 `--check security`），或 `--all-checks` 全开；`--strict` 让 WARN 也计入退出码，适合 CI 门禁。
+- **误区一：把线索当裁决。** 只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是「这里可能有问题，请你/AI 读源码确认」的提示。例如 `agent_coupling` 的 INFO 是跨 Agent 咨询、非缺陷；`hardcoded_path` 的 WARN 若出现在表格/引用块里多半是示例误报（v1.18.0 已做上下文感知过滤）。**先读源码，再决定改不改。**
+- **误区二：以为远程审计必须 `--source github`。** 其实优先用 `--source url --ref <SKILL.md 的 https 地址>` 即可——标准库直抓、零外部 CLI、绕开 `git clone`，绝大多数远端技能都能审计。仅在需要完整克隆仓库（含嵌套子目录/多技能）时才用 `--source github` / `--source skillhub`。
+- **误区三：报了路径穿越 / 硬编码密钥就是真漏洞。** 多半是上下文盲误报。`security` 检查器对所有正则统一做上下文感知过滤，自动排除注释行、含 `://` 的文档 URL、含 `__file__`/`dirname`/`.asar` 的合法资源上溯；真实漏洞（外部可控字符串拼入落盘路径、文档里真写死密钥）才会保留。
+- **误区四：文档列了退出码但代码从不返回，就是文档错了。** 未必。若标注「已弃用」，那是刻意的向后兼容说明，保留不要删。
+- **误区五：没装 vulture 就跑不了死代码检测 / 整工具用不了。** 不是。没装时 `deadcode` 仍可用：显式 `--deadcode-mode vulture` 会先尝试自动安装；装不上或选 `ast`/`skip` 才以零依赖 `ast` 运行（仅死代码精度略低），其余检查器完全不受影响。
 
-**Q6：审计远程技能时报「网络不通 / git clone 失败」，是技能坏了吗？**
-很可能是本机没装 `git` 或网络限制 `git clone`。**新手误区**：以为远程审计必须 `--source github`。其实优先用 `--source url --ref <SKILL.md 的 https 地址>` 即可——标准库直抓、零外部 CLI、绕开 `git clone`，绝大多数远端技能都能审计（见「多平台来源」）。
+### 避坑要点
 
-**Q7：报告里有个 WARN/INFO，是不是文档有 bug、我得马上改？**
-**最常见误区**：把线索当裁决。只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是「这里可能有问题，请你/AI 读源码确认」的提示。例如 `agent_coupling` 的 INFO 是跨 Agent 咨询、非缺陷；`hardcoded_path` 的 WARN 若出现在表格/引用块里多半是示例误报（v1.18.0 已做上下文感知过滤）。**先读源码，再决定改不改。**
-
-**Q8：没装 vulture，是不是跑不了死代码检测 / 整个工具用不了？**
-不是。没装 `vulture` 时 `deadcode` 默认仍可用：显式 `--deadcode-mode vulture` 会先尝试自动安装，装好即用高精度；装不上或选 `ast`/`skip` 才以零依赖 `ast` 运行（仅死代码检测精度略低），其余检查器完全不受影响；整工具零第三方依赖即可运行。
+- **`DEAD_PATH` 但路径确实在用？** 很可能指向「运行期生成的产物」（如技能在目标项目创建 `.learnings/`、脚本在临时目录生成 state），本技能目录下不存在却非漂移。判定前留意引用处是否含「生成 / 创建 / 写入」含义。详见 `references/checkers.md` 的「判定提示」。
+- **`WARN`/`INFO` 不是错误**：`structure` 的 `name_mismatch` 是提示性项，`portability` 的 `agent_coupling` INFO 是跨 *Agent* 咨询、**非** OS 级破损，均属正常产物，勿直接当错误处置。
+- **修改文档的五条原则**：① 只改文档，不改代码（代码问题整理出来交用户决策）；② 保留「已弃用」标注（不因「代码从不返回」就删）；③ 存疑时标注「待确认」而非臆断；④ 先读源码复核再决定；⑤ 版本号按语义化递增（修正文档表述属补丁级，修复功能缺陷属小版本级）。
+- **缩小审计范围**：用 `--check` 按需启用（如 `--check security`），或 `--all-checks` 全开；`--strict` 让 `WARN` 也计入退出码，适合 CI 门禁。
 
 ## 完整运行示例（真实输出 + 解读）
 
@@ -277,8 +270,7 @@ python scripts/audit_docs.py --skill src --all-checks
 
 **如何解读（关键）**
 - **`通过` = 未发现 ERROR 级问题**，退出码 `0`。只有 `ERROR` 默认计入退出码；`--strict` 才把 `WARN` 也算失败。
-- **`WARN`/`INFO` 不是错误**：上面 `structure` 的 1 个 WARN 是提示性项（如「名称不一致」），需读源码判断是否有意为之，**不要直接改文档**。
-- **`portability` 的 18 条 INFO 几乎都是 `agent_coupling`**（提示 `.workbuddy`/`allowed-tools` 耦合，属跨 *Agent* 咨询，**非** OS 级破损），是本技能自身开发跨 Agent 能力的正常产物，可放心忽略。
+- `WARN`/`INFO` 是否要处理、`portability` 的 `agent_coupling` INFO 为何可忽略，见「常见问题与避坑」·避坑要点。
 - 每条发现的机器码（`category`）稳定、可用于跨版本比对；`--json` 输出供 CI 消费（每条含 `checker/severity/category/category_cn/message/file/line/suggestion`）。
 
 > 练习：把上面这条命令对你的一个技能跑一遍，对照「能力边界速查」表判断每条 WARN/INFO 是否真要处理。绝大多数技能首跑都会有几个 INFO，属正常。
