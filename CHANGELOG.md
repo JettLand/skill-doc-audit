@@ -5,6 +5,23 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.24.1 打磨明细（移除 doc-llm 预览选项 + 校正 token 成本表述）
+
+### 背景（用户两项指令）
+1. 用户指出「调用了 agent 其实就会消耗 token，因为输入输出都会消耗 token，只是输入消耗更少而已」——v1.24.0 文档称 agent 接手「零额外成本、不消耗用户 token」不准确：agent 用自身能力比对时，SKILL.md 全文 + 代码事实清单作为上下文注入 agent，会占用 agent 推理 token（输入侧为主、输出极少），外部 LLM 账单虽免，token 成本客观存在。
+2. 用户认为 doc-llm 的选项 3（预览）应删除——预览会把材料重复灌入上下文、徒增 token，无实质收益，「有浪费用户 token 的嫌疑」。
+
+### 改动（代码 + 文档同步，纯文档级语义、不改审计逻辑）
+- **删除 preview 模式**：`DOCLLM_MODES` 由 `("off","agent","ask","preview")` 改为 `("off","agent","ask")`；`_resolve_doc_llm_mode` 移除 `preview` 分支；`--doc-llm-mode` 帮助与 argparse choices 同步去除 preview；`check_doc_llm` 移除 `if mode == "preview": _print_doc_llm_preview(...)`。
+- **删除 `_print_doc_llm_preview`**：原函数整体删除，仅留两行注释说明 v1.24.1 移除缘由（预览重复占用上下文 token、徒增成本）。
+- **AskUserQuestion 模板精简**：选项由「1) 默认 / 2) agent 接手 / 3) 预览（前置步骤）」改为「1) 默认模式 / 2) 启用语义漂移检查（agent 介入，消耗额外 token）」，删除选项 3 及「前置步骤」二次询问流程，后续红线 / CI 步骤顺延编号。
+- **token 成本表述全量校正**：所有「零额外成本 / 不消耗用户 token」改为「会占用 agent 自身推理 token（输入侧为主），但不向外部 LLM 服务付费」。覆盖 SKILL.md（能力清单、doc-llm 避坑要点、Vector 2 引用块）、`audit_docs.py` 多处 docstring / 运行时提示 / `--check` `--doc-llm-mode` 帮助、README.md 版本摘要。
+- **顺手修复版本漂移**：`--source url` 的 `User-Agent` 串仍为 `skill-doc-audit/1.23.0`（v1.24.0 漏升），本次一并升为 `skill-doc-audit/1.24.1`。
+
+### 验证
+- `py_compile` 通过；`audit_docs.py` 中 `preview` 仅剩全局 `--preview`（审计范围预览，无关）与 `_print_doc_llm_preview` 的两行移除注释，doc-llm 的 preview 模式已无残留。
+- 部署副本自审 `--all-checks --deadcode-mode vulture`：`ERROR 0 / WARN 0 / INFO 20`（基线无回归）。
+
 ## 1.24.0 打磨明细（doc-llm 改由 agent 直接接手，移除外部 LLM 依赖）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。

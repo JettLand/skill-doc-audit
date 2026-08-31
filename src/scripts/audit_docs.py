@@ -207,11 +207,11 @@ CATEGORY_LABELS = {
 # deadcode 精度模式权威集合：同时供 argparse choices 与 doc 漂移校验使用（单一真相源）
 DEADCODE_MODES = ("ask", "vulture", "ast", "skip")
 # doc-llm 语义漂移检测模式权威集合（Vector 2）：
-# off=不运行；ask=交互终端弹菜单征得同意后由 agent 接手；agent=直接由 agent 用自身能力接手检测；
-# preview=仅展示 agent 将比对的材料与规模，不运行（零依赖零 token）。
-# v1.24.0 起：语义漂移检测一律由 agent 直接接手（使用 agent 自身能力），不再依赖外部 LLM 端点、
-# 不再消耗用户 token——外部 LLM 调用已从本脚本移除。
-DOCLLM_MODES = ("off", "agent", "ask", "preview")
+# off=不运行；ask=交互终端弹菜单征得同意后由 agent 接手；agent=直接由 agent 用自身能力接手检测。
+# v1.24.0 起：语义漂移检测一律由 agent 直接接手（使用 agent 自身能力），不再依赖外部 LLM 端点；
+# v1.24.1 起：明确 agent 接手会占用 agent 自身推理 token（输入侧为主，输出极少），仅不向外部 LLM 服务
+# 付费，故移除「零额外成本」误导表述；preview 模式（选项3）因会重复占用上下文 token 已移除。
+DOCLLM_MODES = ("off", "agent", "ask")
 # 文档声称的检查器数量："(N) 个检查器"
 DOC_CHECKER_COUNT_RE = re.compile(r"(\d+)\s*个\s*检查器")
 # 文档以大括号枚举 deadcode 模式：{ask,vulture,ast,skip}
@@ -1304,20 +1304,20 @@ def check_portability(ctx):
 # --------------------------------------------------------------------------- #
 # Vector 2 (v1.22.0)：doc-llm 选装 LLM 语义漂移检测（调用流程参考 deadcode 检查器）
 # --------------------------------------------------------------------------- #
-# 设计（v1.24.0 起重构）：语义漂移检测由 **agent 直接接手**，本脚本不再调用任何外部 LLM 端点，
-# 也不再消耗用户 token。原因：外部 LLM 需用户自备 API Key、额外付费，提高使用成本；而 agent
-# 本身即具备语义理解能力，由 agent 读 SKILL.md + 代码事实清单自行比对即可。
-#   - 模式：off（不运行）/ ask（交互菜单，由用户选 1=默认 2=agent接手 3=预览）/ agent（直接
-#     由 agent 接手）/ preview（仅展示 agent 将比对的材料与规模）。
+# 设计（v1.24.0 起重构）：语义漂移检测由 **agent 直接接手**，本脚本不再调用任何外部 LLM 端点。
+# 原因：外部 LLM 需用户自备 API Key、额外付费，提高使用成本；而 agent 本身即具备语义理解能力，
+# 由 agent 读 SKILL.md + 代码事实清单自行比对即可（仅占用 agent 自身推理 token，输入侧为主，不另付费）。
+#   - 模式：off（不运行）/ ask（交互菜单，由用户选 1=默认 2=agent接手）/ agent（直接由 agent 接手）。
 #   - agent 模式：脚本把「SKILL.md 全文 + 代码事实清单」写成 dossier 文件并打印
 #     `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 读取后自行完成语义比对，回报漂移。
 #   - 绝不依赖外部服务：本模块已移除 urllib/HTTP 调用与 API Key 配置项。
+#   - v1.24.1：移除选项 3（预览）——预览会重复把材料灌入上下文、徒增 token 消耗，无实质收益。
 
 
 def _code_fact_sheet(code):
-    """从代码 blob 抽取轻量「事实清单」喂给 LLM：定义/CLI 参数/返回码/常量。
+    """从代码 blob 抽取轻量「事实清单」交给 agent 接手比对：定义/CLI 参数/返回码/常量。
 
-    不直接倾倒整份源码（避免超长上下文），仅给模型可交叉比对的符号事实。
+    不直接倾倒整份源码（避免超长上下文），仅给 agent 可交叉比对的符号事实。
     """
     rows = []
     for rel, content in code.items():
@@ -1338,23 +1338,21 @@ def _resolve_doc_llm_mode(args):
     """决定 doc-llm 模式与是否「非交互跳过」。
 
     返回 (mode, degraded, reason)，与 _resolve_deadcode_mode 同构：
-    - mode: "off" | "agent" | "preview"
+    - mode: "off" | "agent"
     - degraded/reason：仅当「--all-checks 全量自带、非交互环境无法询问」时标记，
       供 check_doc_llm 发 INFO doc_llm_skipped（不污染「全量检测 WARN 0」不变量）。
 
-    v1.24.0 起：语义漂移检测由 agent 直接接手，本函数不再处理任何外部 LLM 配置。
+    v1.24.0 起：语义漂移检测由 agent 直接接手，本函数不再处理任何外部 LLM 配置；
+    v1.24.1 起：移除 preview 模式（会重复占用 agent 推理 token，徒增成本）。
       - 未显式传入（--all-checks 全量路径即此）→ 按 ask：交互弹菜单，超时 30s 回退默认；
       - 显式 off：完全不运行；
       - 显式 ask：交互弹菜单，超时 30s 回退默认；非交互 → 无法询问，回退默认并记 INFO 跳过；
-      - 显式 agent：直接由 agent 接手（脚本写 dossier + 打印哨兵）；
-      - 显式 preview：仅展示 agent 将比对的材料，不运行。
+      - 显式 agent：直接由 agent 接手（脚本写 dossier + 打印哨兵）。
     """
     raw = getattr(args, "doc_llm_mode", None) if args else None
     mode = raw or "ask"
     if mode == "off":
         return "off", False, None
-    if mode == "preview":
-        return "preview", False, None
     if mode == "agent":
         return "agent", False, None
     # ask 模式：交互征询，绝不替用户决定
@@ -1362,8 +1360,6 @@ def _resolve_doc_llm_mode(args):
         # 自动化环境无法询问 → 回退默认（纯脚本），并显著告知被跳过（INFO，不告警）
         return "off", True, "ask 模式处于非交互（自动化）环境，无法向用户询问，已回退默认（纯脚本）模式"
     choice = _prompt_doc_llm_mode(timeout=30)
-    if choice == "preview":
-        return "preview", False, None
     if choice == "agent":
         return "agent", False, None
     # off（含超时/无输入/选 1）：用户明确放弃，非降级
@@ -1373,18 +1369,16 @@ def _resolve_doc_llm_mode(args):
 def _prompt_doc_llm_mode(timeout=30):
     """交互式询问 doc-llm 运行方式；超时/无输入默认「默认模式」（不调用 LLM）。
 
-    返回 "off" | "agent" | "preview"：
+    返回 "off" | "agent"：
       - off：纯脚本检查，零依赖，不调用 LLM（0 token）——超时/无输入/选 1 的落点；
-      - agent：由 agent 直接接手语义漂移检测（使用 agent 自身能力，零额外成本，不依赖外部 LLM）；
-      - preview：仅展示 agent 将比对的材料与规模，不实际运行。
-    代价透明 + 兜底：菜单标注「agent 接手、零额外 token」；超时一律回退 off，绝不联网。
+      - agent：由 agent 介入完成语义漂移检测（使用 agent 自身能力，会占用 agent 推理 token，但不依赖外部 LLM、无需付费）。
+    代价透明 + 兜底：菜单标注「agent 介入、消耗额外 token」；超时一律回退 off，绝不联网。
     """
     sys.stderr.write(
         "\n[doc-llm] 语义漂移检测（Vector 2）如何运行？\n"
         "  1) 默认模式：纯脚本检查，零依赖，不调用 LLM（0 token）【推荐 · %d 秒超时默认】\n"
-        "  2) 启用语义漂移检查（由 agent 直接接手，零额外成本，不依赖外部 LLM）\n"
-        "  3) 预览：仅展示 agent 将比对的 SKILL.md 与代码事实清单规模，不实际运行\n"
-        "请选择 [1/2/3]：" % timeout
+        "  2) 启用语义漂移检查（agent 介入，消耗额外 token）\n"
+        "请选择 [1/2]：" % timeout
     )
     sys.stderr.flush()
     buf = {}
@@ -1404,36 +1398,18 @@ def _prompt_doc_llm_mode(timeout=30):
         return "off"
     if choice == "2":
         return "agent"
-    if choice == "3":
-        return "preview"
     return "off"
 
 
-def _print_doc_llm_preview(ctx):
-    """预览 agent 将比对的材料规模（不实际运行、不消耗任何 token）。"""
-    doc = ctx.get("doc", "")
-    code = ctx.get("code", {}) or {}
-    try:
-        sheet = _code_fact_sheet(code)
-    except Exception as e:  # noqa: BLE001
-        sheet = "（无法生成事实清单：%s）" % e
-    est = max(1, len(sheet) // 4)
-    sys.stderr.write(
-        "\n[doc-llm 预览] 若启用语义漂移检查，将由 **agent 直接接手** 完成：agent 读取本技能 SKILL.md 全文 + "
-        "代码事实清单，用自身能力比对，不依赖外部 LLM、不消耗用户 token（零额外成本）。\n"
-        "  - SKILL.md 长度：%d 字符\n"
-        "  - 代码事实清单长度：%d 字符（agent 比对时约占用 ~%d token 的自身上下文，不向任何外部服务付费）\n"
-        "  - 代价：仅占用 agent 自身推理上下文，无外部账单。\n"
-        "  - 本次未运行语义检测。如需启用，请选「启用语义漂移检查（agent 接手）」或显式 --doc-llm-mode agent。\n"
-        % (len(doc), len(sheet), est)
-    )
+# (v1.24.1) 预览模式已移除：预览会把材料重复灌入上下文、徒增 agent 推理 token，无实质收益。
+# 语义比对统一走 agent 接手流程（--doc-llm-mode agent）：脚本写 dossier + 打印 AGENT_TAKEOVER 哨兵。
 
 
 def _write_doc_llm_dossier(ctx):
     """把 SKILL.md 全文 + 代码事实清单写入 dossier 文件，供 agent 直接接手语义比对。
 
     返回 dossier 的绝对路径。agent 读取后使用自身能力判定文档声称的能力/默认值/行为/数量/集合
-    与代码事实是否一致，回报潜在语义漂移。**不依赖任何外部 LLM 端点、不消耗用户 token**。
+    与代码事实是否一致，回报潜在语义漂移。**不依赖任何外部 LLM 端点（agent 读取后会占用其自身推理 token，输入侧为主）**。
     """
     import tempfile
     doc = ctx.get("doc", "")
@@ -1460,14 +1436,14 @@ def _write_doc_llm_dossier(ctx):
 
 
 def check_doc_llm(ctx):
-    """LLM 语义漂移检测（Vector 2）——由 agent 直接接手。
+    """语义漂移检测（Vector 2）——由 agent 直接接手。
 
-    v1.24.0 起：本检查器不再调用任何外部 LLM 端点、不消耗用户 token。语义漂移检测改由 **agent
-    直接接手**：脚本负责准备材料（SKILL.md 全文 + 代码事实清单）并落盘，agent 读取后使用自身能力
-    完成语义比对。流程与 deadcode 检查器对齐（同构的 (mode, degraded) 元组）。
+    v1.24.0 起：本检查器不再调用任何外部 LLM 端点。语义漂移检测改由 **agent 直接接手**：脚本负责
+    准备材料（SKILL.md 全文 + 代码事实清单）并落盘，agent 读取后使用自身能力完成语义比对
+    （会占用 agent 自身推理 token，输入侧为主，但不向外部 LLM 服务付费）。流程与 deadcode 检查器
+    对齐（同构的 (mode, degraded) 元组）。
 
       - 显式 off / 非交互 ask 回退 → 跳过（off：静默；非交互全量 → INFO doc_llm_skipped）；
-      - preview → 展示 agent 将比对的材料规模，不运行；
       - agent → 写 dossier + 打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 接手。
     """
     args = ctx.get("args")
@@ -1475,19 +1451,16 @@ def check_doc_llm(ctx):
     explicit = raw_mode is not None  # 用户是否显式传入 --doc-llm-mode
     mode, degraded, _ = _resolve_doc_llm_mode(args)
     findings = []
-    if mode == "preview":
-        _print_doc_llm_preview(ctx)
-        return findings
     if mode == "agent":
         dossier = _write_doc_llm_dossier(ctx)
         sys.stderr.write("\n[doc-llm] AGENT_TAKEOVER: %s\n" % dossier)
         sys.stderr.write(
-            "[doc-llm] 语义漂移检测已由 agent 直接接手（使用 agent 自身能力，不依赖外部 LLM、不消耗用户 token）。"
+            "[doc-llm] 语义漂移检测已由 agent 直接接手（使用 agent 自身能力，不依赖外部 LLM、但会占用 agent 自身推理 token（输入侧为主））。"
             "请 agent 读取上方 dossier 并完成语义比对。\n"
         )
         findings.append(finding(
             "doc-llm", SEVERITY_INFO, "doc_llm_agent_handoff",
-            "doc-llm 语义检测转交 agent 接手：dossier 已写入 %s。agent 将使用自身能力比对 SKILL.md 与代码事实清单，零额外成本。" % dossier,
+            "doc-llm 语义检测转交 agent 接手：dossier 已写入 %s。agent 将使用自身能力比对 SKILL.md 与代码事实清单，会占用 agent 推理 token（输入侧为主），但不向外部 LLM 服务付费。" % dossier,
             suggestion="agent 读取 dossier，比对文档声称的能力/默认值/行为/数量/集合与代码事实清单，回报潜在语义漂移。",
         ))
         return findings
@@ -2280,7 +2253,7 @@ class UrlSource(SkillSource):
         return ref
 
     def _fetch(self, url):
-        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.23.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.24.1"})
         try:
             resp = urllib.request.urlopen(req, timeout=30)
         except Exception as e:
@@ -2363,7 +2336,7 @@ def main():
     ap.add_argument("--skill", help="技能目录")
     ap.add_argument("--all", action="store_true", help="审计 ~/.workbuddy/skills 下全部技能")
     ap.add_argument("--check", action="append", metavar="NAME",
-                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability/doc-llm)，可重复；doc 常驻默认开；doc-llm 默认按 ask 处理（弹菜单询问是否启用语义检测，由 agent 接手），显式 --doc-llm-mode agent 即由 agent 直接接手（不依赖外部 LLM、不消耗用户 token）")
+                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability/doc-llm)，可重复；doc 常驻默认开；doc-llm 默认按 ask 处理（弹菜单询问是否启用语义检测，由 agent 接手），显式 --doc-llm-mode agent 即由 agent 直接接手（不依赖外部 LLM、但会占用 agent 推理 token，输入侧为主）")
     ap.add_argument("--all-checks", action="store_true", help="启用全部检查器（含 doc-llm：交互终端弹菜单询问是否启用 LLM 语义检测，30 秒超时默认不启用，绝不自动联网；非交互环境跳过并以 INFO 提示）")
     ap.add_argument("--backup", action="store_true", help="审计前备份 SKILL.md")
     ap.add_argument("--backup-limit", type=int, default=BACKUP_LIMIT,
@@ -2377,7 +2350,7 @@ def main():
     ap.add_argument("--deadcode-mode", default="ask", choices=list(DEADCODE_MODES),
                     help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
     ap.add_argument("--doc-llm-mode", default=None, choices=list(DOCLLM_MODES),
-                    help="doc-llm 语义漂移检测模式（v1.24.0 起由 agent 直接接手，不再依赖外部 LLM、不消耗用户 token）：ask(默认,交互终端呈现实选项：1)默认模式 2)agent接手(零额外成本) 3)预览，30 秒超时自动回退默认模式) / off(不运行) / agent(直接由 agent 接手：脚本写 dossier + 打印 AGENT_TAKEOVER 哨兵) / preview(仅展示 agent 将比对的材料与规模，不实际运行)。Agent 经 AskUserQuestion 收到用户选择后显式传入")
+                    help="doc-llm 语义漂移检测模式（v1.24.0 起由 agent 直接接手，不再依赖外部 LLM；v1.24.1 起移除 preview 选项）：ask(默认,交互终端呈现实选项：1)默认模式 2)agent接手(会占用 agent 推理 token，但不向外部 LLM 付费)，30 秒超时自动回退默认模式) / off(不运行) / agent(直接由 agent 接手：脚本写 dossier + 打印 AGENT_TAKEOVER 哨兵，agent 读取后自行比对)。Agent 经 AskUserQuestion 收到用户选择后显式传入")
     ap.add_argument("--preview", action="store_true",
                     help="只预览将运行哪些检查器、将扫描哪些文件，不产出发现，退出码 0（适合首次审计前心里有数）")
     ap.add_argument("--source", default="local", choices=list(SOURCES),
