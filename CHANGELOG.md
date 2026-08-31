@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.23.3 打磨明细（修正 Agent 约定：禁止替用户关掉 doc-llm）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| 修正 Agent 执行约定（doc-llm） | 用户反馈：Agent 跑 `--all-checks` 其他技能时输出「doc-llm 显式关闭」，疑 Agent 替用户做决定。根因——本技能 `SKILL.md`「Agent 执行约定」的 doc-llm 小节旧文把「本次不启用语义检测（默认、最省事）：加 `--doc-llm-mode off`」列为默认项，Agent 据此静默替用户关闭 doc-llm（代码中 `mode in (off,skip)` 即静默 return，故用户只见「doc-llm 显式关闭」叙述、不觉察该能力存在），直接违背 v1.23.1 确立的「绝不替用户决定」原则。重写该小节为明确红线：非交互（Agent/自动化）下**直接跑 `--all-checks` 即可、不要传 `--doc-llm-mode off`**——doc-llm 会自行**安全回退**为 INFO `doc_llm_skipped`（不联网、不耗 token，保留用户后续启用选择权与知情）；仅当用户明确表示要启用 LLM 语义检测时，才先 `AskUserQuestion` 确认代价、再传 `--doc-llm-mode auto`；Agent 不得自行决定启用（那才会消耗用户资源） | 部署副本自审 `[doc] ERROR 0 / WARN 0`；frontmatter 升 1.23.3；README/CHANGELOG 版本摘要补 1.23.3；dist 重打包（含更新后 SKILL.md）。**未改任何代码**，离线不变量与「全量 WARN 0」不变量不变 |
+
 ## 1.23.2 打磨明细（doc 检查器补 doc-llm 引导描述）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。

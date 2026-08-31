@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.23.2"
+version: "1.23.3"
 license: MIT
 author: Jett
 agent_created: true
@@ -145,12 +145,12 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 
 ### doc-llm 语义检测同理（v1.23.0 起已纳入全量集）
 
-`--all-checks` 已包含 `doc-llm`，默认按 `ask` 处理——交互终端弹菜单询问、30 秒超时默认不启用。Agent 经管道调用（stdin 非 TTY）时**弹不出菜单**，会自动跳过并记 INFO `doc_llm_skipped`——**这是 INFO 不是 WARN**，不影响「全量检测 WARN 0」不变量，且**绝不联网**。
+`--all-checks` 已包含 `doc-llm`，默认按 `ask` 处理——交互终端弹菜单询问、30 秒超时默认不启用。Agent 经管道调用（stdin 非 TTY）时**弹不出菜单**，会**安全回退**：记 INFO `doc_llm_skipped`（不联网、不消耗 token）——**这是 INFO 不是 WARN**，不影响「全量检测 WARN 0」不变量。
 
-为避免「用户的语义检测选择权被吞掉」，Agent 同样应显式决策并把结果传入：
+**关键红线：Agent 绝不可替用户决定「关掉 doc-llm」。**
 
-- **「本次不启用语义检测」**（默认、最省事）：加 `--doc-llm-mode off`，完全跳过、连 INFO 也不产生；
-- **「启用 LLM 语义检测」**：**先向用户确认代价**（依赖外部 LLM 服务、消耗额外 token），确认后配置 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`，再以 `--doc-llm-mode auto` 显式传入；
+- **非交互（Agent/自动化）下，直接跑 `--all-checks` 即可，不要传 `--doc-llm-mode off`**。doc-llm 会自行跳过并给出 INFO `doc_llm_skipped`——这让用户保留「日后在交互终端启用 / 显式 `--doc-llm-mode auto` 开启」的选择权与知情权。**主动传 `off` 去压制这条提示，等同于替用户做决定**，直接违背上方「设计原则（绝不替用户决定）」。
+- **仅在用户明确表示要启用 LLM 语义检测时**才传 `--doc-llm-mode auto`：先经 `AskUserQuestion` 向用户确认代价（依赖外部 LLM 服务、消耗额外 token），确认后再配置 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL` 并显式传入；Agent 不得自行决定启用（那才会消耗用户资源）。
 - **「让用户自己在终端选」**：在真实交互终端运行，由菜单询问（Agent 不得替用户选「增强模式」）。
 4. **仅当明确处于无人值守的 CI / 自动化链路**时，才允许不经询问直接 `--deadcode-mode ast`（此时静默降级即预期行为）。
 
