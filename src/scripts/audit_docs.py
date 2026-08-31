@@ -1350,7 +1350,7 @@ def _call_llm(config, system, user, timeout=120):
         headers={
             "Content-Type": "application/json",
             "Authorization": "Bearer " + config["api_key"],
-            "User-Agent": "skill-doc-audit/1.22.0",
+            "User-Agent": "skill-doc-audit/1.22.1",
         },
         method="POST",
     )
@@ -1405,18 +1405,17 @@ def _resolve_doc_llm_mode(args):
     """决定 doc-llm 是否运行、以何种模式，以及是否「静默降级」。
 
     返回 (mode, degraded, reason)，与 _resolve_deadcode_mode 同构：
-    - mode: "off" | "auto" | "ask"
+    - mode: "off" | "auto" | "preview"
     - degraded: 仅在「用户本意要语义检测却因环境限制未能运行」时为真，
       调用方据此发 doc_llm_unavailable 告警（对应 deadcode 的 precision_degraded）。
     - reason: degraded 时的中文说明（填入告警消息）。
 
-    对照 deadcode：
-      deadcode 显式 vulture 但缺库 → 尝试安装失败 → 降级 ast（degraded）
-      doc-llm 显式 auto 但未配 LLM → 无「可 pip 安装的库」→ 降级跳过（degraded）
-      deadcode ask + 非 TTY → 降级 ast（degraded）
-      doc-llm ask + 非 TTY 且无配置 → 降级跳过（degraded）
-    区别：LLM 是外部服务而非本地库，故「降级」路径为「跳过 + 显著告警」，
-    而非像 vulture 那样尝试自动安装。
+    离线不变量（绝不自动联网）：
+      - 默认 off：纯脚本检查，零依赖，不调用 LLM；
+      - ask：交互终端向用户呈现实选项（默认 / 增强 / 预览），超时 30s 一律回退默认；
+        非交互（自动化）环境无法询问 → 不替用户决定，回退默认并显著告警；
+      - auto：仅当用户显式要求且已配置 LLM 时才联网，否则降级告警。
+    区别：LLM 是外部服务而非本地库，故「降级」路径为「跳过 + 显著告警」。
     """
     mode = getattr(args, "doc_llm_mode", "off") if args else "off"
     if mode == "off":
@@ -1426,34 +1425,78 @@ def _resolve_doc_llm_mode(args):
         if cfg is None:
             return "auto", True, "已显式要求 auto 模式但未配置 LLM（缺少 SKILLDOC_LLM_API_KEY / SKILLDOC_LLM_MODEL，或对应 --doc-llm-api-key/--doc-llm-model）"
         return "auto", False, None
-    # ask 模式
+    # ask 模式：交互征询，绝不替用户决定
     if not sys.stdin.isatty():
-        if cfg is not None:
-            # 非交互但已配置环境变量，直接复用配置（无需询问）
-            return "ask", False, None
-        return "ask", True, "已要求 ask 模式但处于非交互（自动化）环境，无法向用户询问 LLM 配置"
-    # 交互终端：征得用户同意后运行（超时/拒绝视为用户明确放弃，非降级）
+        # 自动化环境无法询问 → 回退默认（纯脚本），并显著告知被跳过
+        return "auto", True, "ask 模式处于非交互（自动化）环境，无法向用户询问，已回退默认（纯脚本）模式，未调用 LLM"
+    choice = _prompt_doc_llm_mode(timeout=30)
+    if choice == "preview":
+        return "preview", False, None
+    if choice == "auto":
+        if cfg is None:
+            # 用户明确选择增强模式却无配置：回退默认并告警（非静默）
+            return "auto", True, "用户选择增强模式（LLM 语义检测）但未配置 LLM，已回退默认模式"
+        return "auto", False, None
+    # off（含超时/无输入/选 1）：用户明确放弃，非降级
+    return "off", False, None
+
+
+def _prompt_doc_llm_mode(timeout=30):
+    """交互式询问 doc-llm 运行方式；超时/无输入默认「默认模式」（不调用 LLM）。
+
+    返回 "off" | "auto" | "preview"：
+      - off：纯脚本检查，零依赖，不调用 LLM（0 token）——超时/无输入/选 1 的落点；
+      - auto：启用 LLM 语义漂移检测（增强模式，依赖外部 LLM 服务，消耗额外 token）；
+      - preview：仅展示将发送给 LLM 的内容摘要与预估 token，不实际调用。
+    代价透明 + 兜底：菜单标注增强模式的外部依赖与 token 代价；超时一律回退 off，绝不联网。
+    """
     sys.stderr.write(
-        "\n[doc-llm] 是否启用 LLM 语义漂移检测？（y/N，20 秒内未选则跳过）"
+        "\n[doc-llm] 语义漂移检测（Vector 2）如何运行？\n"
+        "  1) 默认模式：纯脚本检查，零依赖，不调用 LLM（0 token）【推荐 · %d 秒超时默认】\n"
+        "  2) 增强模式：启用 LLM 语义漂移检测，依赖外部 LLM 服务，消耗额外 token\n"
+        "  3) 预览代价：仅展示将发送给 LLM 的内容与预估 token，不实际调用\n"
+        "请选择 [1/2/3]：" % timeout
     )
     sys.stderr.flush()
-    _buf = {}
+    buf = {}
 
     def _read():
         try:
-            _buf["v"] = sys.stdin.readline().strip()
+            buf["v"] = sys.stdin.readline().strip()
         except Exception:
-            _buf["v"] = ""
+            buf["v"] = ""
 
-    _th = threading.Thread(target=_read, daemon=True)
-    _th.start()
-    _th.join(20)
-    _choice = _buf.get("v", "")
-    if _choice.lower() != "y":
-        return "skip", False, None
-    if cfg is None:
-        return "ask", True, "用户同意启用但当前未配置 LLM（缺少 API Key / 模型）"
-    return "ask", False, None
+    th = threading.Thread(target=_read, daemon=True)
+    th.start()
+    th.join(timeout)
+    choice = buf.get("v", "")
+    if not choice:
+        sys.stderr.write("\n[doc-llm] 超时/无输入，已自动采用默认模式（不调用 LLM）。\n")
+        return "off"
+    if choice == "2":
+        return "auto"
+    if choice == "3":
+        return "preview"
+    return "off"
+
+
+def _print_doc_llm_preview(ctx):
+    """预览将发送给 LLM 的内容规模与预估 token 代价（不实际调用）。"""
+    doc = ctx.get("doc", "")
+    code = ctx.get("code", {}) or {}
+    try:
+        sheet = _code_fact_sheet(code)
+    except Exception as e:  # noqa: BLE001
+        sheet = "（无法生成事实清单：%s）" % e
+    est = max(1, len(sheet) // 4)
+    sys.stderr.write(
+        "\n[doc-llm 预览] 增强模式将向配置的 LLM 端点发起 1 次请求，发送 SKILL.md 全文 + 代码事实清单。\n"
+        "  - SKILL.md 长度：%d 字符\n"
+        "  - 代码事实清单长度：%d 字符（预估 ~%d token，按 ~4 字符/token）\n"
+        "  - 代价：依赖外部 LLM 服务、消耗额外 token；失败或超时回退默认模式。\n"
+        "  - 本次未调用 LLM。如需启用，请选增强模式或显式 --doc-llm-mode auto。\n"
+        % (len(doc), len(sheet), est)
+    )
 
 
 def check_doc_llm(ctx):
@@ -1465,6 +1508,9 @@ def check_doc_llm(ctx):
     args = ctx.get("args")
     mode, degraded, reason = _resolve_doc_llm_mode(args)
     findings = []
+    if mode == "preview":
+        _print_doc_llm_preview(ctx)
+        return findings
     if mode in ("off", "skip"):
         return findings
     if degraded:
@@ -2290,7 +2336,7 @@ class UrlSource(SkillSource):
         return ref
 
     def _fetch(self, url):
-        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.22.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.22.1"})
         try:
             resp = urllib.request.urlopen(req, timeout=30)
         except Exception as e:
@@ -2387,7 +2433,7 @@ def main():
     ap.add_argument("--deadcode-mode", default="ask", choices=list(DEADCODE_MODES),
                     help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
     ap.add_argument("--doc-llm-mode", default="off", choices=list(DOCLLM_MODES),
-                    help="doc-llm 选装 LLM 语义漂移检测模式（调用流程对齐 deadcode）：off(默认,不运行,绝不联网) / auto(用配置的 LLM 直接检测) / ask(交互终端征得同意后再检测)。需先配置 LLM：环境变量 SKILLDOC_LLM_API_KEY + SKILLDOC_LLM_MODEL（可选 SKILLDOC_LLM_BASE_URL），或显式 --doc-llm-api-key/--doc-llm-model")
+                    help="doc-llm 选装 LLM 语义漂移检测模式（调用流程对齐 deadcode）：off(默认,不运行,绝不联网) / auto(用配置的 LLM 直接检测) / ask(交互终端呈现实选项：1)默认模式 2)增强模式(依赖外部LLM,耗token) 3)预览代价，30 秒超时自动回退默认模式)。需先配置 LLM：环境变量 SKILLDOC_LLM_API_KEY + SKILLDOC_LLM_MODEL（可选 SKILLDOC_LLM_BASE_URL），或显式 --doc-llm-api-key/--doc-llm-model")
     ap.add_argument("--doc-llm-base-url", default=None,
                     help="doc-llm 的 LLM base URL（OpenAI 兼容；默认 OpenAI 官方 Chat Completions 端点，可用环境变量 SKILLDOC_LLM_BASE_URL 覆盖）")
     ap.add_argument("--doc-llm-api-key", default=None,

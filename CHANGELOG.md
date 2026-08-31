@@ -5,6 +5,17 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.22.1 打磨明细（doc-llm `ask` 显式三选项交互 · 绝不替用户决定）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| doc-llm `ask` 改为显式三选项交互 | 重写 `_resolve_doc_llm_mode` 的 ask 分支，调用新增 `_prompt_doc_llm_mode()`：交互终端向用户呈现实选项——`1) 默认模式`（纯脚本，零依赖，0 token）/`2) 增强模式`（启用 LLM 语义检测，依赖外部 LLM 服务、消耗额外 token）/`3) 预览代价`（仅展示将发送给 LLM 的内容与预估 token，不实际调用）；新增 `_print_doc_llm_preview(ctx)`；**30 秒超时或无输入一律回退默认模式**（`off`）。非交互（自动化）环境无法询问 → 不再自动复用环境变量配置静默联网，改为回退默认并显著告警（`doc_llm_unavailable`，degraded=True），与 deadcode 非 TTY 行为一致 | 超时（daemon 线程读 stdin，`th.join(30)`）落点 `off`；非 TTY → `auto,True`（触发 `doc_llm_unavailable` WARN）；preview → 打印规模/token 预估后不联网；`py_compile` 通过 |
+| 离线不变量与文档同步 | 离线不变量（默认 `off`、不进 `--all-checks`、绝不自动联网）不变；argparse `--doc-llm-mode` 帮助文改为描述三选项与 30s 超时回退；`SKILL.md` Vector 2 引用块重写（v1.22.1 起，说明三选项/30s 超时/非交互回退）；`references/checkers.md` doc-llm 三行版本标 v1.22.1 并补菜单说明；README/CHANGELOG 版本摘要补 1.22.1 行；frontmatter 与两处 UA 版本串 `1.22.0` → `1.22.1` | 全文检索确认 `1.22.0` 残留仅剩历史说明性引用；部署副本同步后自审 ERROR 0 / WARN 0 / INFO 20 |
+
+> TRACE 评测对照：待 SkillHub 上架后由平台重跑（目标——验证 doc-llm 交互改动对评测口径无回归，仍保持 ERROR 0 / WARN 0 不变量）。
+
 ## 1.22.0 打磨明细（doc-llm 选装 LLM 语义漂移检测 · Vector 2）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
