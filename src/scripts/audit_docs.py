@@ -144,11 +144,10 @@ CATEGORY_LABELS = {
     "DOC_ENUM_DRIFT": "文档枚举/集合与代码不一致",
     "DOC_COUNT_DRIFT": "文档数量声明与代码不一致",
     "DOC_CAPABILITY_DRIFT": "文档声称的能力在代码中无对应实现",
-    # doc-llm：LLM 语义漂移检测（Vector 2，v1.22.0 引入、v1.23.0 纳入全量，调用流程对齐 deadcode）
-    "DOC_LLM_DRIFT": "文档/代码语义漂移（LLM 判定）",
-    "doc_llm_unavailable": "LLM 语义检测不可用（已跳过）",
-    "doc_llm_skipped": "全量检测中 LLM 语义检测跳过（非交互环境）",
-    "doc_llm_ran": "LLM 语义检测已运行（无漂移）",
+    # doc-llm：语义漂移检测（Vector 2，v1.22.0 引入、v1.23.0 纳入全量，v1.24.0 起由 agent 直接接手，不再依赖外部 LLM）
+    "DOC_LLM_DRIFT": "文档/代码语义漂移（agent 判定）",
+    "doc_llm_agent_handoff": "语义漂移检测已转交 agent 接手",
+    "doc_llm_skipped": "全量检测中语义漂移检测跳过（非交互环境，未调用任何 LLM）",
     "B_STATUS": "运行状态枚举（供 AI 复核）",
     "B_CONFIG": "配置项枚举（供 AI 复核）",
     # structure：结构体检 + 元信息
@@ -207,11 +206,12 @@ CATEGORY_LABELS = {
 # --------------------------------------------------------------------------- #
 # deadcode 精度模式权威集合：同时供 argparse choices 与 doc 漂移校验使用（单一真相源）
 DEADCODE_MODES = ("ask", "vulture", "ast", "skip")
-# doc-llm 语义检测模式权威集合（Vector 2，v1.22.0 引入、v1.23.0 改默认）：
-# off=不运行/绝不联网；auto=用配置的 LLM 直接检测；ask=交互终端弹菜单征得同意后检测
-# （v1.23.0 起为默认：未显式传入 --doc-llm-mode 时按 ask 处理，如 --all-checks 全量路径）。
-# 同款「模式元组」设计，对齐 deadcode。
-DOCLLM_MODES = ("off", "auto", "ask", "preview")
+# doc-llm 语义漂移检测模式权威集合（Vector 2）：
+# off=不运行；ask=交互终端弹菜单征得同意后由 agent 接手；agent=直接由 agent 用自身能力接手检测；
+# preview=仅展示 agent 将比对的材料与规模，不运行（零依赖零 token）。
+# v1.24.0 起：语义漂移检测一律由 agent 直接接手（使用 agent 自身能力），不再依赖外部 LLM 端点、
+# 不再消耗用户 token——外部 LLM 调用已从本脚本移除。
+DOCLLM_MODES = ("off", "agent", "ask", "preview")
 # 文档声称的检查器数量："(N) 个检查器"
 DOC_CHECKER_COUNT_RE = re.compile(r"(\d+)\s*个\s*检查器")
 # 文档以大括号枚举 deadcode 模式：{ask,vulture,ast,skip}
@@ -1304,75 +1304,14 @@ def check_portability(ctx):
 # --------------------------------------------------------------------------- #
 # Vector 2 (v1.22.0)：doc-llm 选装 LLM 语义漂移检测（调用流程参考 deadcode 检查器）
 # --------------------------------------------------------------------------- #
-# 设计对齐 deadcode：
-#   - 同款「模式解析 → (mode, degraded) 元组」结构：_resolve_doc_llm_mode 与
-#     _resolve_deadcode_mode 一一对应；
-#   - 同款「降级即显著告警」：degraded 时发 doc_llm_unavailable WARN（对应 deadcode 的
-#     precision_degraded），让调用方/评测器「看见」语义检测被跳过；
-#   - 离线不变量（v1.23.0 起）：doc-llm 已纳入 --all-checks 全量集（全量检测必须包含语义漂移的
-#     显式问询），但**绝不自动联网**——默认按 ask 处理，交互弹菜单、30s 超时默认不启用；
-#     只有用户在菜单中选「增强模式」或显式 --doc-llm-mode auto 且配置了 LLM 时才发起请求。
-#     非交互环境无法询问 → 跳过（--all-checks 全量自带时记 INFO doc_llm_skipped，不告警）。
-class _LLMUnavailable(Exception):
-    """LLM 配置缺失或调用失败——由调用方转为 doc_llm_unavailable 告警。"""
-
-
-def _load_llm_config(args):
-    """读取 LLM 配置：argparse 显式传入优先，否则回退环境变量。
-
-    仅当 api_key 与 model 同时具备才视为「已配置」（base_url 有内置默认）。
-    返回 dict 或 None（未配置）。绝不抛异常。
-    """
-    base = (getattr(args, "doc_llm_base_url", None) or
-            os.environ.get("SKILLDOC_LLM_BASE_URL", "https://" "api.openai.com/v1"))
-    key = getattr(args, "doc_llm_api_key", None) or os.environ.get("SKILLDOC_LLM_API_KEY")
-    model = getattr(args, "doc_llm_model", None) or os.environ.get("SKILLDOC_LLM_MODEL")
-    if not key or not model:
-        return None
-    return {"base_url": base.rstrip("/"), "api_key": key, "model": model}
-
-
-def _call_llm(config, system, user, timeout=120):
-    """调用 OpenAI 兼容 Chat Completions 接口（纯标准库 urllib，零第三方依赖）。
-
-    成功返回助手内容字符串；任何网络/HTTP/解析异常均转抛 _LLMUnavailable，
-    由调用方静默降级为告警，不中断整体审计。
-    """
-    import json
-    import urllib.request
-    import urllib.error
-    url = config["base_url"] + "/chat/completions"
-    payload = {
-        "model": config["model"],
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "temperature": 0,
-    }
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + config["api_key"],
-            "User-Agent": "skill-doc-audit/1.23.0",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            obj = json.loads(resp.read().decode("utf-8"))
-        return obj["choices"][0]["message"]["content"]
-    except urllib.error.HTTPError as e:
-        _body = ""
-        try:
-            _body = e.read().decode("utf-8", "replace")[:200]
-        except Exception:
-            pass
-        raise _LLMUnavailable("HTTP %s: %s" % (e.code, _body))
-    except Exception as e:  # noqa: BLE001
-        raise _LLMUnavailable(str(e))
+# 设计（v1.24.0 起重构）：语义漂移检测由 **agent 直接接手**，本脚本不再调用任何外部 LLM 端点，
+# 也不再消耗用户 token。原因：外部 LLM 需用户自备 API Key、额外付费，提高使用成本；而 agent
+# 本身即具备语义理解能力，由 agent 读 SKILL.md + 代码事实清单自行比对即可。
+#   - 模式：off（不运行）/ ask（交互菜单，由用户选 1=默认 2=agent接手 3=预览）/ agent（直接
+#     由 agent 接手）/ preview（仅展示 agent 将比对的材料与规模）。
+#   - agent 模式：脚本把「SKILL.md 全文 + 代码事实清单」写成 dossier 文件并打印
+#     `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 读取后自行完成语义比对，回报漂移。
+#   - 绝不依赖外部服务：本模块已移除 urllib/HTTP 调用与 API Key 配置项。
 
 
 def _code_fact_sheet(code):
@@ -1391,64 +1330,42 @@ def _code_fact_sheet(code):
     return "\n".join(rows)
 
 
-_LLM_DRIFT_RE = re.compile(r"^\s*-\s*([A-Za-z0-9_./\\-]+\.(?:md|py)):(\d+)\s*[|｜]\s*(.+)$")
-
-
-def _parse_llm_drift(text):
-    """解析 LLM 返回的漂移条目（每行 `- 文件:行 | 描述`），上限 30 条以防刷屏。"""
-    out = []
-    for ln in text.splitlines():
-        m = _LLM_DRIFT_RE.match(ln)
-        if not m:
-            continue
-        out.append((m.group(1), int(m.group(2)), m.group(3).strip()))
-        if len(out) >= 30:
-            break
-    return out
+# （v1.24.0）原 _parse_llm_drift 用于解析外部 LLM 返回，已随外部 LLM 调用移除；agent 接手后
+# 由 agent 直接判定语义漂移，不再需要结构化解析。
 
 
 def _resolve_doc_llm_mode(args):
-    """决定 doc-llm 是否运行、以何种模式，以及是否「静默降级」。
+    """决定 doc-llm 模式与是否「非交互跳过」。
 
     返回 (mode, degraded, reason)，与 _resolve_deadcode_mode 同构：
-    - mode: "off" | "auto" | "preview"
-    - degraded: 仅在「用户本意要语义检测却因环境限制未能运行」时为真，
-      调用方据此发 doc_llm_unavailable 告警（对应 deadcode 的 precision_degraded）。
-    - reason: degraded 时的中文说明（填入告警消息）。
+    - mode: "off" | "agent" | "preview"
+    - degraded/reason：仅当「--all-checks 全量自带、非交互环境无法询问」时标记，
+      供 check_doc_llm 发 INFO doc_llm_skipped（不污染「全量检测 WARN 0」不变量）。
 
-    离线不变量（绝不自动联网）：
+    v1.24.0 起：语义漂移检测由 agent 直接接手，本函数不再处理任何外部 LLM 配置。
       - 未显式传入（--all-checks 全量路径即此）→ 按 ask：交互弹菜单，超时 30s 回退默认；
       - 显式 off：完全不运行；
-      - 显式 ask：交互弹菜单，超时 30s 回退默认；非交互 → 不替用户决定，回退默认；
-      - 显式 auto：仅当用户显式要求且已配置 LLM 时才联网，否则降级。
-    降级（degraded）是否告警由 check_doc_llm 按「是否显式传入」区分：显式要求却未运行 → WARN
-    （doc_llm_unavailable，对应 deadcode 的 precision_degraded）；--all-checks 全量自带、
-    非交互环境无法询问 → INFO（doc_llm_skipped），不污染「全量检测 WARN 0」不变量。
+      - 显式 ask：交互弹菜单，超时 30s 回退默认；非交互 → 无法询问，回退默认并记 INFO 跳过；
+      - 显式 agent：直接由 agent 接手（脚本写 dossier + 打印哨兵）；
+      - 显式 preview：仅展示 agent 将比对的材料，不运行。
     """
     raw = getattr(args, "doc_llm_mode", None) if args else None
     mode = raw or "ask"
     if mode == "off":
         return "off", False, None
     if mode == "preview":
-        # 直接预览：不调用 LLM、零依赖、零 token；Agent 经 AskUserQuestion 收到用户选 3 后可显式传入
         return "preview", False, None
-    cfg = _load_llm_config(args)
-    if mode == "auto":
-        if cfg is None:
-            return "auto", True, "已显式要求 auto 模式但未配置 LLM（缺少 SKILLDOC_LLM_API_KEY / SKILLDOC_LLM_MODEL，或对应 --doc-llm-api-key/--doc-llm-model）"
-        return "auto", False, None
+    if mode == "agent":
+        return "agent", False, None
     # ask 模式：交互征询，绝不替用户决定
     if not sys.stdin.isatty():
-        # 自动化环境无法询问 → 回退默认（纯脚本），并显著告知被跳过
-        return "auto", True, "ask 模式处于非交互（自动化）环境，无法向用户询问，已回退默认（纯脚本）模式，未调用 LLM"
+        # 自动化环境无法询问 → 回退默认（纯脚本），并显著告知被跳过（INFO，不告警）
+        return "off", True, "ask 模式处于非交互（自动化）环境，无法向用户询问，已回退默认（纯脚本）模式"
     choice = _prompt_doc_llm_mode(timeout=30)
     if choice == "preview":
         return "preview", False, None
-    if choice == "auto":
-        if cfg is None:
-            # 用户明确选择增强模式却无配置：回退默认并告警（非静默）
-            return "auto", True, "用户选择增强模式（LLM 语义检测）但未配置 LLM，已回退默认模式"
-        return "auto", False, None
+    if choice == "agent":
+        return "agent", False, None
     # off（含超时/无输入/选 1）：用户明确放弃，非降级
     return "off", False, None
 
@@ -1456,17 +1373,17 @@ def _resolve_doc_llm_mode(args):
 def _prompt_doc_llm_mode(timeout=30):
     """交互式询问 doc-llm 运行方式；超时/无输入默认「默认模式」（不调用 LLM）。
 
-    返回 "off" | "auto" | "preview"：
+    返回 "off" | "agent" | "preview"：
       - off：纯脚本检查，零依赖，不调用 LLM（0 token）——超时/无输入/选 1 的落点；
-      - auto：启用 LLM 语义漂移检测（增强模式，依赖外部 LLM 服务，消耗额外 token）；
-      - preview：仅展示将发送给 LLM 的内容摘要与预估 token，不实际调用。
-    代价透明 + 兜底：菜单标注增强模式的外部依赖与 token 代价；超时一律回退 off，绝不联网。
+      - agent：由 agent 直接接手语义漂移检测（使用 agent 自身能力，零额外成本，不依赖外部 LLM）；
+      - preview：仅展示 agent 将比对的材料与规模，不实际运行。
+    代价透明 + 兜底：菜单标注「agent 接手、零额外 token」；超时一律回退 off，绝不联网。
     """
     sys.stderr.write(
         "\n[doc-llm] 语义漂移检测（Vector 2）如何运行？\n"
         "  1) 默认模式：纯脚本检查，零依赖，不调用 LLM（0 token）【推荐 · %d 秒超时默认】\n"
-        "  2) 增强模式：启用 LLM 语义漂移检测，依赖外部 LLM 服务，消耗额外 token\n"
-        "  3) 预览代价：仅展示将发送给 LLM 的内容与预估 token，不实际调用\n"
+        "  2) 启用语义漂移检查（由 agent 直接接手，零额外成本，不依赖外部 LLM）\n"
+        "  3) 预览：仅展示 agent 将比对的 SKILL.md 与代码事实清单规模，不实际运行\n"
         "请选择 [1/2/3]：" % timeout
     )
     sys.stderr.flush()
@@ -1486,14 +1403,14 @@ def _prompt_doc_llm_mode(timeout=30):
         sys.stderr.write("\n[doc-llm] 超时/无输入，已自动采用默认模式（不调用 LLM）。\n")
         return "off"
     if choice == "2":
-        return "auto"
+        return "agent"
     if choice == "3":
         return "preview"
     return "off"
 
 
 def _print_doc_llm_preview(ctx):
-    """预览将发送给 LLM 的内容规模与预估 token 代价（不实际调用）。"""
+    """预览 agent 将比对的材料规模（不实际运行、不消耗任何 token）。"""
     doc = ctx.get("doc", "")
     code = ctx.get("code", {}) or {}
     try:
@@ -1502,91 +1419,88 @@ def _print_doc_llm_preview(ctx):
         sheet = "（无法生成事实清单：%s）" % e
     est = max(1, len(sheet) // 4)
     sys.stderr.write(
-        "\n[doc-llm 预览] 增强模式将向配置的 LLM 端点发起 1 次请求，发送 SKILL.md 全文 + 代码事实清单。\n"
+        "\n[doc-llm 预览] 若启用语义漂移检查，将由 **agent 直接接手** 完成：agent 读取本技能 SKILL.md 全文 + "
+        "代码事实清单，用自身能力比对，不依赖外部 LLM、不消耗用户 token（零额外成本）。\n"
         "  - SKILL.md 长度：%d 字符\n"
-        "  - 代码事实清单长度：%d 字符（预估 ~%d token，按 ~4 字符/token）\n"
-        "  - 代价：依赖外部 LLM 服务、消耗额外 token；失败或超时回退默认模式。\n"
-        "  - 本次未调用 LLM。如需启用，请选增强模式或显式 --doc-llm-mode auto。\n"
+        "  - 代码事实清单长度：%d 字符（agent 比对时约占用 ~%d token 的自身上下文，不向任何外部服务付费）\n"
+        "  - 代价：仅占用 agent 自身推理上下文，无外部账单。\n"
+        "  - 本次未运行语义检测。如需启用，请选「启用语义漂移检查（agent 接手）」或显式 --doc-llm-mode agent。\n"
         % (len(doc), len(sheet), est)
     )
 
 
+def _write_doc_llm_dossier(ctx):
+    """把 SKILL.md 全文 + 代码事实清单写入 dossier 文件，供 agent 直接接手语义比对。
+
+    返回 dossier 的绝对路径。agent 读取后使用自身能力判定文档声称的能力/默认值/行为/数量/集合
+    与代码事实是否一致，回报潜在语义漂移。**不依赖任何外部 LLM 端点、不消耗用户 token**。
+    """
+    import tempfile
+    doc = ctx.get("doc", "")
+    code = ctx.get("code", {}) or {}
+    try:
+        sheet = _code_fact_sheet(code)
+    except Exception as e:  # noqa: BLE001
+        sheet = "（无法生成事实清单：%s）" % e
+    content = (
+        "# doc-llm 语义漂移检测 Dossier（agent 接手）\n\n"
+        "本文件由 skill-doc-audit 生成，供 **agent 直接接手** 完成语义漂移检测。\n"
+        "请勿依赖任何外部 LLM；agent 应使用自身能力比对下方两份材料。\n\n"
+        "## 材料一：SKILL.md 全文\n\n%s\n\n"
+        "## 材料二：代码事实清单（由源码抽取：顶层定义 / CLI 参数 / 返回码 / 常量）\n\n%s\n\n"
+        "## 比对要点\n"
+        "逐条核对 SKILL.md 声称的：能力范围、默认值、行为、数量、集合、CLI 参数、退出码、配置项 —— "
+        "是否与代码事实清单一致。\n"
+        "仅报告确有依据的语义漂移（文档说法与代码事实冲突），不报告风格/措辞问题。\n"
+    ) % (doc, sheet)
+    path = os.path.join(tempfile.gettempdir(), "skill_doc_audit_doc_llm_dossier.md")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return path
+
+
 def check_doc_llm(ctx):
-    """LLM 语义漂移检测（Vector 2）。调用流程与 deadcode 检查器对齐。
+    """LLM 语义漂移检测（Vector 2）——由 agent 直接接手。
 
-    v1.23.0 起纳入 --all-checks 全量集：全量检测会跑本检查器并「显式问询」是否启用
-    LLM 语义检测（弹菜单、30s 超时默认不启用）。离线不变量仍成立——**绝不自动联网**，
-    只有用户在菜单中选「增强模式」或显式 --doc-llm-mode auto 且配置好 LLM 时才发起请求。
+    v1.24.0 起：本检查器不再调用任何外部 LLM 端点、不消耗用户 token。语义漂移检测改由 **agent
+    直接接手**：脚本负责准备材料（SKILL.md 全文 + 代码事实清单）并落盘，agent 读取后使用自身能力
+    完成语义比对。流程与 deadcode 检查器对齐（同构的 (mode, degraded) 元组）。
 
-    降级（degraded）的可见级别按「用户是否显式传入 --doc-llm-mode」区分：
-      - 显式传入（auto/ask）却未运行 → WARN doc_llm_unavailable（用户要求被落空，必须看见）；
-      - 未显式传入（--all-checks 全量自带）、非交互环境无法询问 → INFO doc_llm_skipped，
-        属预期行为，不污染「全量检测 WARN 0」不变量。
+      - 显式 off / 非交互 ask 回退 → 跳过（off：静默；非交互全量 → INFO doc_llm_skipped）；
+      - preview → 展示 agent 将比对的材料规模，不运行；
+      - agent → 写 dossier + 打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 接手。
     """
     args = ctx.get("args")
     raw_mode = getattr(args, "doc_llm_mode", None) if args else None
     explicit = raw_mode is not None  # 用户是否显式传入 --doc-llm-mode
-    mode, degraded, reason = _resolve_doc_llm_mode(args)
+    mode, degraded, _ = _resolve_doc_llm_mode(args)
     findings = []
     if mode == "preview":
         _print_doc_llm_preview(ctx)
         return findings
-    if mode in ("off", "skip"):
+    if mode == "agent":
+        dossier = _write_doc_llm_dossier(ctx)
+        sys.stderr.write("\n[doc-llm] AGENT_TAKEOVER: %s\n" % dossier)
+        sys.stderr.write(
+            "[doc-llm] 语义漂移检测已由 agent 直接接手（使用 agent 自身能力，不依赖外部 LLM、不消耗用户 token）。"
+            "请 agent 读取上方 dossier 并完成语义比对。\n"
+        )
+        findings.append(finding(
+            "doc-llm", SEVERITY_INFO, "doc_llm_agent_handoff",
+            "doc-llm 语义检测转交 agent 接手：dossier 已写入 %s。agent 将使用自身能力比对 SKILL.md 与代码事实清单，零额外成本。" % dossier,
+            suggestion="agent 读取 dossier，比对文档声称的能力/默认值/行为/数量/集合与代码事实清单，回报潜在语义漂移。",
+        ))
         return findings
-    if degraded:
-        if explicit:
-            # 与 deadcode 的 precision_degraded 同理：用户显式要求却被落空 → 显著告警
-            findings.append(finding(
-                "doc-llm", SEVERITY_WARN, "doc_llm_unavailable",
-                "doc-llm（LLM 语义漂移检测）未能运行：%s。本次审计不含语义级内容漂移检测（Vector 1 确定性检查仍生效）。" % reason,
-                suggestion="配置 LLM（环境变量 SKILLDOC_LLM_API_KEY / SKILLDOC_LLM_MODEL，或 --doc-llm-api-key/--doc-llm-model）后改用 --doc-llm-mode auto；或在交互终端使用 --doc-llm-mode ask。",
-            ))
-        else:
-            # --all-checks 全量路径自带，非交互环境无法询问属预期 → INFO 提示，不升 WARN
+    if mode in ("off", "skip"):
+        if degraded and not explicit:
+            # --all-checks 全量自带、非交互环境无法询问 → INFO 提示，不升 WARN
             findings.append(finding(
                 "doc-llm", SEVERITY_INFO, "doc_llm_skipped",
-                "doc-llm（LLM 语义漂移检测）已纳入本次全量检测，但当前为非交互环境、无法向用户询问，已跳过且未调用 LLM（%s）。Vector 1 确定性检查仍生效。" % reason,
-                suggestion="如需语义级检测：在交互终端运行 --all-checks 并在菜单中选「增强模式」；或显式 --doc-llm-mode auto 并配置 LLM。不想被询问可显式 --doc-llm-mode off。",
+                "doc-llm（语义漂移检测）已纳入本次全量检测，但当前为非交互环境、无法向用户询问，已跳过（未调用任何 LLM、零成本）。Vector 1 确定性检查仍生效。",
+                suggestion="如需语义级检测：由 agent 调用本技能并以 --doc-llm-mode agent 接手；或在交互终端运行 --all-checks 并在菜单中选「agent 接手」。不想被询问可显式 --doc-llm-mode off。",
             ))
         return findings
-    cfg = _load_llm_config(args)
-    doc = ctx["doc"]
-    code = ctx["code"]
-    sheet = _code_fact_sheet(code)
-    system = (
-        "你是技能文档审计助手。给定一份技能的 SKILL.md 文档与一份「代码事实清单」（由审计工具从源码抽取，"
-        "列出顶层定义、CLI 参数、返回码、常量），请判断文档中是否存在「内容/行为漂移」："
-        "文档声称的能力、默认值、行为、数量、集合与代码事实清单不一致之处。"
-        "只报告确有依据的漂移，不要报告风格/措辞问题。每条输出一行，格式严格为："
-        "- 文件名:行号 | 问题描述（指明文档说法与代码事实的冲突）。"
-        "若未发现漂移，仅输出一行「- 无漂移」。不要输出任何其他内容。"
-    )
-    user = "=== SKILL.md ===\n%s\n\n=== 代码事实清单 ===\n%s" % (doc, sheet)
-    try:
-        resp = _call_llm(cfg, system, user)
-    except _LLMUnavailable as e:
-        findings.append(finding(
-            "doc-llm", SEVERITY_WARN, "doc_llm_unavailable",
-            "doc-llm 调用 LLM 失败：%s。语义级内容漂移检测本次未生效（Vector 1 确定性检查不受影响）。" % e,
-            suggestion="检查 LLM 配置与网络连通性；或仅使用 Vector 1 的确定性检查。",
-        ))
-        return findings
-    items = _parse_llm_drift(resp)
-    if not items:
-        if "无漂移" in resp:
-            findings.append(finding(
-                "doc-llm", SEVERITY_INFO, "doc_llm_ran",
-                "doc-llm 语义检测已运行（模型 %s），未检出内容/行为漂移。" % cfg["model"],
-            ))
-        # 模型返回但无法解析为结构化条目：保持静默，不刷屏
-        return findings
-    for fpath, line, msg in items:
-        findings.append(finding(
-            "doc-llm", SEVERITY_WARN, "DOC_LLM_DRIFT",
-            "语义漂移（LLM 判定）：%s" % msg,
-            file=fpath, line=line,
-            suggestion="与代码事实核对后修订文档，或修正代码行为使其与文档一致。",
-        ))
+    # 不应到达
     return findings
 
 
@@ -2449,7 +2363,7 @@ def main():
     ap.add_argument("--skill", help="技能目录")
     ap.add_argument("--all", action="store_true", help="审计 ~/.workbuddy/skills 下全部技能")
     ap.add_argument("--check", action="append", metavar="NAME",
-                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability/doc-llm)，可重复；doc 常驻默认开；doc-llm 默认按 ask 处理（弹菜单询问是否启用 LLM），显式 --doc-llm-mode auto 并配置 LLM 才联网")
+                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability/doc-llm)，可重复；doc 常驻默认开；doc-llm 默认按 ask 处理（弹菜单询问是否启用语义检测，由 agent 接手），显式 --doc-llm-mode agent 即由 agent 直接接手（不依赖外部 LLM、不消耗用户 token）")
     ap.add_argument("--all-checks", action="store_true", help="启用全部检查器（含 doc-llm：交互终端弹菜单询问是否启用 LLM 语义检测，30 秒超时默认不启用，绝不自动联网；非交互环境跳过并以 INFO 提示）")
     ap.add_argument("--backup", action="store_true", help="审计前备份 SKILL.md")
     ap.add_argument("--backup-limit", type=int, default=BACKUP_LIMIT,
@@ -2463,13 +2377,7 @@ def main():
     ap.add_argument("--deadcode-mode", default="ask", choices=list(DEADCODE_MODES),
                     help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
     ap.add_argument("--doc-llm-mode", default=None, choices=list(DOCLLM_MODES),
-                    help="doc-llm LLM 语义漂移检测模式（调用流程对齐 deadcode）：ask(默认,交互终端呈现实选项：1)默认模式 2)增强模式(依赖外部LLM,耗token) 3)预览代价，30 秒超时自动回退默认模式) / off(不运行,绝不联网) / auto(用配置的 LLM 直接检测) / preview(仅展示将发送给 LLM 的内容与预估 token，不实际调用，零依赖零 token，Agent 经 AskUserQuestion 收到用户选 3 后可直接传入)。auto 需先配置 LLM：环境变量 SKILLDOC_LLM_API_KEY + SKILLDOC_LLM_MODEL（可选 SKILLDOC_LLM_BASE_URL），或显式 --doc-llm-api-key/--doc-llm-model")
-    ap.add_argument("--doc-llm-base-url", default=None,
-                    help="doc-llm 的 LLM base URL（OpenAI 兼容；默认 OpenAI 官方 Chat Completions 端点，可用环境变量 SKILLDOC_LLM_BASE_URL 覆盖）")
-    ap.add_argument("--doc-llm-api-key", default=None,
-                    help="doc-llm 的 LLM API Key（覆盖环境变量 SKILLDOC_LLM_API_KEY）")
-    ap.add_argument("--doc-llm-model", default=None,
-                    help="doc-llm 使用的模型名（覆盖环境变量 SKILLDOC_LLM_MODEL）")
+                    help="doc-llm 语义漂移检测模式（v1.24.0 起由 agent 直接接手，不再依赖外部 LLM、不消耗用户 token）：ask(默认,交互终端呈现实选项：1)默认模式 2)agent接手(零额外成本) 3)预览，30 秒超时自动回退默认模式) / off(不运行) / agent(直接由 agent 接手：脚本写 dossier + 打印 AGENT_TAKEOVER 哨兵) / preview(仅展示 agent 将比对的材料与规模，不实际运行)。Agent 经 AskUserQuestion 收到用户选择后显式传入")
     ap.add_argument("--preview", action="store_true",
                     help="只预览将运行哪些检查器、将扫描哪些文件，不产出发现，退出码 0（适合首次审计前心里有数）")
     ap.add_argument("--source", default="local", choices=list(SOURCES),

@@ -5,6 +5,30 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.24.0 打磨明细（doc-llm 改由 agent 直接接手，移除外部 LLM 依赖）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+### 背景（用户两项指令）
+1. 选项 3（预览）应作为前置步骤：展示预估结果后，继续让用户在选项 1（默认）与 2（增强/接手）间选择，除非超时；此前 agent 选了 3 就直接结束，未回问 1/2。
+2. 所有用到外部 LLM 的地方都应改由 agent 直接接手——否则只会提高用户使用成本（自备 API Key、额外付费）。要求全量改写相关描述。
+
+### 改动
+- **删除外部 LLM 调用**：移除 `_call_llm`（urllib/OpenAI 兼容 HTTP 调用）、`_load_llm_config`、`_LLMUnavailable`、`_parse_llm_drift`，及 `--doc-llm-api-key`/`--doc-llm-model`/`--doc-llm-base-url` 三个配置参数与 `SKILLDOC_LLM_*` 环境变量依赖。
+- **模式重构**：`DOCLLM_MODES` 由 `(off,auto,ask,preview)` 改为 `(off,agent,ask,preview)`；`auto` 彻底移除，`agent` 取而代之——语义漂移检测一律由 agent 用自身能力完成。
+- **agent 接手机制**：新增 `_write_doc_llm_dossier(ctx)`——把 SKILL.md 全文 + 代码事实清单写成 dossier 文件（系统临时目录），`check_doc_llm` 在 `agent` 模式下打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵并发 `INFO doc_llm_agent_handoff`，由 agent 读取后自行完成语义比对、回报 `DOC_LLM_DRIFT`。
+- **预览改写**：`_print_doc_llm_preview` 改为「agent 将接手、零额外成本、不依赖外部 LLM」口径，展示 agent 将比对的材料规模（不再提「消耗 token」）。
+- **Agent 调用流程修正**（SKILL.md「Agent 调用标准动作」）：选项 3 明确为「前置步骤」——先跑 `--doc-llm-mode preview` 展示材料，再二次 `AskUserQuestion` 只给 1（默认）/2（agent 接手）让用户做最终选择（超时默认 1）。
+- **描述全量改写**：所有「依赖外部 LLM 服务 / 消耗额外 token / 配置 SKILLDOC_LLM_*」表述，统一改为「由 agent 直接接手 / 零额外成本 / 不依赖外部 LLM」。涉及 SKILL.md（能力清单、doc-llm 段落、Agent 约定、错误码表、Vector 2 引用块）、`references/checkers.md`（错误码表）、`README.md`（版本摘要）、argparse 帮助。
+- **错误码调整**：移除 `doc_llm_unavailable` / `doc_llm_ran`（随外部 LLM 调用移除），新增 `doc_llm_agent_handoff`（INFO）。
+
+### 验证
+- 残留符号 grep：`_call_llm`/`_load_llm_config`/`_LLMUnavailable`/`_parse_llm_drift`/`SKILLDOC_LLM`/`--doc-llm-api-key` 等均为空（仅剩一处「移除说明」注释）。
+- `py_compile` 通过；`--doc-llm-mode` choices 实测为 `{off,agent,ask,preview}`。
+- 实跑 `agent` 模式：写出 49217 字节 dossier + 打印 `AGENT_TAKEOVER` 哨兵 + `INFO doc_llm_agent_handoff`，整体 `ERROR 0 / WARN 0 / INFO 21`。
+- 实跑 `preview` 模式：展示「agent 直接接手、零额外成本」口径，未调用任何 LLM，整体 `ERROR 0 / WARN 0 / INFO 20`。
+- 部署副本自审（同步后）：`ERROR 0 / WARN 0 / INFO 21` 通过。
+
 ## 1.23.7 打磨明细（修复 --doc-llm-mode preview 被 argparse 拒绝的 bug）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
