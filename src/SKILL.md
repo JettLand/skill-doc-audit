@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.23.4"
+version: "1.23.5"
 license: MIT
 author: Jett
 agent_created: true
@@ -145,13 +145,19 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 
 ### doc-llm 语义检测同理（v1.23.0 起已纳入全量集）
 
-`--all-checks` 已包含 `doc-llm`，默认按 `ask` 处理——**真实交互终端（tty 且有用户在场）弹菜单询问、30 秒超时默认不启用**；**Agent 的 Bash 工具（stdin 是 tty 但无人值守）同样会打印菜单并等待约 30 秒后自动回退默认模式**（你能在输出里看到这条「显式提问」，只是无人输入）；**仅当经管道调用（stdin 非 tty，如 CI/自动化）时弹不出菜单**，才**安全回退**：记 INFO `doc_llm_skipped`（不联网、不消耗 token）——**这是 INFO 不是 WARN**，不影响「全量检测 WARN 0」不变量。
+`--all-checks` 已包含 `doc-llm`，默认按 `ask` 处理。但**「ask」的载体因调用方式而异，且 Agent 场景必须用原生交互**：
 
-**关键红线：Agent 绝不可替用户决定「关掉 doc-llm」。**
+- **真实交互终端（tty 且有用户在场）**：CLI 直接弹 stdin 菜单询问，30 秒超时默认不启用。
+- **Agent 调用（本技能的主场景）**：Agent 沙箱没有用户能键入的终端，CLI 的 stdin 菜单虽会打印却**收不到输入**（实测：打印后空等约 30s 超时回退默认）。因此 **Agent 必须改用其原生的 `AskUserQuestion` 工具把 doc-llm 选择权抛给用户**，再按选择显式传参——这是「通过 agent 调用也要弹出菜单让用户选择」的正确实现，也契合「绝不替用户决定」红线。
+- **管道/CI（stdin 非 tty）**：弹不出菜单，记 INFO `doc_llm_skipped`（不联网、不消耗 token，INFO 非 WARN，不影响「全量检测 WARN 0」）。
 
-- **Agent 运行 `--all-checks` 时，直接跑即可，不要传 `--doc-llm-mode off`**。在 Bash 工具（tty）下你会看到 doc-llm 菜单并打印、约 30s 后自动回退默认（零联网零 token）；在管道/CI（非 tty）下则记 INFO `doc_llm_skipped`——**两者都保留了用户「日后在交互终端启用 / 显式 `--doc-llm-mode auto` 开启」的选择权与知情权**。主动传 `off` 去压制这条提问/提示，等同于替用户做决定，直接违背上方「设计原则（绝不替用户决定）」。注：Bash 工具下菜单会真实等待约 30s（安全超时、不卡死）；若 Agent 想避免这次等待，用管道调用（非 tty）即可直接 skip，但仍不得传 `off`。
-- **仅在用户明确表示要启用 LLM 语义检测时**才传 `--doc-llm-mode auto`：先经 `AskUserQuestion` 向用户确认代价（依赖外部 LLM 服务、消耗额外 token），确认后再配置 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL` 并显式传入；Agent 不得自行决定启用（那才会消耗用户资源）。
-- **「让用户自己在终端选」**：在真实交互终端运行，由菜单询问（Agent 不得替用户选「增强模式」）。
+**Agent 调用时的标准动作（必须执行，不得省略询问）：**
+1. 运行 `--all-checks`（或 `--check doc-llm`）**前**，先调用 `AskUserQuestion` 向用户呈现 doc-llm 三选项，代价透明：
+   - **默认模式**（推荐）：纯脚本检查，零依赖、0 token，不调用 LLM；
+   - **增强模式**：启用 LLM 语义漂移检测，依赖外部 LLM 服务、消耗额外 token（需先配 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`）；
+   - **预览代价**：仅展示将发送给 LLM 的内容与预估 token，不实际调用。
+2. 按用户选择显式传参后再运行：默认→`--doc-llm-mode off`；增强→确认已配 LLM 后 `--doc-llm-mode auto`；预览→`--doc-llm-mode preview`。**此举既不触发 CLI 的 30s 空等，又把决定权交还用户。**
+3. **红线**：Agent 不得跳过询问直接默认/跳过（那才是「替用户决定」）；也不得在用户未选「增强」时擅自 `--doc-llm-mode auto`（那会消耗用户资源）。用户在指令中已明确指定模式时，可免问直接照办。
 4. **仅当明确处于无人值守的 CI / 自动化链路**时，才允许不经询问直接 `--deadcode-mode ast`（此时静默降级即预期行为）。
 
 一句话：**Agent 场景下的 deadcode 精度，永远由「Agent 显式传参」决定，而不是脚本的 `ask` 默认。** 这样精度选择权始终在用户手里，符合设计初衷。

@@ -5,6 +5,29 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.23.5 打磨明细（Agent 调用必须用 AskUserQuestion 抛出 doc-llm 选择）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+### 背景（用户指令）
+用户指出：「这是个 agent skill，通过 agent 调用时也要弹出菜单让用户选择。」——即 agent 调用本技能时，doc-llm 的「显式提问」必须真正触达用户、由用户选择，而不是靠 CLI stdin 菜单（agent 沙箱收不到输入，只会空等 30s 超时回退默认）。
+
+### 根因
+- 1.23.4 的 Agent 约定仍含「让用户自己在终端选」的指引，且未规定 agent 在调用前应主动用 `AskUserQuestion` 抛选择；旧版甚至暗示 Bash 工具下让菜单打印即可，但那在 agent 场景里用户根本无法输入。
+- 正确载体：agent 场景没有可键入终端 → CLI stdin 菜单失效 → 必须用 agent 原生的 `AskUserQuestion` 工具把选择权交给用户，再按选择显式传 `--doc-llm-mode`。
+
+### 改动（纯文档，frontmatter 1.23.4→1.23.5）
+- SKILL.md「Agent 执行约定 · doc-llm 语义检测同理」整段重写：
+  - 厘清三载体：真实交互终端（CLI stdin 菜单）/ Agent 调用（**必须改用 `AskUserQuestion`**）/ 管道 CI（INFO skipped）。
+  - 新增「Agent 调用时的标准动作」三步：①运行前先 `AskUserQuestion` 呈现三选项（默认/增强/预览代价，代价透明）；②按选择显式传 `--doc-llm-mode off|auto|preview`；③红线（不得跳过询问、不得擅自 auto）。
+  - 删除过时的「让用户自己在终端选」指引。
+- README 版本表新增 1.23.5 行；本 CHANGELOG 新增本节。
+
+### 验证
+- 部署副本同步（后续）。
+- 部署副本自身 `--all-checks --deadcode-mode vulture` 自审：`ERROR 0 / WARN 0`，通过（代码零改动，行为不变，仅约定校正）。
+- 行为说明：agent 按新约定先用 `AskUserQuestion` 询问 → 再带显式 `--doc-llm-mode` 运行，**不再触发 CLI 的 30s 空等**，用户决定权落实。
+
 ## 1.23.4 打磨明细（校正 Agent 约定文档漂移：Bash 工具下 doc-llm 并非 INFO skipped）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
