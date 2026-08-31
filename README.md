@@ -30,7 +30,7 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
-| 1.23.3 | **修正 Agent 约定：禁止替用户关掉 doc-llm**：原「Agent 执行约定」把「本次不启用语义检测 → 加 `--doc-llm-mode off`」列为默认最省事项，导致 Agent 跑 `--all-checks` 时静默替用户决定关闭 doc-llm（用户只见「doc-llm 显式关闭」、不觉察该能力存在），违背「绝不替用户决定」原则。改为明确红线：非交互下直接跑 `--all-checks` 即可，doc-llm 会**安全回退**为 INFO `doc_llm_skipped`（保留用户后续启用选择权与知情），Agent 不得主动传 `off` 压制提示；仅当用户明确要启用时才先 `AskUserQuestion` 确认代价再传 `--doc-llm-mode auto`。纯文档修正，代码不变 |
+| 1.23.4 | **校正 Agent 约定文档漂移**：实测表明 Agent 的 Bash 工具下 `stdin` 仍是 tty，doc-llm 走的是「弹菜单 + 约 30s 超时自动回退默认」分支（菜单可见、但无人输入），**并非** INFO `doc_llm_skipped` 静默跳过——原 1.23.3 约定误写「Bash 工具下安全回退为 INFO skipped」。本文档把三种环境的行为厘清：①真实交互终端（tty+有人）弹菜单可输入；②Bash 工具（tty 无人）弹菜单+等 30s 自动默认；③管道/CI（非 tty）才记 INFO `doc_llm_skipped`。红线不变：Agent 仍不得传 `--doc-llm-mode off` 替用户决定；想避免 30s 等待可用管道调用走 skip 分支。纯文档校正，代码不变 |
 | 1.23.2 | **doc 检查器补 doc-llm 引导描述**：在「能力边界」检查器清单的 `doc` 项补一句引导性描述——`doc` 覆盖 Vector 1 结构化漂移（死引用/失效参数/退出码不符/枚举·数量·能力声明与代码不符），自由散文语义漂移由同族 `doc-llm` 检查器（Vector 2）以 LLM 语义检测补足，便于读者在开头即建立「doc 与 doc-llm 的分工」认知。纯文档增补，版本号补丁级，部署自审 `[doc] ERROR 0 / WARN 0` |
 | 1.23.1 | **确立核心设计原则**：新增头条「设计原则（核心约束）」——`默认模式零依赖，但绝不替用户决定`：默认即零依赖（纯脚本/不联网/零 token）、绝不替用户决定（涉及外部依赖能力的取舍必须显式交还用户、超时回退默认）、透明兜底（无法询问宁可显著标注跳过也不静默代决）；统领 doc-llm 与 deadcode 的交互式取舍。纯文档确立，部署自审 `[doc] ERROR 0 / WARN 0` |
 | 1.23.0 | **doc-llm 默认问询 + 纳入全量检测**：①`--doc-llm-mode` 默认改 `ask`，`--check doc-llm` 不传 mode 即弹三选项菜单（默认/增强/预览，30s 超时回退）；②doc-llm 列入 `ALL_CHECKERS`，`--all-checks` 含 LLM 语义漂移问询——交互弹菜单、非交互记 INFO `doc_llm_skipped`（保全量 WARN 0 不变量）、显式传入未运行则 WARN `doc_llm_unavailable`；离线不变量（绝不自动联网）不变 |

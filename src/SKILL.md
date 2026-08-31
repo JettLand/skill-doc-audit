@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.23.3"
+version: "1.23.4"
 license: MIT
 author: Jett
 agent_created: true
@@ -145,11 +145,11 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 
 ### doc-llm 语义检测同理（v1.23.0 起已纳入全量集）
 
-`--all-checks` 已包含 `doc-llm`，默认按 `ask` 处理——交互终端弹菜单询问、30 秒超时默认不启用。Agent 经管道调用（stdin 非 TTY）时**弹不出菜单**，会**安全回退**：记 INFO `doc_llm_skipped`（不联网、不消耗 token）——**这是 INFO 不是 WARN**，不影响「全量检测 WARN 0」不变量。
+`--all-checks` 已包含 `doc-llm`，默认按 `ask` 处理——**真实交互终端（tty 且有用户在场）弹菜单询问、30 秒超时默认不启用**；**Agent 的 Bash 工具（stdin 是 tty 但无人值守）同样会打印菜单并等待约 30 秒后自动回退默认模式**（你能在输出里看到这条「显式提问」，只是无人输入）；**仅当经管道调用（stdin 非 tty，如 CI/自动化）时弹不出菜单**，才**安全回退**：记 INFO `doc_llm_skipped`（不联网、不消耗 token）——**这是 INFO 不是 WARN**，不影响「全量检测 WARN 0」不变量。
 
 **关键红线：Agent 绝不可替用户决定「关掉 doc-llm」。**
 
-- **非交互（Agent/自动化）下，直接跑 `--all-checks` 即可，不要传 `--doc-llm-mode off`**。doc-llm 会自行跳过并给出 INFO `doc_llm_skipped`——这让用户保留「日后在交互终端启用 / 显式 `--doc-llm-mode auto` 开启」的选择权与知情权。**主动传 `off` 去压制这条提示，等同于替用户做决定**，直接违背上方「设计原则（绝不替用户决定）」。
+- **Agent 运行 `--all-checks` 时，直接跑即可，不要传 `--doc-llm-mode off`**。在 Bash 工具（tty）下你会看到 doc-llm 菜单并打印、约 30s 后自动回退默认（零联网零 token）；在管道/CI（非 tty）下则记 INFO `doc_llm_skipped`——**两者都保留了用户「日后在交互终端启用 / 显式 `--doc-llm-mode auto` 开启」的选择权与知情权**。主动传 `off` 去压制这条提问/提示，等同于替用户做决定，直接违背上方「设计原则（绝不替用户决定）」。注：Bash 工具下菜单会真实等待约 30s（安全超时、不卡死）；若 Agent 想避免这次等待，用管道调用（非 tty）即可直接 skip，但仍不得传 `off`。
 - **仅在用户明确表示要启用 LLM 语义检测时**才传 `--doc-llm-mode auto`：先经 `AskUserQuestion` 向用户确认代价（依赖外部 LLM 服务、消耗额外 token），确认后再配置 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL` 并显式传入；Agent 不得自行决定启用（那才会消耗用户资源）。
 - **「让用户自己在终端选」**：在真实交互终端运行，由菜单询问（Agent 不得替用户选「增强模式」）。
 4. **仅当明确处于无人值守的 CI / 自动化链路**时，才允许不经询问直接 `--deadcode-mode ast`（此时静默降级即预期行为）。

@@ -5,6 +5,27 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.23.4 打磨明细（校正 Agent 约定文档漂移：Bash 工具下 doc-llm 并非 INFO skipped）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+### 背景
+用户执行 `@skill:skill-doc-audit --all-checks` 后问「doc-llm 的显式提问呢？」——经查证代码（`audit_docs.py:1438` 的 `if not sys.stdin.isatty()` 分支）并实测两路径：
+- **Path B（Bash 工具，不管道 stdin）**：`sys.stdin.isatty()` 为真 → 走交互分支，真实打印菜单并等待约 30s 后超时回退默认（`[doc-llm] INFO 0`），菜单可见但无人输入。
+- **Path A（管道 `echo "" \|`）**：`isatty()` 为假 → 直接 `INFO doc_llm_skipped`（第 1440 行返回值）。
+
+故 1.23.3 约定「Bash 工具下 doc-llm 会安全回退为 INFO `doc_llm_skipped`」**与实测不符**——Bash 工具是 tty，走的是菜单+超时分支，不是 skip。上一轮菜单「没看到」的真实原因是 agent 用 `2>&1 | tail -40` 截断了第 2 行打印的菜单（总输出 65 行），并非功能缺失。
+
+### 改动（纯文档，frontmatter 1.23.3→1.23.4）
+- SKILL.md「Agent 执行约定」第 148 行：把「交互终端弹菜单 / 管道才 skip」补成三种环境完整描述（真实交互终端 / Bash 工具 tty 无人 / 管道非 tty）。
+- SKILL.md 第 152 行红线：把「非交互下自行跳过为 INFO」校正为「Bash 工具下打印菜单+等 30s，管道下才 skip」，并注明 30s 是安全超时、想避免等待可走管道 skip 但仍不得传 `off`。
+- README 版本表新增 1.23.4 行；本 CHANGELOG 新增本节。
+
+### 验证
+- 部署副本字节级一致（后续同步）。
+- 部署副本自审 `--all-checks --deadcode-mode vulture`：`ERROR 0 / WARN 0`，通过。
+- 代码零改动，行为不变；仅校正文档使其与实测一致。
+
 ## 1.23.3 打磨明细（修正 Agent 约定：禁止替用户关掉 doc-llm）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
