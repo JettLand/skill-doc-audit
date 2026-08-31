@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.23.5"
+version: "1.23.6"
 license: MIT
 author: Jett
 agent_created: true
@@ -152,10 +152,12 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 - **管道/CI（stdin 非 tty）**：弹不出菜单，记 INFO `doc_llm_skipped`（不联网、不消耗 token，INFO 非 WARN，不影响「全量检测 WARN 0」）。
 
 **Agent 调用时的标准动作（必须执行，不得省略询问）：**
-1. 运行 `--all-checks`（或 `--check doc-llm`）**前**，先调用 `AskUserQuestion` 向用户呈现 doc-llm 三选项，代价透明：
-   - **默认模式**（推荐）：纯脚本检查，零依赖、0 token，不调用 LLM；
-   - **增强模式**：启用 LLM 语义漂移检测，依赖外部 LLM 服务、消耗额外 token（需先配 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`）；
-   - **预览代价**：仅展示将发送给 LLM 的内容与预估 token，不实际调用。
+1. 运行 `--all-checks`（或 `--check doc-llm`）**前**，先调用 `AskUserQuestion` 向用户呈现 doc 检查器的语义检测模式。**使用以下统一措辞模板**（v1.23.6 经用户改进，问题与选项文本必须原样使用，便于理解）：
+   - **question**：`运行doc检查器（默认常驻）时，你希望采用哪种模式？`
+   - **header**：`doc 检查`（≤12 字符）
+   - **选项 1** label `默认模式（静态脚本检查，零依赖）` / desc `推荐 · 不调用 LLM · 0 token · 离线`
+   - **选项 2** label `启用语义漂移检查（依赖外部LLM服务，消耗额外token）` / desc `需先配置 LLM 密钥（SKILLDOC_LLM_API_KEY + SKILLDOC_LLM_MODEL），会调用 LLM 比对 SKILL.md 与代码事实清单`
+   - **选项 3** label `预览选项2的预估token消耗` / desc `不实际调用 LLM，仅展示将发送的 SKILL.md + 代码事实清单内容与 token 估算`
 2. 按用户选择显式传参后再运行：默认→`--doc-llm-mode off`；增强→确认已配 LLM 后 `--doc-llm-mode auto`；预览→`--doc-llm-mode preview`。**此举既不触发 CLI 的 30s 空等，又把决定权交还用户。**
 3. **红线**：Agent 不得跳过询问直接默认/跳过（那才是「替用户决定」）；也不得在用户未选「增强」时擅自 `--doc-llm-mode auto`（那会消耗用户资源）。用户在指令中已明确指定模式时，可免问直接照办。
 4. **仅当明确处于无人值守的 CI / 自动化链路**时，才允许不经询问直接 `--deadcode-mode ast`（此时静默降级即预期行为）。

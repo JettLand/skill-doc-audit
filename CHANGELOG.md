@@ -5,6 +5,26 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.23.6 打磨明细（改进 AskUserQuestion 措辞模板：术语化→用户语）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+### 背景（用户反馈）
+用户截图反馈 v1.23.5 的 AskUserQuestion 模板「非常不好理解」——question 用了「doc-llm 语义漂移检测（Vector 2）」等技术术语，选项 label 太简（仅「默认模式/增强模式/预览代价」），代价与能力信息藏在 desc 里，不直观。建议改为面向用户的措辞，把 doc 检查器与代价/能力信息直接写进 question 与选项 label。
+
+### 改动（纯文档，frontmatter 1.23.5→1.23.6）
+- SKILL.md「Agent 调用标准动作」第 1 步：把三选项措辞固化为**强制模板**（agent 必须原样使用）：
+  - **question**：`运行doc检查器（默认常驻）时，你希望采用哪种模式？`
+  - **header**：`doc 检查`（≤12 字符）
+  - **选项 1** label `默认模式（静态脚本检查，零依赖）` / desc `推荐 · 不调用 LLM · 0 token · 离线`
+  - **选项 2** label `启用语义漂移检查（依赖外部LLM服务，消耗额外token）` / desc `需先配置 LLM 密钥（SKILLDOC_LLM_API_KEY + SKILLDOC_LLM_MODEL），会调用 LLM 比对 SKILL.md 与代码事实清单`
+  - **选项 3** label `预览选项2的预估token消耗` / desc `不实际调用 LLM，仅展示将发送的 SKILL.md + 代码事实清单内容与 token 估算`
+- README 版本表新增 1.23.6 行；本 CHANGELOG 新增本节。
+
+### 验证
+- 部署副本同步；自审 `--all-checks --deadcode-mode vulture` 通过：`ERROR 0 / WARN 0`，代码零改动。
+- 行为说明：用户实际看到的卡片菜单按上述模板呈现（已当场用新措辞演示一次）。
+
 ## 1.23.5 打磨明细（Agent 调用必须用 AskUserQuestion 抛出 doc-llm 选择）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
