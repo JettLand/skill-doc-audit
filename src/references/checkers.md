@@ -29,6 +29,9 @@
 | doc | `EXTERNAL_REF` | 外部裸文件名引用 | 裸文件名引用，可能指向技能外文件，需人工确认 | INFO |
 | doc | `B_STATUS` | 运行状态枚举 | 运行状态全集（供 AI 复核） | INFO |
 | doc | `B_CONFIG` | 配置项枚举 | 配置项全集（供 AI 复核） | INFO |
+| doc | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致 | 文档枚举的集合（如 deadcode 模式 `{ask,vulture,ast,skip}` 或 `ask/vulture/ast/skip`）与代码权威集合 `DEADCODE_MODES` 不符（Vector 1，v1.21.0） | WARN |
+| doc | `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致 | 文档「N 个检查器」等数量声明与 `len(ALL_CHECKERS)` 实际计数不符（Vector 1，v1.21.0） | WARN |
+| doc | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | 能力声明动词（提供/支持/默认/自动/…）行内的反引号标识符在代码与声明中均不存在（能力可能已移除或拼写有误）（Vector 1，v1.21.0） | WARN |
 | structure | `name_mismatch` | 名称不一致 | frontmatter name 与目录名不一致 | WARN |
 | structure | `version_missing` | 版本缺失 | 缺少合规 version | ERROR |
 | structure | `name_missing` | 名称缺失 | 缺少 name 声明 | ERROR |

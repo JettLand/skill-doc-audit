@@ -140,6 +140,9 @@ CATEGORY_LABELS = {
     "EXIT_CODE_ONLY": "代码独有退出码（文档未列）",
     "UNKNOWN_IDENT": "未知标识符",
     "VERSION_MISSING": "缺少版本声明",
+    "DOC_ENUM_DRIFT": "文档枚举/集合与代码不一致",
+    "DOC_COUNT_DRIFT": "文档数量声明与代码不一致",
+    "DOC_CAPABILITY_DRIFT": "文档声称的能力在代码中无对应实现",
     "B_STATUS": "运行状态枚举（供 AI 复核）",
     "B_CONFIG": "配置项枚举（供 AI 复核）",
     # structure：结构体检 + 元信息
@@ -191,6 +194,21 @@ CATEGORY_LABELS = {
     "encoding_sep": "编码/路径分隔符假设",
     "agent_coupling": "Agent 平台耦合",
 }
+
+
+# --------------------------------------------------------------------------- #
+# Vector 1 (v1.21.0)：doc 检查器「内容漂移」结构化声明交叉校验用常量
+# --------------------------------------------------------------------------- #
+# deadcode 精度模式权威集合：同时供 argparse choices 与 doc 漂移校验使用（单一真相源）
+DEADCODE_MODES = ("ask", "vulture", "ast", "skip")
+# 文档声称的检查器数量："(N) 个检查器"
+DOC_CHECKER_COUNT_RE = re.compile(r"(\d+)\s*个\s*检查器")
+# 文档以大括号枚举 deadcode 模式：{ask,vulture,ast,skip}
+DOC_MODE_BRACE_RE = re.compile(r"\{([a-z]+(?:,[a-z]+)*)\}")
+# 文档以斜杠枚举 deadcode 模式：`ask/vulture/ast/skip`
+DOC_MODE_SLASH_RE = re.compile(r"`([a-z]+(?:/[a-z]+){1,})`")
+# 能力声明动词（文档声称提供/支持/默认/自动/移除/弃用/停用/废弃/新增/包含某能力）
+CAP_VERB_RE = re.compile(r"提供|支持|默认|自动|移除|弃用|停用|废弃|新增|包含")
 
 
 def category_cn(category):
@@ -342,14 +360,47 @@ def check_doc(ctx):
                 # 同一标识符在文档多处提及只报一次，避免重复刷屏
                 continue
             seen_idents.add(ident)
-            findings.append(finding("doc", SEVERITY_WARN, "UNKNOWN_IDENT",
-                                    "文档里提到的名称 %s 在代码里找不到（可能拼写有误或已被删除；若为外部 MCP/插件工具请在 frontmatter 的 allowed-tools 声明）" % ident, file="SKILL.md"))
+            # 能力声明语境下出现未知标识符 → 升级为「能力漂移」提示（更精准，免与通用 UNKNOWN_IDENT 混淆）
+            ls = doc.rfind("\n", 0, m.start()) + 1
+            le = doc.find("\n", m.end())
+            line = doc[ls:le if le != -1 else len(doc)]
+            if CAP_VERB_RE.search(line):
+                findings.append(finding("doc", SEVERITY_WARN, "DOC_CAPABILITY_DRIFT",
+                                        "文档声称提供/支持的能力 %s 在代码中找不到对应实现（可能已移除或拼写有误）" % ident,
+                                        file="SKILL.md", suggestion="核实该能力是否仍存在，或更正文档"))
+            else:
+                findings.append(finding("doc", SEVERITY_WARN, "UNKNOWN_IDENT",
+                                        "文档里提到的名称 %s 在代码里找不到（可能拼写有误或已被删除；若为外部 MCP/插件工具请在 frontmatter 的 allowed-tools 声明）" % ident, file="SKILL.md"))
 
     # A5 版本号（仅 WorkBuddy 平台强制；开放标准 agentskills/generic 不强制 version，避免审计外部技能误报）
     if ctx.get("platform", "workbuddy") == "workbuddy" and not VERSION_RE.search(doc):
         findings.append(finding("doc", SEVERITY_ERROR, "VERSION_MISSING",
                                 "SKILL.md 缺少 version 声明", file="SKILL.md",
                                 suggestion="添加 version: x.y.z"))
+
+    # C 类：Vector 1 (v1.21.0) 内容漂移——结构化声明 ↔ 代码事实 交叉校验
+    # C1 检查器数量声明漂移
+    for m in DOC_CHECKER_COUNT_RE.finditer(doc):
+        n = int(m.group(1))
+        if n != len(ALL_CHECKERS):
+            findings.append(finding("doc", SEVERITY_WARN, "DOC_COUNT_DRIFT",
+                                    "文档声称 %d 个检查器，代码实际定义 %d 个（ALL_CHECKERS）" % (n, len(ALL_CHECKERS)),
+                                    file="SKILL.md", suggestion="同步文档中的检查器数量"))
+    # C2 deadcode 模式集合漂移（大括号 / 斜杠两种枚举写法）
+    for m in DOC_MODE_BRACE_RE.finditer(doc):
+        toks = [t for t in m.group(1).split(",") if t]
+        if toks and set(toks) <= set(DEADCODE_MODES) and set(toks) != set(DEADCODE_MODES):
+            findings.append(finding("doc", SEVERITY_WARN, "DOC_ENUM_DRIFT",
+                                    "文档枚举的 deadcode 模式 %s 与代码实际 %s 不一致（多出或缺失模式）" % (
+                                        "、".join(sorted(toks)), "、".join(sorted(DEADCODE_MODES))),
+                                    file="SKILL.md", suggestion="同步文档中的 deadcode 模式集合"))
+    for m in DOC_MODE_SLASH_RE.finditer(doc):
+        toks = m.group(1).split("/")
+        if set(toks) <= set(DEADCODE_MODES) and set(toks) != set(DEADCODE_MODES):
+            findings.append(finding("doc", SEVERITY_WARN, "DOC_ENUM_DRIFT",
+                                    "文档枚举的 deadcode 模式 %s 与代码实际 %s 不一致" % (
+                                        "、".join(sorted(toks)), "、".join(sorted(DEADCODE_MODES))),
+                                    file="SKILL.md", suggestion="同步文档中的 deadcode 模式集合"))
 
     # B 类：仅枚举，供 AI 判断
     statuses = sorted(set(STATUS_RE.findall(blob)))
@@ -2012,7 +2063,7 @@ class UrlSource(SkillSource):
         return ref
 
     def _fetch(self, url):
-        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.20.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.21.0"})
         try:
             resp = urllib.request.urlopen(req, timeout=30)
         except Exception as e:
@@ -2106,7 +2157,7 @@ def main():
                     help="整体超时秒数（0=不限制）；超时后优雅终止而非卡死")
     ap.add_argument("--max-file-size", type=int, default=MAX_FILE_SIZE,
                     help="单文件超过此字节数跳过扫描（默认 %d）" % MAX_FILE_SIZE)
-    ap.add_argument("--deadcode-mode", default="ask", choices=["ask", "vulture", "ast", "skip"],
+    ap.add_argument("--deadcode-mode", default="ask", choices=list(DEADCODE_MODES),
                     help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
     ap.add_argument("--preview", action="store_true",
                     help="只预览将运行哪些检查器、将扫描哪些文件，不产出发现，退出码 0（适合首次审计前心里有数）")

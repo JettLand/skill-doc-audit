@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.20.0"
+version: "1.21.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -292,6 +292,11 @@ python scripts/audit_docs.py --skill src --all-checks
 | `VERSION_MISSING` | 缺少版本声明 | ERROR |
 | `B_STATUS` | 运行状态枚举（供 AI 复核） | INFO |
 | `B_CONFIG` | 配置项枚举（供 AI 复核） | INFO |
+| `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致（如 deadcode 模式列表） | WARN |
+| `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致（如「N 个检查器」） | WARN |
+| `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | WARN |
+
+> **内容漂移（Vector 1，v1.21.0 起）**：`doc` 检查器在既有「令牌存在性」校验之上，新增「结构化声明 ↔ 代码事实」交叉校验——`DOC_ENUM_DRIFT`（文档枚举的集合与代码权威集合不符）、`DOC_COUNT_DRIFT`（文档数量声明与代码实际计数不符）、`DOC_CAPABILITY_DRIFT`（能力声明行内出现代码不存在的标识符）。三者均 `WARN` 不 `ERROR`，仅作线索。该机制可捕获枚举/数量/能力集合类漂移；**自由散文的语义漂移（描述含义是否仍准确）仍须 AI 读代码复核**，非静态检查能及。
 
 ### structure（结构体检 + 元信息）
 

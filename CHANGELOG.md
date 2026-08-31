@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.21.0 打磨明细（doc 检查器内容漂移检测 · Vector 1）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| doc 内容漂移检测（Vector 1） | `check_doc` 在既有「令牌存在性」校验（DEAD_PATH / DEAD_FLAG / EXIT_* / UNKNOWN_IDENT / VERSION_MISSING）之上，新增三类「结构化声明 ↔ 代码事实」交叉校验：`DOC_ENUM_DRIFT`（文档枚举的 deadcode 模式集合 `{ask,vulture,ast,skip}` / `ask/vulture/ast/skip` 与新增权威常量 `DEADCODE_MODES` 比对）、`DOC_COUNT_DRIFT`（文档「N 个检查器」与 `len(ALL_CHECKERS)` 比对）、`DOC_CAPABILITY_DRIFT`（能力声明动词行内的反引号标识符在代码与声明中均不存在时提示能力可能已移除）。三者均 WARN 不 ERROR；新增 `DEADCODE_MODES` 模块常量并接入 `--deadcode-mode` 的 argparse `choices`，成为 argparse 与 doc 校验共用的单一真相源；`CATEGORY_LABELS` 登记三项新标签 | 自审：`python audit_docs.py --skill src --all-checks` 中 doc ERROR 0 / WARN 0，三新类别在准确文档上零误报；构造漂移夹具（注入「共 6 个检查器」、删 `skip`、`自动支持 `nonexistent_cap``）运行确认 `DOC_COUNT_DRIFT` / `DOC_ENUM_DRIFT` / `DOC_CAPABILITY_DRIFT` 三项均触发（真阳性），验证后清理夹具 |
+
 ## 1.20.0 打磨明细（FAQ / 新手误区 / 避坑聚合为单一「常见问题与避坑」专章）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行（候选目标：回补 C 规范性·反模式与FAQ 4.0）。
