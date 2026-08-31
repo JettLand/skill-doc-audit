@@ -5,6 +5,24 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.23.7 打磨明细（修复 --doc-llm-mode preview 被 argparse 拒绝的 bug）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+### 背景（用户实操暴露）
+v1.23.5/v1.23.6 的 Agent 约定 step 2 把预览模式映射为 `--doc-llm-mode preview`，但 argparse 的 `choices=list(DOCLLM_MODES)` 中 `DOCLLM_MODES = ("off","auto","ask")` 不含 preview，故 CLI 实跑报 `invalid choice: 'preview'`。预览此前只能经 `--doc-llm-mode ask` 的交互 stdin 菜单选 3 才能进入——意味着 Agent 经 AskUserQuestion 收到用户选 3 后无法直接 CLI 调用，违背 step 2 承诺。v1.23.6 演示「预览选项 2 的 token 消耗」时即触发。
+
+### 改动（代码 + 文档同步）
+- `src/scripts/audit_docs.py:214` `DOCLLM_MODES` 由 `("off","auto","ask")` 增为 `("off","auto","ask","preview")`。
+- `_resolve_doc_llm_mode`（1410–1450 区间）新增直返分支：`if mode == "preview": return "preview", False, None`——不依赖 LLM 配置、零 token、不调用 LLM（语义与 ask 交互菜单选 3 一致）。
+- `--doc-llm-mode` 帮助文本补 `preview` 说明，明确「仅展示将发送给 LLM 的内容与预估 token，不实际调用，零依赖零 token，Agent 经 AskUserQuestion 收到用户选 3 后可直接传入」。
+- frontmatter 1.23.6 → 1.23.7；README 版本表新增 1.23.7 行；本 CHANGELOG 新增本节。
+
+### 验证
+- `py_compile` 通过。
+- 实跑 `--doc-llm-mode preview --all-checks --deadcode-mode vulture`：help 显示 `{off,auto,ask,preview}`；doc-llm 段打印 `[doc-llm 预览] 增强模式将向配置的 LLM 端点发起 1 次请求，发送 SKILL.md 全文 + 代码事实清单` + SKILL.md 长度 26297 字符 + 代码事实清单 1743 字符（预估 ~435 token）+ 明确「本次未调用 LLM」；`[doc-llm] ERROR 0 / WARN 0 / INFO 0`；整体 `ERROR 0 / WARN 0 / INFO 20 通过`。
+- 部署副本同步；`dist` 重打包；自审零误报。
+
 ## 1.23.6 打磨明细（改进 AskUserQuestion 措辞模板：术语化→用户语）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。

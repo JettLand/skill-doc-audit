@@ -211,7 +211,7 @@ DEADCODE_MODES = ("ask", "vulture", "ast", "skip")
 # off=不运行/绝不联网；auto=用配置的 LLM 直接检测；ask=交互终端弹菜单征得同意后检测
 # （v1.23.0 起为默认：未显式传入 --doc-llm-mode 时按 ask 处理，如 --all-checks 全量路径）。
 # 同款「模式元组」设计，对齐 deadcode。
-DOCLLM_MODES = ("off", "auto", "ask")
+DOCLLM_MODES = ("off", "auto", "ask", "preview")
 # 文档声称的检查器数量："(N) 个检查器"
 DOC_CHECKER_COUNT_RE = re.compile(r"(\d+)\s*个\s*检查器")
 # 文档以大括号枚举 deadcode 模式：{ask,vulture,ast,skip}
@@ -1429,6 +1429,9 @@ def _resolve_doc_llm_mode(args):
     mode = raw or "ask"
     if mode == "off":
         return "off", False, None
+    if mode == "preview":
+        # 直接预览：不调用 LLM、零依赖、零 token；Agent 经 AskUserQuestion 收到用户选 3 后可显式传入
+        return "preview", False, None
     cfg = _load_llm_config(args)
     if mode == "auto":
         if cfg is None:
@@ -2460,7 +2463,7 @@ def main():
     ap.add_argument("--deadcode-mode", default="ask", choices=list(DEADCODE_MODES),
                     help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
     ap.add_argument("--doc-llm-mode", default=None, choices=list(DOCLLM_MODES),
-                    help="doc-llm LLM 语义漂移检测模式（调用流程对齐 deadcode）：ask(默认,交互终端呈现实选项：1)默认模式 2)增强模式(依赖外部LLM,耗token) 3)预览代价，30 秒超时自动回退默认模式) / off(不运行,绝不联网) / auto(用配置的 LLM 直接检测)。需先配置 LLM：环境变量 SKILLDOC_LLM_API_KEY + SKILLDOC_LLM_MODEL（可选 SKILLDOC_LLM_BASE_URL），或显式 --doc-llm-api-key/--doc-llm-model")
+                    help="doc-llm LLM 语义漂移检测模式（调用流程对齐 deadcode）：ask(默认,交互终端呈现实选项：1)默认模式 2)增强模式(依赖外部LLM,耗token) 3)预览代价，30 秒超时自动回退默认模式) / off(不运行,绝不联网) / auto(用配置的 LLM 直接检测) / preview(仅展示将发送给 LLM 的内容与预估 token，不实际调用，零依赖零 token，Agent 经 AskUserQuestion 收到用户选 3 后可直接传入)。auto 需先配置 LLM：环境变量 SKILLDOC_LLM_API_KEY + SKILLDOC_LLM_MODEL（可选 SKILLDOC_LLM_BASE_URL），或显式 --doc-llm-api-key/--doc-llm-model")
     ap.add_argument("--doc-llm-base-url", default=None,
                     help="doc-llm 的 LLM base URL（OpenAI 兼容；默认 OpenAI 官方 Chat Completions 端点，可用环境变量 SKILLDOC_LLM_BASE_URL 覆盖）")
     ap.add_argument("--doc-llm-api-key", default=None,

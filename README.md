@@ -30,7 +30,7 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
-| 1.23.6 | **改进 AskUserQuestion 措辞模板（v1.23.5 的模板偏术语、不易懂）**：按用户建议重写问题与选项——question 改为「运行doc检查器（默认常驻）时，你希望采用哪种模式？」（用「doc 检查器」代「doc-llm 语义漂移检测（Vector 2）」），三个选项 label 内嵌代价与能力描述（默认模式（静态脚本检查，零依赖）/ 启用语义漂移检查（依赖外部LLM服务，消耗额外token）/ 预览选项2的预估token消耗），desc 补配置/机制细节。SKILL.md「Agent 调用标准动作」第 1 步将上述措辞固化为**强制模板**，agent 必须原样使用。纯文档修正，代码不变 |
+| 1.23.7 | **修复 `--doc-llm-mode preview` 不被 argparse 接受的 bug**：v1.23.5 起 Agent 约定 step 2 把预览映射为 `--doc-llm-mode preview`，但 choices 元组 `DOCLLM_MODES = ("off","auto","ask")` 不含 preview，CLI 直接报 `invalid choice`。预览此前只能经 `--doc-llm-mode ask` 的交互菜单选 3 进入——意味着 Agent 经 AskUserQuestion 收到用户选 3 后无法直接 CLI 调用，违背 step 2 承诺。代码修复：`DOCLLM_MODES` 增加 `"preview"`；`_resolve_doc_llm_mode` 加直返分支（不依赖 LLM 配置、零 token、不调用 LLM）；`--doc-llm-mode` 帮助补 preview 说明。同步校正 SKILL.md。实跑验证：preview 模式正确打印 SKILL.md 长度（26297 字符）+ 代码事实清单长度（1743 字符、预估 ~435 token），未调 LLM，零联网 |
 | 1.23.2 | **doc 检查器补 doc-llm 引导描述**：在「能力边界」检查器清单的 `doc` 项补一句引导性描述——`doc` 覆盖 Vector 1 结构化漂移（死引用/失效参数/退出码不符/枚举·数量·能力声明与代码不符），自由散文语义漂移由同族 `doc-llm` 检查器（Vector 2）以 LLM 语义检测补足，便于读者在开头即建立「doc 与 doc-llm 的分工」认知。纯文档增补，版本号补丁级，部署自审 `[doc] ERROR 0 / WARN 0` |
 | 1.23.1 | **确立核心设计原则**：新增头条「设计原则（核心约束）」——`默认模式零依赖，但绝不替用户决定`：默认即零依赖（纯脚本/不联网/零 token）、绝不替用户决定（涉及外部依赖能力的取舍必须显式交还用户、超时回退默认）、透明兜底（无法询问宁可显著标注跳过也不静默代决）；统领 doc-llm 与 deadcode 的交互式取舍。纯文档确立，部署自审 `[doc] ERROR 0 / WARN 0` |
 | 1.23.0 | **doc-llm 默认问询 + 纳入全量检测**：①`--doc-llm-mode` 默认改 `ask`，`--check doc-llm` 不传 mode 即弹三选项菜单（默认/增强/预览，30s 超时回退）；②doc-llm 列入 `ALL_CHECKERS`，`--all-checks` 含 LLM 语义漂移问询——交互弹菜单、非交互记 INFO `doc_llm_skipped`（保全量 WARN 0 不变量）、显式传入未运行则 WARN `doc_llm_unavailable`；离线不变量（绝不自动联网）不变 |
