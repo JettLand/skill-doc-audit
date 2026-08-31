@@ -723,31 +723,48 @@ def _vulture_module():
 
 
 def _resolve_deadcode_mode(args):
-    """决定 deadcode 运行模式：ask/vulture/ast/skip。
+    """决定 deadcode 运行模式与是否「静默降级」。
 
-    - 显式 --deadcode-mode vulture|ast|skip：直接用（供 Agent/CI 跳过交互）。
+    返回 (mode, degraded)：
+    - mode: "vulture" | "ast" | "skip"
+    - degraded: bool，表示本次是否因环境限制而「未经显式确认」地降低了精度。
+      仅在以下两种情况为真：
+        (a) 默认 ask + 非 TTY（被管道/Agent 自动化调用）+ 未装 vulture → 回退零依赖 AST；
+        (b) 显式 --deadcode-mode vulture 但运行环境缺失 vulture → 回退 AST。
+      调用方（check_deadcode）应在 degraded=True 时发出显著提示（precision_degraded
+      告警），使精度下降对自动化评测/调用方可见——回应「精度下降而无提示」的可靠性短板。
+
+    - 显式 --deadcode-mode vulture|ast|skip：直接用（供 Agent/CI 跳过交互）；
+      vulture 但缺失视为降级（degraded=True）。
     - 默认 ask：环境已装 vulture 则直接采用高精度 vulture 模式（不重复询问）；
       未装 vulture 时：TTY 交互询问（超时 30s / 无输入 → ast 零依赖）；
-      非 TTY（被管道或 Agent 调用）→ 直接 ast。
+      非 TTY（被管道或 Agent 调用）→ 零依赖 ast，并标记 degraded=True。
     """
     mode = getattr(args, "deadcode_mode", "ask") if args else "ask"
     if mode != "ask":
         if mode == "vulture" and _vulture_module() is None:
-            sys.stderr.write("[deadcode] 未检测到 vulture 库，回退零依赖 AST 模式\n")
-            return "ast"
-        return mode
+            sys.stderr.write("[deadcode] ⚠ 未检测到 vulture 库，回退零依赖 AST 模式（精度降级）\n")
+            return "ast", True
+        return mode, False
     # ask 模式：已装 vulture 直接走高精度，避免重复询问
     if _vulture_module() is not None:
         sys.stderr.write("[deadcode] 检测到 vulture 库，自动采用高精度模式（跳过询问）\n")
-        return "vulture"
+        return "vulture", False
     if not sys.stdin.isatty():
-        sys.stderr.write("[deadcode] 非交互环境，默认零依赖 AST 模式（若要 vulture/skip 请传 --deadcode-mode）\n")
-        return "ast"
+        sys.stderr.write(
+            "[deadcode] ⚠ 非交互（自动化）环境且未检测到 vulture，回退零依赖 AST 模式"
+            "（精度较低、易误报）。如需高精度请安装 vulture 并以 --deadcode-mode vulture 显式指定。\n"
+        )
+        return "ast", True
     return _prompt_deadcode_mode()
 
 
 def _prompt_deadcode_mode():
-    """交互询问 deadcode 模式；30 秒超时默认 ast（零依赖，易误报）。"""
+    """交互询问 deadcode 模式；30 秒超时默认 ast（零依赖，易误报）。
+
+    返回 (mode, degraded)：超时/无输入或「选了 vulture 但缺失」视为降级（degraded=True），
+    因为并非用户清醒选择的精度；显式选 2（ast）/3（skip）则 degraded=False。
+    """
     sys.stderr.write(
         "\n[deadcode] 选择死代码检测精度模式：\n"
         "  1) vulture 高精度（推荐，需已安装 vulture）\n"
@@ -770,23 +787,31 @@ def _prompt_deadcode_mode():
     th.join(30)
     choice = buf.get("v", "")
     if not choice:
-        sys.stderr.write("\n[deadcode] 超时/无输入，默认零依赖 AST 模式\n")
-        return "ast"
+        sys.stderr.write("\n[deadcode] 超时/无输入，默认零依赖 AST 模式（精度降级）\n")
+        return "ast", True
     if choice == "1":
         if _vulture_module() is None:
-            sys.stderr.write("[deadcode] 未检测到 vulture 库，回退零依赖 AST 模式\n")
-            return "ast"
-        return "vulture"
+            sys.stderr.write("[deadcode] 未检测到 vulture 库，回退零依赖 AST 模式（精度降级）\n")
+            return "ast", True
+        return "vulture", False
     if choice == "3":
-        return "skip"
-    return "ast"
+        return "skip", False
+    return "ast", False
 
 
 def check_deadcode(ctx):
-    mode = _resolve_deadcode_mode(ctx.get("args"))
-    if mode == "skip":
-        return []
+    mode, degraded = _resolve_deadcode_mode(ctx.get("args"))
     findings = []
+    if degraded:
+        # 静默降级（非 TTY + 未装 vulture / 显式 vulture 但缺失）→ 显著提示精度下降，
+        # 让自动化评测/调用方能够「看见」降级，而非无提示地以低精度结果蒙混过关。
+        findings.append(finding(
+            "deadcode", SEVERITY_WARN, "precision_degraded",
+            "deadcode 精度降级：当前为非交互（自动化）环境且未安装 vulture，已回退至零依赖 AST 模式（精度较低、易误报）。",
+            suggestion="请在运行环境安装 vulture 并以 --deadcode-mode vulture 显式指定；或由 Agent 在调用前主动询问用户精度模式（见 SKILL.md「Agent 执行约定」）。",
+        ))
+    if mode == "skip":
+        return findings
     skill_dir = ctx["skill_dir"]
     doc = ctx["doc"]
     code = ctx["code"]
@@ -1958,7 +1983,7 @@ class UrlSource(SkillSource):
         return ref
 
     def _fetch(self, url):
-        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.18.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.19.0"})
         try:
             resp = urllib.request.urlopen(req, timeout=30)
         except Exception as e:
@@ -2124,7 +2149,7 @@ def main():
             print("预览：%s" % t)
             print("  启用检查器: %s" % ", ".join(enabled))
             if "deadcode" in enabled:
-                print("  deadcode 精度模式: %s（ask=已装vulture则自动高精度,否则交互询问30s→ast/非TTY回退ast）" % args.deadcode_mode)
+                print("  deadcode 精度模式: %s（ask=已装vulture则自动高精度,否则交互询问30s→ast/非TTY回退ast并提示精度降级）" % args.deadcode_mode)
             print("  文档: %s" % ("SKILL.md" if os.path.isfile(d) else "（无）"))
             print("  将扫描代码/配置文件 %d 个:" % len(code))
             for rel in sorted(code.keys()):

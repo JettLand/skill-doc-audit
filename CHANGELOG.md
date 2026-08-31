@@ -5,7 +5,15 @@
 > 排序：版本号降序（最新在前）。
 
 
-## 1.18.1 打磨明细（Agent 执行 deadcode 精度模式修复）
+## 1.19.0 打磨明细（deadcode 非 TTY 精度降级可见化——代码层修复 R 可靠性退步）
+
+> 状态：2026-08-31 已实现（源码 + 部署副本 + 两条 dist 重打包），待 SkillHub 上架（需用户授权）。尚未触发新评测，评测分维持最新已知 v1.18.1 的 4.8/5。
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| R 可靠性退步的代码层根因修复 | v1.18.1 仅改 SKILL.md「Agent 执行约定」，但评测器直接调 `audit_docs.py --all-checks`（非 TTY 回退 ast），不遵循 SKILL.md 约定，故评测仍点名「deadcode 自动化精度下降无提示」。本版在代码层根治：`_resolve_deadcode_mode` 返回值由单值改为 `(mode, degraded)` 元组；在三类「未显式确认即降低精度」的情形——①非 TTY（管道/Agent 调用）且未装 vulture、②显式 `--deadcode-mode vulture` 但运行环境缺失 vulture、③交互询问超时/无输入——均标记 `degraded=True`；`check_deadcode` 在 `degraded` 时向报告追加 `precision_degraded`（WARN）发现，明确写出精度降级事实与「装 vulture + `--deadcode-mode vulture` / 由 Agent 主动询问」的解决建议 | 自身 `--all-checks` 自审 ERROR 0 / WARN 0（vulture 已装走高精度、无降级提示）；模拟样本以 `-S`（vulture 缺失）+ 非 TTY 实测：报告确实产出 `[WARN] precision_degraded` 行；显式 `--deadcode-mode vulture` 缺库亦触发；vulture 已装路径仍静默高精度、零降级提示；`py_compile` 通过；确认无遗留旧单值返回调用点 |
+
+
 
 > 发布：2026-08-31 经 SkillHub CLI 发布 v1.18.1（versionId 277173，审核通过，已评测 4.8/5 优秀，2026-08-31 00:37）。
 
