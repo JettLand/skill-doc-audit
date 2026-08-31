@@ -5,6 +5,23 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.25.0 打磨明细（audit_docs.py 模块化拆分 + 内置自校验工具 self_validate.py）
+
+### 背景（用户两项指令）
+1. 用户指出 `audit_docs.py` 已达约 2490 行，单体文件难以维护，要求拆分为多个源码文件。
+2. 用户确认 Vector 3「示例归一化方案」不具备泛用性（仅能校验 skill-doc-audit 项目自身），决定将其落地为技能**内置的可选自校验工具** `self_validate.py`，而非插件式检查器；并要求该工具在新环境 clone 仓库源码后仍可正常调用。
+
+### 改动（代码 + 文档同步）
+- **模块化拆分**：原 2491 行单体 `src/scripts/audit_docs.py` 拆为薄入口（仅 `from auditlib import cli; cli.main()`）+ `src/scripts/auditlib/` 包：`core.py`（常量/公共辅助/`CHECKERS` 注册表）、`model.py`（`analyze_skill`）、`report.py`（`build_json` 等）、`sources.py`（来源层级）、`cli.py`（argparse 入口，含 `import auditlib.checkers  # keep` 触发自注册）；`checkers/` 子包含 doc/structure/security/runtime/deps/deadcode/portability/doc_llm 八检查器，各自 `CHECKERS["name"]=fn` 自注册。
+- **跨模块共享符号归位**：`_normalize_target_platform`/`_normalize_target_agent`/`_parse_frontmatter_list`/`AGENT_ALL`/`PLAT_WIN|UNIX|ALL`/`ENTRY_HINTS` 由原先散落的检查器模块统一迁至 `core.py`，消费者改为显式 `from auditlib.core import ...`，规避检查器↔检查器导入环。
+- **自校验工具 `self_validate.py`（开发期，非插件）**：独立于 `CHECKERS` 注册表，不经 `--check`/`--all-checks` 触发；基于 `auditlib.model.analyze_skill` + `auditlib.report.build_json` 对 `tests/fixtures/{dirty-skill,multifile,tricky-clean}` 跑确定性检查器 （doc/structure/security/runtime/deps，规避 vulture/agent 非确定项），将结果中顶层 `skill` 绝对路径掩为 `<ROOT>` 后，与 `tests/examples/*.expected.json` 黄金快照做「摘要计数 + 发现签名集合」比对；`--baseline` 可重建快照；仓库根经 `__file__` 解析（`HERE=dirname(abspath(__file__))`, `ROOT=dirname(dirname(HERE))`），**不依赖 CWD**，新环境 clone 后任意目录可跑。
+- **制品同步**：`src/dist/skill-doc-audit.zip` 重打包为 18 项（SKILL.md + audit_docs.py + references/checkers.md + auditlib/**）；部署副本 `C:/Users/admin/.workbuddy/skills/skill-doc-audit/` 同步含 `auditlib/**`。
+- **版本号升 1.25.0**：`src/SKILL.md` frontmatter 与 `sources.py` 的 `User-Agent` 串同步升至 `skill-doc-audit/1.25.0`。
+
+### 验证
+- `py_compile` 全模块通过；拆分后部署副本自审 `--all-checks --deadcode-mode vulture`：`ERROR 0 / WARN 0 / INFO 20`（与拆分前基线无回归）。
+- `self_validate.py` 三例全部 `[PASS]`（dirty-skill error=12/warn=4、tricky-clean error=0/warn=0、multifile error=1/warn=1）；从无关 CWD（`C:/`）调用仍 PASS，证明新环境 clone 后调用无碍；人为损坏黄金快照可触发 exit 1 并输出明确 diff，证明漂移可检出。
+
 ## 1.24.1 打磨明细（移除 doc-llm 预览选项 + 校正 token 成本表述）
 
 ### 背景（用户两项指令）

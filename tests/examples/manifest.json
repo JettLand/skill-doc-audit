@@ -1,0 +1,35 @@
+{
+  "examples": [
+    {
+      "name": "dirty-skill-baseline",
+      "fixture": "dirty-skill",
+      "checkers": [
+        "doc",
+        "structure",
+        "security",
+        "runtime",
+        "deps"
+      ],
+      "golden": "dirty-skill-baseline.expected.json"
+    },
+    {
+      "name": "tricky-clean-pass",
+      "fixture": "tricky-clean",
+      "checkers": [
+        "doc",
+        "structure"
+      ],
+      "golden": "tricky-clean-pass.expected.json"
+    },
+    {
+      "name": "multifile-baseline",
+      "fixture": "multifile",
+      "checkers": [
+        "doc",
+        "structure",
+        "security"
+      ],
+      "golden": "multifile-baseline.expected.json"
+    }
+  ]
+}

@@ -1,0 +1,354 @@
+{
+  "skill": "<ROOT>",
+  "version": "0.0.1",
+  "doc_lines": 34,
+  "code_files": 3,
+  "checkers": [
+    "doc",
+    "structure",
+    "security",
+    "runtime",
+    "deps"
+  ],
+  "backup": null,
+  "summary": {
+    "error": 12,
+    "warn": 4,
+    "info": 2,
+    "pass": false
+  },
+  "findings": [
+    {
+      "checker": "doc",
+      "severity": "ERROR",
+      "category": "DEAD_PATH",
+      "category_cn": "死路径（文档引用文件已不存在）",
+      "message": "文档里写的路径 scripts/ghost.py 在当前技能目录中找不到",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": "修正路径或补充文件"
+    },
+    {
+      "checker": "doc",
+      "severity": "ERROR",
+      "category": "DEAD_PATH",
+      "category_cn": "死路径（文档引用文件已不存在）",
+      "message": "文档里写的路径 references/old_notes.md 在当前技能目录中找不到",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": "修正路径或补充文件"
+    },
+    {
+      "checker": "doc",
+      "severity": "ERROR",
+      "category": "DEAD_FLAG",
+      "category_cn": "失效命令行参数",
+      "message": "文档命令行参数在代码中无实现: --recalc",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": "实现该参数或更正文档示例"
+    },
+    {
+      "checker": "doc",
+      "severity": "ERROR",
+      "category": "EXIT_DOC_ONLY",
+      "category_cn": "文档独有退出码（代码未返回）",
+      "message": "文档列了退出码但代码从不返回: 0",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": null
+    },
+    {
+      "checker": "doc",
+      "severity": "ERROR",
+      "category": "EXIT_DOC_ONLY",
+      "category_cn": "文档独有退出码（代码未返回）",
+      "message": "文档列了退出码但代码从不返回: 7",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": null
+    },
+    {
+      "checker": "doc",
+      "severity": "ERROR",
+      "category": "EXIT_CODE_ONLY",
+      "category_cn": "代码独有退出码（文档未列）",
+      "message": "代码会返回该退出码但文档未列: 42",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": "在文档补全退出码说明"
+    },
+    {
+      "checker": "doc",
+      "severity": "WARN",
+      "category": "UNKNOWN_IDENT",
+      "category_cn": "未知标识符",
+      "message": "文档里提到的名称 tune_model 在代码里找不到（可能拼写有误或已被删除；若为外部 MCP/插件工具请在 frontmatter 的 allowed-tools 声明）",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": null
+    },
+    {
+      "checker": "structure",
+      "severity": "WARN",
+      "category": "name_mismatch",
+      "category_cn": "名称不一致",
+      "message": "frontmatter name 与目录名不一致",
+      "file": null,
+      "line": null,
+      "suggestion": "改为 'dirty-skill'"
+    },
+    {
+      "checker": "structure",
+      "severity": "INFO",
+      "category": "desc_four",
+      "category_cn": "描述四要素不全",
+      "message": "description 建议含四要素（做什么/何时用/关键能力/触发短语）",
+      "file": null,
+      "line": null,
+      "suggestion": null
+    },
+    {
+      "checker": "structure",
+      "severity": "ERROR",
+      "category": "broken_ref",
+      "category_cn": "加载式引用失效",
+      "message": "文档里引用加载的脚本或文件 scripts/ghost.py 不存在（请检查引用路径是否写错）",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": "修正路径或补充文件"
+    },
+    {
+      "checker": "structure",
+      "severity": "ERROR",
+      "category": "broken_ref",
+      "category_cn": "加载式引用失效",
+      "message": "文档里引用加载的脚本或文件 references/old_notes.md 不存在（请检查引用路径是否写错）",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": "修正路径或补充文件"
+    },
+    {
+      "checker": "structure",
+      "severity": "WARN",
+      "category": "todo_marker",
+      "category_cn": "待办标记",
+      "message": "含 TODO/FIXME 标记",
+      "file": "SKILL.md",
+      "line": 34,
+      "suggestion": null
+    },
+    {
+      "checker": "security",
+      "severity": "ERROR",
+      "category": "hardcoded_secret",
+      "category_cn": "疑似硬编码密钥",
+      "message": "疑似硬编码密钥/凭据: scripts\\main.py",
+      "file": "scripts\\main.py",
+      "line": 5,
+      "suggestion": "移至配置或环境变量，勿落盘"
+    },
+    {
+      "checker": "security",
+      "severity": "ERROR",
+      "category": "path_traversal",
+      "category_cn": "路径穿越",
+      "message": "路径穿越（相对路径上溯）: scripts\\main.py",
+      "file": "scripts\\main.py",
+      "line": 10,
+      "suggestion": null
+    },
+    {
+      "checker": "runtime",
+      "severity": "ERROR",
+      "category": "py_syntax",
+      "category_cn": "Python 语法错误",
+      "message": "Python 语法错误: scripts\\broken_syntax.py — SyntaxError: invalid syntax",
+      "file": "scripts\\broken_syntax.py",
+      "line": null,
+      "suggestion": "修正语法"
+    },
+    {
+      "checker": "runtime",
+      "severity": "ERROR",
+      "category": "script_ref_missing",
+      "category_cn": "脚本引用缺失",
+      "message": "文档引用的脚本不存在: scripts/ghost.py",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": null
+    },
+    {
+      "checker": "runtime",
+      "severity": "INFO",
+      "category": "capability",
+      "category_cn": "能力预检（静态列举）",
+      "message": "脚本能力预检（静态列举，不执行）: scripts\\main.py:子进程",
+      "file": null,
+      "line": null,
+      "suggestion": null
+    },
+    {
+      "checker": "deps",
+      "severity": "WARN",
+      "category": "undeclared_cli",
+      "category_cn": "未声明外部 CLI",
+      "message": "代码调用外部 CLI 但文档未声明依赖: ffmpeg",
+      "file": null,
+      "line": null,
+      "suggestion": "在 SKILL.md 补充依赖声明与安装/降级方式"
+    }
+  ],
+  "portability_matrix": [
+    {
+      "feature": "description",
+      "target": "agentskills",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "agentskills",
+      "status": "degraded",
+      "note": "displayname 在 agentskills 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "agentskills",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "name",
+      "target": "agentskills",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "agentskills",
+      "status": "lost",
+      "note": "version 在 agentskills 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "claude-code",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "claude-code",
+      "status": "degraded",
+      "note": "displayname 在 claude-code 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "claude-code",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "name",
+      "target": "claude-code",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "claude-code",
+      "status": "lost",
+      "note": "version 在 claude-code 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "cursor-plugin",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "cursor-plugin",
+      "status": "degraded",
+      "note": "displayname 在 cursor-plugin 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "cursor-plugin",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "name",
+      "target": "cursor-plugin",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "cursor-plugin",
+      "status": "lost",
+      "note": "version 在 cursor-plugin 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "cursor-mdc",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "displayname 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "license",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "license 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "name",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "name 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "version",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "version 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "generic",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "generic",
+      "status": "degraded",
+      "note": "displayname 在 generic 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "generic",
+      "status": "lost",
+      "note": "license 在 generic 无对应字段，将丢失"
+    },
+    {
+      "feature": "name",
+      "target": "generic",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "generic",
+      "status": "lost",
+      "note": "version 在 generic 无对应字段，将丢失"
+    }
+  ]
+}

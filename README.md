@@ -23,13 +23,14 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 
 ## 打包与发布
 1. 修改 `src/` 内源文件，自测通过；
-2. 重新打包制品为 `src/dist/skill-doc-audit.zip`（含 SKILL.md / audit_docs.py / checkers.md）；
+2. 重新打包制品为 `src/dist/skill-doc-audit.zip`（含 SKILL.md / audit_docs.py / references/checkers.md / auditlib/**）；
 3. 经 SkillHub CLI 发布：`skillhub publish src/dist/skill-doc-audit.zip --version x.y.z --changelog "..."`；
 4. 提交并推送本仓库：`git add ... && git commit && git push origin main`。
 
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.25.0 | **audit_docs.py 模块化拆分 + 内置自校验工具 self_validate.py**：将 2491 行单体 `audit_docs.py` 拆为薄入口 + `auditlib/` 包（core/model/report/sources/cli + checkers/ 八检查器自注册）；新增开发期自校验工具 `self_validate.py`——基于 `auditlib` 对 `tests/fixtures` 跑确定性检查器、掩去绝对路径后比对 `tests/examples/*.expected.json` 黄金快照，`--baseline` 可重建快照，纯 `__file__` 解析仓库根、新环境 clone 后任意 CWD 可跑。部署自审 `ERROR 0 / WARN 0 / INFO 20` |
 | 1.24.1 | **doc-llm 移除预览选项 + 全量校正 token 成本表述**：用户指出「agent 接手也会消耗 token（输入输出都消耗，输入为主），并非零额外成本」。据此删除 `preview` 模式（`DOCLLM_MODES` 由 `(off,agent,ask,preview)` 改为 `(off,agent,ask)`），删除 `_print_doc_llm_preview` 与 `--doc-llm-mode preview` 处理分支、AskUserQuestion 选项 3 及「前置步骤」流程；交互菜单精简为「1) 默认模式 / 2) 启用语义漂移检查（agent 介入，消耗额外 token）」；全量校正所有「零额外成本 / 不消耗用户 token」表述为「会占用 agent 自身推理 token（输入侧为主），但不向外部 LLM 服务付费」。部署自审 `ERROR 0 / WARN 0 / INFO 20` |
 | 1.24.0 | **doc-llm 语义检测改由 agent 直接接手，彻底移除外部 LLM 依赖**：用户指出「凡用到外部 LLM 的地方都应改由 agent 接手，否则只会提高用户使用成本」。据此删除 `_call_llm`/`_load_llm_config`/`_LLMUnavailable`/`_parse_llm_drift` 及 `--doc-llm-api-key`/`--doc-llm-model`/`--doc-llm-base-url` 三个外部 LLM 参数，`DOCLLM_MODES` 由 `(off,auto,ask,preview)` 改为 `(off,agent,ask,preview)`；新增 `--doc-llm-mode agent`：脚本把 SKILL.md 全文 + 代码事实清单写成 dossier 并打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 用自身能力完成语义比对（会占用 agent 自身推理 token，输入侧为主，但不向外部 LLM 服务付费）。同步修正 **Agent 调用流程**：选项 3（预览）改为「前置步骤」——先展示 agent 将比对的材料与规模，再二次 `AskUserQuestion` 只给 1（默认）/2（agent 接手）让用户做最终选择（超时默认 1）。全量改写所有「依赖外部 LLM / 消耗额外 token」描述为「agent 直接接手 / 零额外成本」。部署自审 `ERROR 0 / WARN 0 / INFO 21` |
 | 1.23.7 | **修复 `--doc-llm-mode preview` 不被 argparse 接受的 bug**：v1.23.5 起 Agent 约定 step 2 把预览映射为 `--doc-llm-mode preview`，但 choices 元组 `DOCLLM_MODES = ("off","auto","ask")` 不含 preview，CLI 直接报 `invalid choice`。预览此前只能经 `--doc-llm-mode ask` 的交互菜单选 3 进入——意味着 Agent 经 AskUserQuestion 收到用户选 3 后无法直接 CLI 调用，违背 step 2 承诺。代码修复：`DOCLLM_MODES` 增加 `"preview"`；`_resolve_doc_llm_mode` 加直返分支（不依赖 LLM 配置、零 token、不调用 LLM）；`--doc-llm-mode` 帮助补 preview 说明。同步校正 SKILL.md。实跑验证：preview 模式正确打印 SKILL.md 长度（26297 字符）+ 代码事实清单长度（1743 字符、预估 ~435 token），未调 LLM，零联网 |

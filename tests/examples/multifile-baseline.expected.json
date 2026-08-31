@@ -1,0 +1,202 @@
+{
+  "skill": "<ROOT>",
+  "version": "0.1.0",
+  "doc_lines": 13,
+  "code_files": 2,
+  "checkers": [
+    "doc",
+    "structure",
+    "security"
+  ],
+  "backup": null,
+  "summary": {
+    "error": 1,
+    "warn": 1,
+    "info": 1,
+    "pass": false
+  },
+  "findings": [
+    {
+      "checker": "doc",
+      "severity": "ERROR",
+      "category": "EXIT_CODE_ONLY",
+      "category_cn": "代码独有退出码（文档未列）",
+      "message": "代码会返回该退出码但文档未列: 42",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": "在文档补全退出码说明"
+    },
+    {
+      "checker": "structure",
+      "severity": "WARN",
+      "category": "desc_length",
+      "category_cn": "描述长度异常",
+      "message": "description 长度应 20-1024 字符（当前 13）",
+      "file": null,
+      "line": null,
+      "suggestion": null
+    },
+    {
+      "checker": "structure",
+      "severity": "INFO",
+      "category": "desc_four",
+      "category_cn": "描述四要素不全",
+      "message": "description 建议含四要素（做什么/何时用/关键能力/触发短语）",
+      "file": null,
+      "line": null,
+      "suggestion": null
+    }
+  ],
+  "portability_matrix": [
+    {
+      "feature": "description",
+      "target": "agentskills",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "agentskills",
+      "status": "degraded",
+      "note": "displayname 在 agentskills 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "agentskills",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "name",
+      "target": "agentskills",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "agentskills",
+      "status": "lost",
+      "note": "version 在 agentskills 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "claude-code",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "claude-code",
+      "status": "degraded",
+      "note": "displayname 在 claude-code 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "claude-code",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "name",
+      "target": "claude-code",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "claude-code",
+      "status": "lost",
+      "note": "version 在 claude-code 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "cursor-plugin",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "cursor-plugin",
+      "status": "degraded",
+      "note": "displayname 在 cursor-plugin 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "cursor-plugin",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "name",
+      "target": "cursor-plugin",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "cursor-plugin",
+      "status": "lost",
+      "note": "version 在 cursor-plugin 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "cursor-mdc",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "displayname 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "license",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "license 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "name",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "name 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "version",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "version 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "generic",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "generic",
+      "status": "degraded",
+      "note": "displayname 在 generic 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "generic",
+      "status": "lost",
+      "note": "license 在 generic 无对应字段，将丢失"
+    },
+    {
+      "feature": "name",
+      "target": "generic",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "generic",
+      "status": "lost",
+      "note": "version 在 generic 无对应字段，将丢失"
+    }
+  ]
+}

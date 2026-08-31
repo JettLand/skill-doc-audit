@@ -12,5 +12,5 @@ backups/
 __pycache__/
 *.pyc
 
-# 回归测试夹具（本地资产，不进版本库）
-tests/fixtures/
+# 回归测试夹具（脏样本基线，self_validate.py 的输入，必须随仓库分发以保证 clone 后自校验可用）
+# 注：tests/examples/ 的黄金快照(*.expected.json)与 manifest.json 已纳入版本管理
