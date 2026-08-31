@@ -51,6 +51,4 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 | 1.5.3 | 检查项中文标签（category_cn）+ 错误码对照表，报告自解释；异常处理 4.3→4.8 |
 | 1.5.2 | 进阶用法示例 + 报错提示通俗化 |
 
-> 评测由 SkillHub 平台在每次发布后自动重跑（TRACE 五维）。
-
 > 各版本的「改动 + 验证」明细见 [CHANGELOG.md](./CHANGELOG.md)。
