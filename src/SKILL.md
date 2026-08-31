@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.21.0"
+version: "1.22.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -245,6 +245,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 - **`WARN`/`INFO` 不是错误**：`structure` 的 `name_mismatch` 是提示性项，`portability` 的 `agent_coupling` INFO 是跨 *Agent* 咨询、**非** OS 级破损，均属正常产物，勿直接当错误处置。
 - **修改文档的五条原则**：① 只改文档，不改代码（代码问题整理出来交用户决策）；② 保留「已弃用」标注（不因「代码从不返回」就删）；③ 存疑时标注「待确认」而非臆断；④ 先读源码复核再决定；⑤ 版本号按语义化递增（修正文档表述属补丁级，修复功能缺陷属小版本级）。
 - **缩小审计范围**：用 `--check` 按需启用（如 `--check security`），或 `--all-checks` 全开；`--strict` 让 `WARN` 也计入退出码，适合 CI 门禁。
+- **`doc-llm` 默认不运行（离线不变量）**：它是选装 LLM 语义检测，依赖外部 LLM 服务。默认 `off`，且**不在 `--all-checks` 内**——`--all-checks` 不会触发任何联网。要启用须显式 `--doc-llm-mode auto/ask` 且配置 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`（或对应 `--doc-llm-*` 参数）；未配置/非交互时仅发 `doc_llm_unavailable` 显著告警、不影响其余检查。其调用流程刻意对齐 `deadcode` 检查器（`--doc-llm-mode` 与 `--deadcode-mode` 同构，降级即告警）。
 
 ## 完整运行示例（真实输出 + 解读）
 
@@ -295,8 +296,13 @@ python scripts/audit_docs.py --skill src --all-checks
 | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致（如 deadcode 模式列表） | WARN |
 | `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致（如「N 个检查器」） | WARN |
 | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | WARN |
+| `DOC_LLM_DRIFT` | 文档/代码语义漂移（LLM 判定，doc-llm 选装） | WARN |
+| `doc_llm_unavailable` | LLM 语义检测本应运行却未能运行（已跳过，显著告警） | WARN |
+| `doc_llm_ran` | LLM 语义检测已运行且未检出漂移（确认性 INFO） | INFO |
 
 > **内容漂移（Vector 1，v1.21.0 起）**：`doc` 检查器在既有「令牌存在性」校验之上，新增「结构化声明 ↔ 代码事实」交叉校验——`DOC_ENUM_DRIFT`（文档枚举的集合与代码权威集合不符）、`DOC_COUNT_DRIFT`（文档数量声明与代码实际计数不符）、`DOC_CAPABILITY_DRIFT`（能力声明行内出现代码不存在的标识符）。三者均 `WARN` 不 `ERROR`，仅作线索。该机制可捕获枚举/数量/能力集合类漂移；**自由散文的语义漂移（描述含义是否仍准确）仍须 AI 读代码复核**，非静态检查能及。
+>
+> **语义漂移（Vector 2，v1.22.0 起）——选装 `doc-llm` 检查器**：为覆盖 Vector 1 无法触及的自由散文语义漂移，新增**选装** LLM 语义检测 `doc-llm`。其调用流程**刻意对齐 `deadcode` 检查器**：`--doc-llm-mode {off,auto,ask}` 与 `--deadcode-mode` 同构，`_resolve_doc_llm_mode` 同样返回 `(mode, degraded)` 元组，降级时发 `doc_llm_unavailable` WARN（对应 `deadcode` 的 `precision_degraded`），让调用方/评测器「看见」语义检测被跳过。**离线不变量**：`doc-llm` 默认 `off` 且**不进入 `--all-checks` / 默认集**，绝不自动联网；只有用户显式 `--doc-llm-mode auto/ask` 且配置好 LLM（环境变量 `SKILLDOC_LLM_API_KEY`+`SKILLDOC_LLM_MODEL`，或 `--doc-llm-api-key/--doc-llm-model`）时才发起 OpenAI 兼容请求。模型返回以「`- 文件:行 | 描述`」格式解析为 `DOC_LLM_DRIFT` 线索。良性噪声控制：未配置/非交互/失败时只发 `doc_llm_unavailable` 显著告警，不中断整体审计。
 
 ### structure（结构体检 + 元信息）
 

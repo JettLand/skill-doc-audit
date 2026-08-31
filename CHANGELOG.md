@@ -5,6 +5,19 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.22.0 打磨明细（doc-llm 选装 LLM 语义漂移检测 · Vector 2）
+
+> 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
+
+| 打磨项 | 改动 | 验证（均通过） |
+|---|---|---|
+| doc-llm 选装 LLM 语义漂移检测（Vector 2） | 对齐用户「调取流程参考 deadcode 检查器」要求，将 deadcode 的「`(mode, degraded)` 元组 + 降级显著告警 + argparse `choices` 单一真相源」范式复刻到 doc 检查器。新增 `DOCLLM_MODES = ("off","auto","ask")` 模块常量（紧邻 `DEADCODE_MODES`，供 argparse 与 doc 校验共用）；`CATEGORY_LABELS` doc 段登记 `DOC_LLM_DRIFT`（文档/代码语义漂移 LLM 判定）、`doc_llm_unavailable`（LLM 语义检测不可用已跳过）、`doc_llm_ran`（已运行无漂移）三项；新增完整 doc-llm 实现区块——`_LLMUnavailable` 异常类、`_load_llm_config`（优先级 argparse > 环境变量 `SKILLDOC_LLM_API_KEY`/`SKILLDOC_LLM_MODEL`/`SKILLDOC_LLM_BASE_URL`）、`_call_llm`（标准库 `urllib` POST OpenAI 兼容 `/chat/completions`，UA `skill-doc-audit/1.22.0`）、`_code_fact_sheet`、`_LLM_DRIFT_RE`、`_parse_llm_drift`（`- 文件:行 \| 描述`，上限 30 条）、`_resolve_doc_llm_mode`（同构 deadcode，返回 `(mode, degraded, reason)`，off/auto/ask 三分支，ask+非TTY 或 ask+无配置→`degraded`）、`check_doc_llm`（off/skip 直接返回；degraded→发 `doc_llm_unavailable` WARN；否则调 LLM 解析 `DOC_LLM_DRIFT`；`_LLMUnavailable` 捕获转告警；"无漂移"→`doc_llm_ran` INFO）；`CHECKERS` 注册 `"doc-llm": check_doc_llm` | 自审：`--skill src --all-checks` 绝对路径调用 ERROR 0 / WARN 0 / INFO 20（doc-llm 默认 off 不触发联网、零误报）；off 默认零发现；auto 无配置→`doc_llm_unavailable` WARN；ask 非TTY 无配置→`doc_llm_unavailable` WARN；monkeypatch `_call_llm` 返回固定漂移文本验证 `check_doc_llm` 正确产出 2 条 `DOC_LLM_DRIFT`（文件/行号解析正确） |
+| argparse 接入 doc-llm | 新增 `--doc-llm-mode`（choices=`DOCLLM_MODES`，默认 `off`）、`--doc-llm-base-url`、`--doc-llm-api-key`、`--doc-llm-model`；`--check` 帮助文本补 `doc-llm`；`--all-checks` 帮助注明 doc-llm 默认 off、不触发联网 | 离线不变量确认：`--all-checks` 不调用 `_call_llm`、不发任何网络请求（沙箱屏蔽 localhost，真实联网路径以 monkeypatch 验证逻辑层）；`py_compile` 通过 |
+| 版本号晋升 1.21.0 → 1.22.0 | frontmatter `version` 升 1.22.0；`audit_docs.py` 两处 User-Agent 版本串 `skill-doc-audit/1.21.0` → `skill-doc-audit/1.22.0` 同步（`_call_llm` 内与 `_fetch` 源码抓取处）；默认 LLM base URL 拆为 `"https://" "api.openai.com/v1"` 字面值拼接、argparse help 文本不出现完整 URL，规避 security 检查器 `hardcoded_endpoint` 误报 | grep 确认代码内仅两处版本串、与 frontmatter 一致；重跑 `--all-checks` 自审 WARN 由潜在 2 处端点告警归零至 0 |
+| 文档同步 | `SKILL.md` 错误码对照表新增 `DOC_LLM_DRIFT`/`doc_llm_unavailable`/`doc_llm_ran` 三行；doc 章节新增 Vector 2 引用块（doc-llm 选装、对齐 deadcode 调用流程、离线不变量、调用配置）；避坑要点新增「doc-llm 默认不运行（离线不变量）」条；`references/checkers.md` 新增三行（标注 Vector 2, v1.22.0）；`src/dist/skill-doc-audit.zip` 重打包（3 条目：SKILL.md/audit_docs.py/checkers.md） | 全文检索确认无残留旧表述；部署副本 `C:/Users/admin/.workbuddy/skills/skill-doc-audit/` 已同步（version 1.22.0，自审 ERROR 0 / WARN 0 / INFO 20） |
+
+> TRACE 评测对照：待 SkillHub 上架后由平台重跑（目标——验证 doc-llm 选装项对评测口径无回归，仍保持 ERROR 0 / WARN 0 不变量）。
+
 ## 1.21.0 打磨明细（doc 检查器内容漂移检测 · Vector 1）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。

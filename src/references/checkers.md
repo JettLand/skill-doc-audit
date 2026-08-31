@@ -32,6 +32,9 @@
 | doc | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致 | 文档枚举的集合（如 deadcode 模式 `{ask,vulture,ast,skip}` 或 `ask/vulture/ast/skip`）与代码权威集合 `DEADCODE_MODES` 不符（Vector 1，v1.21.0） | WARN |
 | doc | `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致 | 文档「N 个检查器」等数量声明与 `len(ALL_CHECKERS)` 实际计数不符（Vector 1，v1.21.0） | WARN |
 | doc | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | 能力声明动词（提供/支持/默认/自动/…）行内的反引号标识符在代码与声明中均不存在（能力可能已移除或拼写有误）（Vector 1，v1.21.0） | WARN |
+| doc | `DOC_LLM_DRIFT` | 文档/代码语义漂移（LLM 判定） | 选装 `doc-llm` 检查器经 OpenAI 兼容 LLM 判定的语义漂移条目（格式 `- 文件:行 | 描述`），仅作线索（Vector 2，v1.22.0） | WARN |
+| doc | `doc_llm_unavailable` | LLM 语义检测不可用（已跳过） | 用户要求 `auto`/`ask` 却未配置 LLM 或非交互环境无法询问，语义检测被跳过——显著告警（对应 deadcode 的 precision_degraded）（Vector 2，v1.22.0） | WARN |
+| doc | `doc_llm_ran` | LLM 语义检测已运行（无漂移） | `doc-llm` 已运行且未检出语义漂移的确认性 INFO（Vector 2，v1.22.0） | INFO |
 | structure | `name_mismatch` | 名称不一致 | frontmatter name 与目录名不一致 | WARN |
 | structure | `version_missing` | 版本缺失 | 缺少合规 version | ERROR |
 | structure | `name_missing` | 名称缺失 | 缺少 name 声明 | ERROR |

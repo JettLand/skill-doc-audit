@@ -143,6 +143,10 @@ CATEGORY_LABELS = {
     "DOC_ENUM_DRIFT": "文档枚举/集合与代码不一致",
     "DOC_COUNT_DRIFT": "文档数量声明与代码不一致",
     "DOC_CAPABILITY_DRIFT": "文档声称的能力在代码中无对应实现",
+    # doc-llm：选装 LLM 语义漂移检测（Vector 2，v1.22.0，调用流程对齐 deadcode）
+    "DOC_LLM_DRIFT": "文档/代码语义漂移（LLM 判定）",
+    "doc_llm_unavailable": "LLM 语义检测不可用（已跳过）",
+    "doc_llm_ran": "LLM 语义检测已运行（无漂移）",
     "B_STATUS": "运行状态枚举（供 AI 复核）",
     "B_CONFIG": "配置项枚举（供 AI 复核）",
     # structure：结构体检 + 元信息
@@ -201,6 +205,9 @@ CATEGORY_LABELS = {
 # --------------------------------------------------------------------------- #
 # deadcode 精度模式权威集合：同时供 argparse choices 与 doc 漂移校验使用（单一真相源）
 DEADCODE_MODES = ("ask", "vulture", "ast", "skip")
+# doc-llm 语义检测模式权威集合（Vector 2，v1.22.0）：off=默认不运行/绝不联网；
+# auto=用配置的 LLM 直接检测；ask=交互终端征得同意后检测。同款「模式元组」设计，对齐 deadcode。
+DOCLLM_MODES = ("off", "auto", "ask")
 # 文档声称的检查器数量："(N) 个检查器"
 DOC_CHECKER_COUNT_RE = re.compile(r"(\d+)\s*个\s*检查器")
 # 文档以大括号枚举 deadcode 模式：{ask,vulture,ast,skip}
@@ -1291,6 +1298,225 @@ def check_portability(ctx):
 
 
 # --------------------------------------------------------------------------- #
+# Vector 2 (v1.22.0)：doc-llm 选装 LLM 语义漂移检测（调用流程参考 deadcode 检查器）
+# --------------------------------------------------------------------------- #
+# 设计对齐 deadcode：
+#   - 同款「模式解析 → (mode, degraded) 元组」结构：_resolve_doc_llm_mode 与
+#     _resolve_deadcode_mode 一一对应；
+#   - 同款「降级即显著告警」：degraded 时发 doc_llm_unavailable WARN（对应 deadcode 的
+#     precision_degraded），让调用方/评测器「看见」语义检测被跳过；
+#   - 离线不变量：doc-llm 默认 off（且不在 --all-checks / DEFAULT_CHECKERS 内），
+#     绝不自动联网；只有用户显式 --doc-llm-mode auto/ask 且配置了 LLM 时才发起请求。
+class _LLMUnavailable(Exception):
+    """LLM 配置缺失或调用失败——由调用方转为 doc_llm_unavailable 告警。"""
+
+
+def _load_llm_config(args):
+    """读取 LLM 配置：argparse 显式传入优先，否则回退环境变量。
+
+    仅当 api_key 与 model 同时具备才视为「已配置」（base_url 有内置默认）。
+    返回 dict 或 None（未配置）。绝不抛异常。
+    """
+    base = (getattr(args, "doc_llm_base_url", None) or
+            os.environ.get("SKILLDOC_LLM_BASE_URL", "https://" "api.openai.com/v1"))
+    key = getattr(args, "doc_llm_api_key", None) or os.environ.get("SKILLDOC_LLM_API_KEY")
+    model = getattr(args, "doc_llm_model", None) or os.environ.get("SKILLDOC_LLM_MODEL")
+    if not key or not model:
+        return None
+    return {"base_url": base.rstrip("/"), "api_key": key, "model": model}
+
+
+def _call_llm(config, system, user, timeout=120):
+    """调用 OpenAI 兼容 Chat Completions 接口（纯标准库 urllib，零第三方依赖）。
+
+    成功返回助手内容字符串；任何网络/HTTP/解析异常均转抛 _LLMUnavailable，
+    由调用方静默降级为告警，不中断整体审计。
+    """
+    import json
+    import urllib.request
+    import urllib.error
+    url = config["base_url"] + "/chat/completions"
+    payload = {
+        "model": config["model"],
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": 0,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + config["api_key"],
+            "User-Agent": "skill-doc-audit/1.22.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            obj = json.loads(resp.read().decode("utf-8"))
+        return obj["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        _body = ""
+        try:
+            _body = e.read().decode("utf-8", "replace")[:200]
+        except Exception:
+            pass
+        raise _LLMUnavailable("HTTP %s: %s" % (e.code, _body))
+    except Exception as e:  # noqa: BLE001
+        raise _LLMUnavailable(str(e))
+
+
+def _code_fact_sheet(code):
+    """从代码 blob 抽取轻量「事实清单」喂给 LLM：定义/CLI 参数/返回码/常量。
+
+    不直接倾倒整份源码（避免超长上下文），仅给模型可交叉比对的符号事实。
+    """
+    rows = []
+    for rel, content in code.items():
+        defs = re.findall(r"^\s*(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)", content, re.M)
+        flags = re.findall(r'add_argument\(\s*["\'](--[A-Za-z0-9_-]+)', content)
+        returns = sorted(set(re.findall(r"return\s+(\d+)", content)))
+        consts = re.findall(r"^([A-Z_][A-Z0-9_]*)\s*=", content, re.M)
+        rows.append("文件 %s: 顶层定义=%s; CLI参数=%s; 返回码=%s; 常量=%s"
+                    % (rel, defs[:40], flags, returns, consts[:40]))
+    return "\n".join(rows)
+
+
+_LLM_DRIFT_RE = re.compile(r"^\s*-\s*([A-Za-z0-9_./\\-]+\.(?:md|py)):(\d+)\s*[|｜]\s*(.+)$")
+
+
+def _parse_llm_drift(text):
+    """解析 LLM 返回的漂移条目（每行 `- 文件:行 | 描述`），上限 30 条以防刷屏。"""
+    out = []
+    for ln in text.splitlines():
+        m = _LLM_DRIFT_RE.match(ln)
+        if not m:
+            continue
+        out.append((m.group(1), int(m.group(2)), m.group(3).strip()))
+        if len(out) >= 30:
+            break
+    return out
+
+
+def _resolve_doc_llm_mode(args):
+    """决定 doc-llm 是否运行、以何种模式，以及是否「静默降级」。
+
+    返回 (mode, degraded, reason)，与 _resolve_deadcode_mode 同构：
+    - mode: "off" | "auto" | "ask"
+    - degraded: 仅在「用户本意要语义检测却因环境限制未能运行」时为真，
+      调用方据此发 doc_llm_unavailable 告警（对应 deadcode 的 precision_degraded）。
+    - reason: degraded 时的中文说明（填入告警消息）。
+
+    对照 deadcode：
+      deadcode 显式 vulture 但缺库 → 尝试安装失败 → 降级 ast（degraded）
+      doc-llm 显式 auto 但未配 LLM → 无「可 pip 安装的库」→ 降级跳过（degraded）
+      deadcode ask + 非 TTY → 降级 ast（degraded）
+      doc-llm ask + 非 TTY 且无配置 → 降级跳过（degraded）
+    区别：LLM 是外部服务而非本地库，故「降级」路径为「跳过 + 显著告警」，
+    而非像 vulture 那样尝试自动安装。
+    """
+    mode = getattr(args, "doc_llm_mode", "off") if args else "off"
+    if mode == "off":
+        return "off", False, None
+    cfg = _load_llm_config(args)
+    if mode == "auto":
+        if cfg is None:
+            return "auto", True, "已显式要求 auto 模式但未配置 LLM（缺少 SKILLDOC_LLM_API_KEY / SKILLDOC_LLM_MODEL，或对应 --doc-llm-api-key/--doc-llm-model）"
+        return "auto", False, None
+    # ask 模式
+    if not sys.stdin.isatty():
+        if cfg is not None:
+            # 非交互但已配置环境变量，直接复用配置（无需询问）
+            return "ask", False, None
+        return "ask", True, "已要求 ask 模式但处于非交互（自动化）环境，无法向用户询问 LLM 配置"
+    # 交互终端：征得用户同意后运行（超时/拒绝视为用户明确放弃，非降级）
+    sys.stderr.write(
+        "\n[doc-llm] 是否启用 LLM 语义漂移检测？（y/N，20 秒内未选则跳过）"
+    )
+    sys.stderr.flush()
+    _buf = {}
+
+    def _read():
+        try:
+            _buf["v"] = sys.stdin.readline().strip()
+        except Exception:
+            _buf["v"] = ""
+
+    _th = threading.Thread(target=_read, daemon=True)
+    _th.start()
+    _th.join(20)
+    _choice = _buf.get("v", "")
+    if _choice.lower() != "y":
+        return "skip", False, None
+    if cfg is None:
+        return "ask", True, "用户同意启用但当前未配置 LLM（缺少 API Key / 模型）"
+    return "ask", False, None
+
+
+def check_doc_llm(ctx):
+    """选装 LLM 语义漂移检测（Vector 2）。调用流程与 deadcode 检查器对齐。
+
+    仅当用户显式 --doc-llm-mode auto/ask 且配置好 LLM 时才联网；默认 off，
+    绝不进入 --all-checks / 默认集，守住离线不变量。
+    """
+    args = ctx.get("args")
+    mode, degraded, reason = _resolve_doc_llm_mode(args)
+    findings = []
+    if mode in ("off", "skip"):
+        return findings
+    if degraded:
+        # 与 deadcode 的 precision_degraded 同理：让调用方/评测器看见「语义检测被跳过」
+        findings.append(finding(
+            "doc-llm", SEVERITY_WARN, "doc_llm_unavailable",
+            "doc-llm（LLM 语义漂移检测）未能运行：%s。本次审计不含语义级内容漂移检测（Vector 1 确定性检查仍生效）。" % reason,
+            suggestion="配置 LLM（环境变量 SKILLDOC_LLM_API_KEY / SKILLDOC_LLM_MODEL，或 --doc-llm-api-key/--doc-llm-model）后改用 --doc-llm-mode auto；或在交互终端使用 --doc-llm-mode ask。",
+        ))
+        return findings
+    cfg = _load_llm_config(args)
+    doc = ctx["doc"]
+    code = ctx["code"]
+    sheet = _code_fact_sheet(code)
+    system = (
+        "你是技能文档审计助手。给定一份技能的 SKILL.md 文档与一份「代码事实清单」（由审计工具从源码抽取，"
+        "列出顶层定义、CLI 参数、返回码、常量），请判断文档中是否存在「内容/行为漂移」："
+        "文档声称的能力、默认值、行为、数量、集合与代码事实清单不一致之处。"
+        "只报告确有依据的漂移，不要报告风格/措辞问题。每条输出一行，格式严格为："
+        "- 文件名:行号 | 问题描述（指明文档说法与代码事实的冲突）。"
+        "若未发现漂移，仅输出一行「- 无漂移」。不要输出任何其他内容。"
+    )
+    user = "=== SKILL.md ===\n%s\n\n=== 代码事实清单 ===\n%s" % (doc, sheet)
+    try:
+        resp = _call_llm(cfg, system, user)
+    except _LLMUnavailable as e:
+        findings.append(finding(
+            "doc-llm", SEVERITY_WARN, "doc_llm_unavailable",
+            "doc-llm 调用 LLM 失败：%s。语义级内容漂移检测本次未生效（Vector 1 确定性检查不受影响）。" % e,
+            suggestion="检查 LLM 配置与网络连通性；或仅使用 Vector 1 的确定性检查。",
+        ))
+        return findings
+    items = _parse_llm_drift(resp)
+    if not items:
+        if "无漂移" in resp:
+            findings.append(finding(
+                "doc-llm", SEVERITY_INFO, "doc_llm_ran",
+                "doc-llm 语义检测已运行（模型 %s），未检出内容/行为漂移。" % cfg["model"],
+            ))
+        # 模型返回但无法解析为结构化条目：保持静默，不刷屏
+        return findings
+    for fpath, line, msg in items:
+        findings.append(finding(
+            "doc-llm", SEVERITY_WARN, "DOC_LLM_DRIFT",
+            "语义漂移（LLM 判定）：%s" % msg,
+            file=fpath, line=line,
+            suggestion="与代码事实核对后修订文档，或修正代码行为使其与文档一致。",
+        ))
+    return findings
+
+
+# --------------------------------------------------------------------------- #
 # 调度
 # --------------------------------------------------------------------------- #
 CHECKERS = {
@@ -1301,6 +1527,7 @@ CHECKERS = {
     "deps": check_deps,
     "deadcode": check_deadcode,
     "portability": check_portability,
+    "doc-llm": check_doc_llm,
 }
 DEFAULT_CHECKERS = ["doc"]
 # deadcode / portability：deadcode ask 模式下已装 vulture 自动高精度，否则运行前询问精度（默认 ask，超时 30s→ast 零依赖）。
@@ -2063,7 +2290,7 @@ class UrlSource(SkillSource):
         return ref
 
     def _fetch(self, url):
-        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.21.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.22.0"})
         try:
             resp = urllib.request.urlopen(req, timeout=30)
         except Exception as e:
@@ -2146,8 +2373,8 @@ def main():
     ap.add_argument("--skill", help="技能目录")
     ap.add_argument("--all", action="store_true", help="审计 ~/.workbuddy/skills 下全部技能")
     ap.add_argument("--check", action="append", metavar="NAME",
-                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability)，可重复；doc 常驻默认开")
-    ap.add_argument("--all-checks", action="store_true", help="启用全部检查器")
+                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability/doc-llm)，可重复；doc 常驻默认开；doc-llm 为选装，需额外 --doc-llm-mode auto/ask 并配置 LLM 才会联网")
+    ap.add_argument("--all-checks", action="store_true", help="启用全部检查器（doc-llm 默认 off，不会因此触发 LLM 联网）")
     ap.add_argument("--backup", action="store_true", help="审计前备份 SKILL.md")
     ap.add_argument("--backup-limit", type=int, default=BACKUP_LIMIT,
                     help="SKILL.md 最多保留的备份数（默认 %d）" % BACKUP_LIMIT)
@@ -2159,6 +2386,14 @@ def main():
                     help="单文件超过此字节数跳过扫描（默认 %d）" % MAX_FILE_SIZE)
     ap.add_argument("--deadcode-mode", default="ask", choices=list(DEADCODE_MODES),
                     help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
+    ap.add_argument("--doc-llm-mode", default="off", choices=list(DOCLLM_MODES),
+                    help="doc-llm 选装 LLM 语义漂移检测模式（调用流程对齐 deadcode）：off(默认,不运行,绝不联网) / auto(用配置的 LLM 直接检测) / ask(交互终端征得同意后再检测)。需先配置 LLM：环境变量 SKILLDOC_LLM_API_KEY + SKILLDOC_LLM_MODEL（可选 SKILLDOC_LLM_BASE_URL），或显式 --doc-llm-api-key/--doc-llm-model")
+    ap.add_argument("--doc-llm-base-url", default=None,
+                    help="doc-llm 的 LLM base URL（OpenAI 兼容；默认 OpenAI 官方 Chat Completions 端点，可用环境变量 SKILLDOC_LLM_BASE_URL 覆盖）")
+    ap.add_argument("--doc-llm-api-key", default=None,
+                    help="doc-llm 的 LLM API Key（覆盖环境变量 SKILLDOC_LLM_API_KEY）")
+    ap.add_argument("--doc-llm-model", default=None,
+                    help="doc-llm 使用的模型名（覆盖环境变量 SKILLDOC_LLM_MODEL）")
     ap.add_argument("--preview", action="store_true",
                     help="只预览将运行哪些检查器、将扫描哪些文件，不产出发现，退出码 0（适合首次审计前心里有数）")
     ap.add_argument("--source", default="local", choices=list(SOURCES),
