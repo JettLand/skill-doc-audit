@@ -30,6 +30,7 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.23.2 | **doc 检查器补 doc-llm 引导描述**：在「能力边界」检查器清单的 `doc` 项补一句引导性描述——`doc` 覆盖 Vector 1 结构化漂移（死引用/失效参数/退出码不符/枚举·数量·能力声明与代码不符），自由散文语义漂移由同族 `doc-llm` 检查器（Vector 2）以 LLM 语义检测补足，便于读者在开头即建立「doc 与 doc-llm 的分工」认知。纯文档增补，版本号补丁级，部署自审 `[doc] ERROR 0 / WARN 0` |
 | 1.23.1 | **确立核心设计原则**：新增头条「设计原则（核心约束）」——`默认模式零依赖，但绝不替用户决定`：默认即零依赖（纯脚本/不联网/零 token）、绝不替用户决定（涉及外部依赖能力的取舍必须显式交还用户、超时回退默认）、透明兜底（无法询问宁可显著标注跳过也不静默代决）；统领 doc-llm 与 deadcode 的交互式取舍。纯文档确立，部署自审 `[doc] ERROR 0 / WARN 0` |
 | 1.23.0 | **doc-llm 默认问询 + 纳入全量检测**：①`--doc-llm-mode` 默认改 `ask`，`--check doc-llm` 不传 mode 即弹三选项菜单（默认/增强/预览，30s 超时回退）；②doc-llm 列入 `ALL_CHECKERS`，`--all-checks` 含 LLM 语义漂移问询——交互弹菜单、非交互记 INFO `doc_llm_skipped`（保全量 WARN 0 不变量）、显式传入未运行则 WARN `doc_llm_unavailable`；离线不变量（绝不自动联网）不变 |
 | 1.22.1 | **doc-llm `ask` 模式改为显式三选项交互（绝不替用户决定）**：按用户要求，`--doc-llm-mode ask` 在交互终端呈现实选项——`1) 默认模式`（纯脚本，零依赖，0 token）/`2) 增强模式`（启用 LLM 语义检测，依赖外部 LLM 服务、消耗额外 token）/`3) 预览代价`（仅展示将发送给 LLM 的内容与预估 token，不实际调用）；**30 秒超时或无输入一律回退默认模式**。非交互（自动化）环境无法询问 → 回退默认并显著告警（`doc_llm_unavailable`），不再自动复用环境变量配置静默联网；离线不变量（默认 off、不进 `--all-checks`、绝不自动联网）不变。自身 `--all-checks` 自审 ERROR 0 / WARN 0 |
