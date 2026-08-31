@@ -12,6 +12,7 @@
 | 打磨项 | 改动 | 验证（均通过） |
 |---|---|---|
 | R 可靠性退步的代码层根因修复 | v1.18.1 仅改 SKILL.md「Agent 执行约定」，但评测器直接调 `audit_docs.py --all-checks`（非 TTY 回退 ast），不遵循 SKILL.md 约定，故评测仍点名「deadcode 自动化精度下降无提示」。本版在代码层根治：`_resolve_deadcode_mode` 返回值由单值改为 `(mode, degraded)` 元组；在三类「未显式确认即降低精度」的情形——①非 TTY（管道/Agent 调用）且未装 vulture、②显式 `--deadcode-mode vulture` 但运行环境缺失 vulture、③交互询问超时/无输入——均标记 `degraded=True`；`check_deadcode` 在 `degraded` 时向报告追加 `precision_degraded`（WARN）发现，明确写出精度降级事实与「装 vulture + `--deadcode-mode vulture` / 由 Agent 主动询问」的解决建议 | 自身 `--all-checks` 自审 ERROR 0 / WARN 0（vulture 已装走高精度、无降级提示）；模拟样本以 `-S`（vulture 缺失）+ 非 TTY 实测：报告确实产出 `[WARN] precision_degraded` 行；显式 `--deadcode-mode vulture` 缺库亦触发；vulture 已装路径仍静默高精度、零降级提示；`py_compile` 通过；确认无遗留旧单值返回调用点 |
+| 显式 vulture 缺库时自动安装（尊重用户意图） | 当用户**显式** `--deadcode-mode vulture` 或交互选了「1) vulture」但环境缺库时，原逻辑直接回退 AST（即便用户已明确要求高精度）。本版新增 `_try_install_vulture()`：先尝试 `pip install vulture`（超时 120s、异常兜底），安装成功即采用高精度（`degraded=False`），安装失败才回退 AST 并标注 `precision_degraded`；`ast`/`skip` 与 ask 模式的非 TTY 自动回退**不**触发安装，避免自动化/无人值守场景发起意外网络请求。`_vulture_module()` 保持「不自动安装」语义，安装职责独立 | 路径1（-S + 显式 vulture）实测打印「尝试自动安装」并因 `-S` 隔离在装后仍不可导入而优雅降级告警；路径2 monkeypatch 验证：装成功→`('vulture', False)`、装失败→`('ast', True)`、显式 ast→`('ast', False)` 且全程不安装；路径3（ask + 非 TTY 缺库）确认无「尝试自动安装」字样、纯回退 |
 
 
 

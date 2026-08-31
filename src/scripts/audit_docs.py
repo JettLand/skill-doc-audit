@@ -722,6 +722,26 @@ def _vulture_module():
         return None
 
 
+def _try_install_vulture():
+    """用户显式要求 vulture 但环境缺失时，尝试 pip 安装以满足其意图。
+
+    返回安装后的 vulture 模块；任何失败（无网络 / 无权限 / 超时）均返回 None，
+    由调用方按「降级」逻辑处理。绝不抛异常，最长等待 120s。
+    仅用于「用户显式要求 vulture」的路径（--deadcode-mode vulture 或交互选 1），
+    ask 模式的非 TTY 自动回退路径不调用，避免自动化场景发起意外网络请求。
+    """
+    import subprocess
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "vulture"],
+            check=True, timeout=120,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return None
+    return _vulture_module()
+
+
 def _resolve_deadcode_mode(args):
     """决定 deadcode 运行模式与是否「静默降级」。
 
@@ -729,8 +749,9 @@ def _resolve_deadcode_mode(args):
     - mode: "vulture" | "ast" | "skip"
     - degraded: bool，表示本次是否因环境限制而「未经显式确认」地降低了精度。
       仅在以下两种情况为真：
-        (a) 默认 ask + 非 TTY（被管道/Agent 自动化调用）+ 未装 vulture → 回退零依赖 AST；
-        (b) 显式 --deadcode-mode vulture 但运行环境缺失 vulture → 回退 AST。
+        (a) 默认 ask + 非 TTY（被管道/Agent 自动化调用）+ 未装 vulture → 回退零依赖 AST（不尝试安装，避免自动化场景发起网络请求）；
+        (b) 显式 --deadcode-mode vulture 但运行环境缺失 vulture → 先尝试自动安装 vulture，安装成功则采用高精度，
+            安装失败才回退 AST（仍标记 degraded）。
       调用方（check_deadcode）应在 degraded=True 时发出显著提示（precision_degraded
       告警），使精度下降对自动化评测/调用方可见——回应「精度下降而无提示」的可靠性短板。
 
@@ -743,7 +764,11 @@ def _resolve_deadcode_mode(args):
     mode = getattr(args, "deadcode_mode", "ask") if args else "ask"
     if mode != "ask":
         if mode == "vulture" and _vulture_module() is None:
-            sys.stderr.write("[deadcode] ⚠ 未检测到 vulture 库，回退零依赖 AST 模式（精度降级）\n")
+            sys.stderr.write("[deadcode] 未检测到 vulture 库，尝试自动安装 vulture……\n")
+            if _try_install_vulture() is not None:
+                sys.stderr.write("[deadcode] vulture 安装成功，采用高精度模式\n")
+                return "vulture", False
+            sys.stderr.write("[deadcode] ⚠ 未检测到 vulture 库且自动安装失败，回退零依赖 AST 模式（精度降级）\n")
             return "ast", True
         return mode, False
     # ask 模式：已装 vulture 直接走高精度，避免重复询问
@@ -791,7 +816,11 @@ def _prompt_deadcode_mode():
         return "ast", True
     if choice == "1":
         if _vulture_module() is None:
-            sys.stderr.write("[deadcode] 未检测到 vulture 库，回退零依赖 AST 模式（精度降级）\n")
+            sys.stderr.write("[deadcode] 未检测到 vulture 库，尝试自动安装 vulture……\n")
+            if _try_install_vulture() is not None:
+                sys.stderr.write("[deadcode] vulture 安装成功，采用高精度模式\n")
+                return "vulture", False
+            sys.stderr.write("[deadcode] ⚠ 未检测到 vulture 库且自动安装失败，回退零依赖 AST 模式（精度降级）\n")
             return "ast", True
         return "vulture", False
     if choice == "3":

@@ -28,7 +28,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
-- `deadcode`（运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask`：环境已装 vulture 则自动采用高精度（不询问），未装则交互询问，30 秒超时或无输入回退零依赖 `ast`。**⚠️ Agent 执行重要约定**：`ask` 的交互询问依赖人类 TTY 的 `input()` 提示；当由 Agent 经管道调用（stdin 非 TTY）时，脚本无法真正触达用户，会**降级为 `ast`**，并在报告中发出 `precision_degraded` 警告（v1.19.0 起由脚本自愈提示，此前为完全静默）——这正是「Agent 跑全量检测时 deadcode 只跑 AST、跳过询问」的根因。故 Agent 绝不可依赖 `ask` 默认，必须**先探测 vulture、再主动向用户询问三选一、并以 `--deadcode-mode` 显式传入**（具体流程见下方「Agent 执行约定」），让精度选择始终显式可控；即便 Agent 漏问，v1.19.0 也会在报告里显著标注精度降级，避免无提示地以低精度结果蒙混过关。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
+- `deadcode`（运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask`：环境已装 vulture 则自动采用高精度（不询问），未装则交互询问，30 秒超时或无输入回退零依赖 `ast`；**显式 `--deadcode-mode vulture` 但环境缺库时，脚本先尝试自动 `pip install vulture`（安装成功即高精度，失败才回退 `ast` 并标注 `precision_degraded`），尊重用户的显式高精度意图；`ast`/`skip` 与 ask 模式的自动回退不做安装尝试****⚠️ Agent 执行重要约定**：`ask` 的交互询问依赖人类 TTY 的 `input()` 提示；当由 Agent 经管道调用（stdin 非 TTY）时，脚本无法真正触达用户，会**降级为 `ast`**，并在报告中发出 `precision_degraded` 警告（v1.19.0 起由脚本自愈提示，此前为完全静默）——这正是「Agent 跑全量检测时 deadcode 只跑 AST、跳过询问」的根因。故 Agent 绝不可依赖 `ask` 默认，必须**先探测 vulture、再主动向用户询问三选一、并以 `--deadcode-mode` 显式传入**（具体流程见下方「Agent 执行约定」），让精度选择始终显式可控；即便 Agent 漏问，v1.19.0 也会在报告里显著标注精度降级，避免无提示地以低精度结果蒙混过关。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
 - `portability`（零依赖纯静态分析）：跨平台可移植性——硬编码绝对路径、启动目录依赖（`os.getcwd`）、平台专属 shell/命令、解释器/运行时锁、编码/路径分隔符假设、Agent 平台耦合。按 SKILL.md 的 `target_platform` 字段豁免对应平台项（`target_platform: windows` 仅抑制 Windows 专属项的误报，仍保留在 Windows 上真会崩的项；不写=跨平台，全检）；`agent_coupling`（Agent 平台耦合）另受同级 `target_agent` 字段门控：声明含 `workbuddy` 则抑制，声明 `claude-code`/`cross-agent` 等跨 Agent 目标且仍含 WorkBuddy 耦合时升为 WARN；全部 WARN/INFO，绝不 ERROR
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
@@ -94,7 +94,7 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 它会自动备份 `SKILL.md`、跑完全部检查器、输出带中文标签的报告。`deadcode` 若环境已装 `vulture` 会自动用高精度模式，没装则自动降级为零依赖 `ast`（**不需要额外安装任何东西就能跑**，见下）。其余 90% 场景用「快速开始」那张表查对应命令要点即可，无需通读全文。**注意**：上一段的「自动降级」仅在人类交互终端成立；**Agent 经管道执行时不会真正询问用户，须按上方『Agent 执行约定』显式传 `--deadcode-mode`**，勿依赖静默降级。
 
 > 最常见的三个疑问，30 秒答完：
-> - **要装 vulture 吗？** 不用。没装时自动降级 `ast` 模式（仅死代码检测精度略低），其它检查器完全不受影响。想用高精度再 `pip install vulture`。
+> - **要装 vulture 吗？** 不用手动装。显式 `--deadcode-mode vulture` 但环境缺库时，脚本会先自动 `pip install vulture`（装好即用高精度）；装不上才降级 `ast` 并标注精度降级。其它情形（ast/skip 或 ask 的自动回退）不触发安装，缺库即零依赖 `ast`，其它检查器完全不受影响。
 > - **审计远程技能要装 git / skillhub 吗？** 不用。用 `--source url --ref <SKILL.md 的 https 地址>` 即可，标准库直抓、零外部 CLI（见「多平台来源」）。
 > - **报告里一堆 WARN/INFO 要不要全改？** 不要。只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是线索，需你/AI 读源码复核后再决定。
 
@@ -251,7 +251,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 **最常见误区**：把线索当裁决。只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是「这里可能有问题，请你/AI 读源码确认」的提示。例如 `agent_coupling` 的 INFO 是跨 Agent 咨询、非缺陷；`hardcoded_path` 的 WARN 若出现在表格/引用块里多半是示例误报（v1.18.0 已做上下文感知过滤）。**先读源码，再决定改不改。**
 
 **Q8：没装 vulture，是不是跑不了死代码检测 / 整个工具用不了？**
-不是。没装 `vulture` 时 `deadcode` 自动降级为零依赖 `ast` 模式（仅死代码检测精度略低），其余检查器完全不受影响；整工具零第三方依赖即可运行。想用高精度再 `pip install vulture`。
+不是。没装 `vulture` 时 `deadcode` 默认仍可用：显式 `--deadcode-mode vulture` 会先尝试自动安装，装好即用高精度；装不上或选 `ast`/`skip` 才以零依赖 `ast` 运行（仅死代码检测精度略低），其余检查器完全不受影响；整工具零第三方依赖即可运行。
 
 ## 完整运行示例（真实输出 + 解读）
 
