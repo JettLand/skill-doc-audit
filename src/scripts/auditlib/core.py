@@ -236,6 +236,16 @@ def category_cn(category):
 # Finding 模型
 # --------------------------------------------------------------------------- #
 def finding(checker, severity, category, message, file=None, line=None, suggestion=None, ref=None):
+    # 跨平台归一化：路径分隔符统一为正斜杠。Windows 用反斜杠(\\)、Linux 用正斜杠(/)，
+    # 若不归一，file/message/ref 中的脚本路径会在两平台产生不同签名，导致黄金快照
+    # 跨平台比对失败（self_validate 在 ubuntu CI 上因 scripts\main.py vs scripts/main.py
+    # 而 FAIL）。归一后两平台输出一致；正斜杠本身对所有平台都合法可读。
+    if file:
+        file = file.replace("\\", "/")
+    if message:
+        message = message.replace("\\", "/")
+    if ref:
+        ref = ref.replace("\\", "/")
     return {
         "checker": checker,
         "severity": severity,
