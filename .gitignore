@@ -12,6 +12,11 @@ backups/
 __pycache__/
 *.pyc
 
+# 发布制品（生成产物，不进版本库）：由 post-commit 钩子经 sync_deploy.py 自动
+# build_dist.ensure_fresh() 重建，保证部署副本 / SkillHub 发布永远基于最新 src，
+# 杜绝陈旧 zip 漂移。磁盘文件保留，clone 后首次提交即重建。
+src/dist/skill-doc-audit.zip
+
 # 回归测试夹具（脏样本基线）：由 make_fixtures.py 声明式 recipe 生成，不进版本库
 # （git checkout 后由 self_validate.py 自动重建，或手动 `python src/scripts/make_fixtures.py`）
 tests/fixtures/

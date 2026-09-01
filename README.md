@@ -7,7 +7,7 @@
   - `src/SKILL.md`：技能定义与用法（SkillHub 据此生成技能主页）
   - `src/scripts/audit_docs.py`：核心静态体检脚本
   - `src/references/checkers.md`：检查器明细基准
-  - `src/dist/skill-doc-audit.zip`：可发布制品
+  - `src/dist/skill-doc-audit.zip`：可发布制品（**生成产物，不入库**；由 `post-commit` 钩子经 `sync_deploy.py` 自动重建，无需手动）
 - `icons/`：已选定技能图标
 - `src/scripts/make_fixtures.py`、`src/scripts/self_validate.py`、`src/scripts/sync_deploy.py`、`src/scripts/dev_self_audit.py`：开发期维护工具（**dev-only，不进 `dist/` / 部署副本**）；`sync_deploy.py` 负责把 `src/` 的发布面同步到已安装的部署副本 `~/.workbuddy/skills/skill-doc-audit`；`dev_self_audit.py` 是开发模式自审计脚本（审计最新源码 + 开发文档漂移 + 部署副本同步校验）
 
@@ -36,7 +36,7 @@ python src/scripts/dev_self_audit.py --strict   # CI 门禁：WARN 也计入失�
 
 ## 打包与发布
 1. 修改 `src/` 内源文件，自测通过；
-2. 重新打包制品为 `src/dist/skill-doc-audit.zip`（含 SKILL.md / audit_docs.py / references/checkers.md / auditlib/**）；
+2. 重新打包制品为 `src/dist/skill-doc-audit.zip`（含 SKILL.md / audit_docs.py / references/checkers.md / auditlib/**）——**通常由 `post-commit` 钩子经 `sync_deploy.py` 自动完成，无需手动**；仅当同步钩子未运行时才手动 `python src/scripts/build_dist.py`；
 3. 经 SkillHub CLI 发布：`skillhub publish src/dist/skill-doc-audit.zip --version x.y.z --changelog "..."`；
 4. 提交并推送本仓库：`git add ... && git commit && git push origin main`。
 
@@ -45,7 +45,7 @@ python src/scripts/dev_self_audit.py --strict   # CI 门禁：WARN 也计入失�
 已安装的部署副本 `~/.workbuddy/skills/skill-doc-audit/` 必须与 `src/` 的提交态保持一致，否则会出现「源码改了、线上技能没更新」的漂移。本项目已把同步**自动化进 git 提交流程**：
 
 - `src/scripts/sync_deploy.py`（dev-only）：把 `src/` 的发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md / dist/skill-doc-audit.zip）字节级同步到部署副本，并清理部署副本内的 `__pycache__`，最后校验一致性。刻意**排除** dev 工具（make_fixtures.py / self_validate.py）与 `tests/`。
-- `hooks/post-commit` + `git config core.hooksPath ../hooks`：每次 `git commit` 后自动运行 `sync_deploy.py`，提交即同步，无需手动记这一步。
+- `hooks/post-commit` + `git config core.hooksPath "D:/Agent Work/skill-doc-audit技能项目管理/hooks"`（**务必绝对路径**：相对 `../hooks` 会被 git 解析到仓库外的 `D:/Agent Work/hooks`，钩子永不触发）：每次 `git commit` 后自动运行 `sync_deploy.py`（含按需重建 zip），提交即同步，无需手动记这一步。
 - 手动触发（如换机器或 hook 未装）：`python src/scripts/sync_deploy.py`；可用环境变量 `SKILL_DEPLOY_DIR` 覆盖目标路径。
 
 > 注：钩子仅在能找到 `python`/`python3` 时生效；找不到则仅打印提示、不阻塞提交。

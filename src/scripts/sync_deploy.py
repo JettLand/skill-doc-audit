@@ -50,6 +50,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))   # .../src/scripts
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 from _devcommon import ROOT, SRC, resolve_deploy_dir
+import build_dist   # 发布制品构建（zip 不入库，提交后即重建，保证部署/发布基于最新 src）
 
 DEP, _DEP_HOW = resolve_deploy_dir()   # 自动探测：优先 WORKBUDDY_CONFIG_DIR，失败回退多候选根探测
 
@@ -140,6 +141,15 @@ def main():
         print("[sync_deploy] skip (set SKILL_DEPLOY_DIR to override)")
         return 0
     print("[sync_deploy] deploy dir: %s (resolved via %s)" % (DEP, _DEP_HOW))
+    # 发布制品 zip 不入库、由本钩子按需重建：先确保 src/dist/skill-doc-audit.zip
+    # 与发布面源码一致，再同步到部署副本，使部署副本与 SkillHub 发布永远基于最新 src。
+    try:
+        if build_dist.ensure_fresh():
+            print("[sync_deploy] dist artifact rebuilt (was stale/missing)")
+        else:
+            print("[sync_deploy] dist artifact already fresh; skip rebuild")
+    except Exception as e:
+        print("[sync_deploy] WARN dist rebuild failed: %s" % e)
     copied = 0
     for s, d in SYNC_FILES:
         sp, dp = os.path.join(SRC, s), os.path.join(DEP, d)

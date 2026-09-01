@@ -25,6 +25,15 @@
 - 触发语义与第 6 类一致：仅次/主版本（x.y）变动触发，补丁号（x.y.z）按设计不触发；非阻断、不自动跑。
 - 验证：模拟次版本 1.24.0→1.25.7 确打印两条 `[agent-todo][建议]`（基准实测 + 文档自审计）；`dev_self_audit --strict` ERROR 0/WARN 0/INFO 33 零回归。
 
+### 发布前重打包交由同步钩子自动执行（dev-only，build_dist.py + sync_deploy.py + release_check.py + .gitignore）
+- **目标**：把「发布 SkillHub 前手动重打包 dist 制品」从 agent 手动步骤改为同步钩子自动执行，彻底消灭陈旧 zip 漂移。
+- **zip 改为生成产物、不再入库**：`.gitignore` 新增 `src/dist/skill-doc-audit.zip` 并 `git rm --cached` 取消跟踪（磁盘文件保留，clone 后首次提交即由钩子重建）；发布面以「最新 `src/`」为唯一真相源。
+- **`sync_deploy.py`（post-commit 钩子）在同步前调用 `build_dist.ensure_fresh()`**：zip 缺失或早于发布面源码（SKILL.md / audit_docs.py / checkers.md / auditlib）则重建（18 项），否则跳过；随后照常同步到部署副本。部署副本与 SkillHub 发布永远基于最新 `src`，陈旧 zip 漂移在物理上不可能发生。
+- **`build_dist.py` 重构**：暴露 `build()`（强制重建，供 CLI/手动）+ `ensure_fresh()`（缺失或过期才重建，供钩子调用）；发布面与 `sync_deploy.SYNC_FILES/SYNC_DIRS` 保持一致。
+- **`release_check.py::check_dist_staleness` 降级为兜底守卫**：常规流程 zip 已由钩子重建、恒不提示；仅当 `hooks/post-commit` 未运行（钩子跳过 / python 未定位）导致 zip 缺失或过期时才发 `[agent-todo][INFO]` 提示手动重建。模块顶部说明同步更新（dist 重打包移出「必须由 agent 执行」清单）。
+- **文档同步**：DEVELOPMENT.md「同步钩子具体执行什么」补「按需重建 zip」步骤、第 4 类 `[agent-todo]` 改为兜底守卫文案、`release_check` 节与 sync_deploy 节措辞更新；README.md「打包与发布」与 `core.hooksPath` 绝对路径说明更正。
+- 验证：`sync_deploy.py` 过期/缺失 zip 场景确自动重建、最新场景跳过重建；部署副本 zip 与 `src/` zip sha256 一致；`dev_self_audit --strict` ERROR 0/WARN 0/INFO 33 零回归。
+
 ## 1.25.7 打磨明细（TRACE 评测整改 + 市场质量基准实测器固化收口）
 
 ### TRACE 评测整改（部署副本自评 4.7/优秀，补强 <5.0 子项，文档级）

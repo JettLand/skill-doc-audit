@@ -4,14 +4,17 @@
 
 为什么需要（长期项目痛点）：
   版本迭代后有一批「必须由 agent 执行」的收尾操作——把 sources.py 的 User-Agent
-  同步为 SKILL.md 版本号、把 CHANGELOG「未发布改动」收口为版本节、重打包 dist 制品、
-  清理 temp/ 测试残留。这些步骤若只靠 agent 记忆，极易漏做并造成隐蔽漂移
-  （例如工具带着陈旧版本号自报给远端服务器）。本模块把这类步骤固化为可重复检查，
-  由 dev_self_audit.py（本地 pre-push 钩子与远程 dev-qa CI 都调用它）统一输出
-  `[agent-todo]` 提示块，agent 无需回忆即可照做。
+  同步为 SKILL.md 版本号、把 CHANGELOG「未发布改动」收口为版本节、清理 temp/ 测试残留。
+  这些步骤若只靠 agent 记忆，极易漏做并造成隐蔽漂移（例如工具带着陈旧版本号自报给远端
+  服务器）。本模块把这类步骤固化为可重复检查，由 dev_self_audit.py（本地 pre-push 钩子
+  与远程 dev-qa CI 都调用它）统一输出 `[agent-todo]` 提示块，agent 无需回忆即可照做。
+
+  注：**重打包 dist 制品不再需要 agent 执行**——v1.25.8 起 `src/dist/skill-doc-audit.zip`
+  不入库、由 post-commit 钩子经 `sync_deploy.py` 自动 `build_dist.ensure_fresh()` 重建，
+  `check_dist_staleness` 仅作「同步钩子未跑」的兜底守卫（正常流程恒不提示）。
 
   阻断项（版本不一致 / CHANGELOG 未收口）以 ERROR/WARN 返回，使 dev_self_audit
-  在 --strict 下失败、拦下 push；非阻断项（dist 过期 / temp 残留）仅作 INFO 提示，
+  在 --strict 下失败、拦下 push；非阻断项（dist 过期兜底 / temp 残留）仅作 INFO 提示，
   不阻塞常规提交与推送。
 """
 import os
@@ -137,10 +140,24 @@ def check_changelog_promotion():
 
 
 def check_dist_staleness():
-    """dist zip 必须不早于发布面源码，否则 SkillHub 发布会打包旧代码。"""
+    """兜底守卫：正常流程无需 agent 手动重打包。
+
+    v1.25.8 起 `src/dist/skill-doc-audit.zip` 不再入库、由 `sync_deploy.py`
+    （post-commit 钩子）在每次提交后自动 `build_dist.ensure_fresh()` 重建，
+    故常规开发与发布前 zip 永远是最新的、本检查恒返回 None（不提示）。
+    仅当「同步钩子未跑」（如钩子跳过、python 未定位）导致 zip 缺失或早于
+    发布面源码时，才作为兜底发出 INFO 提示，提醒手动重建，避免 SkillHub
+    发布会打包旧代码。
+    """
     zip_path = os.path.join(SRC, "dist", "skill-doc-audit.zip")
     if not os.path.exists(zip_path):
-        return None
+        return {
+            "blocking": False,
+            "severity": "INFO",
+            "title": "dist 制品缺失（同步钩子可能未运行）",
+            "detail": "src/dist/skill-doc-audit.zip 不存在；正常应由 post-commit 钩子经 sync_deploy 自动重建",
+            "todo": "手动重建：python src/scripts/build_dist.py；并确认 hooks/post-commit 已运行（git config core.hooksPath）",
+        }
     zip_mtime = os.path.getmtime(zip_path)
     roots = [
         os.path.join(SRC, "SKILL.md"),
@@ -163,9 +180,9 @@ def check_dist_staleness():
         return {
             "blocking": False,
             "severity": "INFO",
-            "title": "dist 制品可能过期",
-            "detail": "src/dist/skill-doc-audit.zip 早于发布面源码，SkillHub 发布将打包旧代码",
-            "todo": "发布 SkillHub 前重打包：python src/scripts/build_dist.py",
+            "title": "dist 制品可能过期（同步钩子未重建）",
+            "detail": "src/dist/skill-doc-audit.zip 早于发布面源码，SkillHub 发布将打包旧代码；正常应由 sync_deploy 自动重建",
+            "todo": "手动重建：python src/scripts/build_dist.py；并确认 hooks/post-commit 已运行（git config core.hooksPath）",
         }
     return None
 
