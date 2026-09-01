@@ -5,7 +5,13 @@
 > 排序：版本号降序（最新在前）。
 
 
-## 未发布改动（累积，待授权发布时统一升版本）
+## 1.25.5 打磨明细（缺失引用去重降噪 + 检查器执行回执 + doc-llm 注册键修复 + 扫描范围收敛 + 文档三分式固化）
+
+### 缺失引用去重降噪（降噪，提升 ERROR 可读性）
+- 问题：同一「被引用但不存在」的文件会被 `doc`(DEAD_PATH) / `structure`(broken_ref) / `runtime`(script_ref_missing) 三个检查器各报一条（如某技能缺 2 个脚本 → 13 个 ERROR 中约 9 条是这 2 文件的跨检查器重复）；`doc` 还会对同一裸文件名逐次报 `EXTERNAL_REF`（如 `api-spec.md` 出现 4 次 → 4 条）。聚合 ERROR/WARN 计数被严重虚高，可读性受损。
+- 修复：新增 `dedupe_findings()`（`core.py`），`analyze_skill` 在检查器 dispatch 后按「引用路径」归并缺失引用类 finding——`DEAD_PATH`/`broken_ref`/`script_ref_missing` 按完整路径合并为单条，`EXTERNAL_REF` 按裸文件名合并；合并后保留最高严重级，message 标注命中检查器集合（如 `被 doc、runtime、structure 检查器重复报告，已合并去重`），并附 `dedup` 溯源字段（`checkers`/`categories`/`count`）。`finding()` 新增可选 `ref` 参数承载归一化引用路径（不参与报告与快照比对）。
+- 口径边界：仅归并「同一路径的同类重复」，分组键含类型（missing / extref），缺失文件与裸文件名引用不会互相吞并，绝不掩盖不同根因的真实缺陷。
+- 零回归验证：`make_fixtures.py --baseline` 重建黄金快照（仅删 5 条 missing-ref 重复：dirty-skill 的 DEAD_PATH×2 / broken_ref×2 / script_ref_missing×1，无真实发现丢失）；`self_validate.py` 三例全 PASS（dirty-skill error=10 / warn=3、tricky-clean error=0 / warn=0、multifile error=1 / warn=1）；`py_compile` 全过；`dev_self_audit` 零回归。
 
 ### 设计原则新增「跨平台、跨 Agent 适配」+ 部署目录跨 agent 自动探测
 - SKILL.md「设计原则（核心约束）」新增第二条原则：**跨平台、跨 Agent 适配，不写死宿主假设**——路径一律 `expanduser("~")`/环境变量解析（禁硬编码 `C:/Users/admin/...`）；dev 工具经 `resolve_deploy_dir()` 定位部署副本（`SKILL_DEPLOY_DIR` 显式覆盖最高优先，任意平台/agent 通用）；用户侧审计本就 agent 无关。

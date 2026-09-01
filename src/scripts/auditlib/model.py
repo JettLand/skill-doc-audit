@@ -309,7 +309,7 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         "dev_audit": dev_audit,
     }
     findings = []
-    # 检查器执行回执（v1.25.5）：每个检查器调用结果显式记录身份(#代号) + 状态(OK/FAILED/UNKNOWN)，
+    # 检查器执行回执（v1.25.5：执行回执 + 缺失引用去重）：每个检查器调用结果显式记录身份(#代号) + 状态(OK/FAILED/UNKNOWN)，
     # 直接回答「这个检查器到底有没有真跑过」——杜绝 doc-llm 类「静默落空却显示通过」的隐患。
     #   OK      检查器成功执行（返回其身份代号，作为成功回执）
     #   FAILED  检查器执行中抛异常（已被捕获，未中断其余检查器；异常转成 ERROR 发现，使退出码真实反映）
@@ -347,6 +347,11 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
                 name, SEVERITY_ERROR, "CHECKER_ERROR",
                 "检查器 %s 执行异常（已被捕获，未中断其余检查器）：%s" % (name, e),
                 suggestion="查看完整追踪栈定位异常；该检查器的发现可能不完整"))
+
+    # 缺失引用类 finding 跨检查器 / 同检查器去重（降噪）：同一被引用但不存在的文件，
+    # 会被 doc(DEAD_PATH) / structure(broken_ref) / runtime(script_ref_missing) 各报一条，
+    # doc 还会对同一裸文件名逐次报 EXTERNAL_REF；按引用路径归并为单条，避免 ERROR 计数虚高。
+    findings = dedupe_findings(findings)
 
     # 稳定性：超大文件防护（避免卡死/拖慢）
     doc_size = os.path.getsize(doc_path)

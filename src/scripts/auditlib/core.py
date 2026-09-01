@@ -235,7 +235,7 @@ def category_cn(category):
 # --------------------------------------------------------------------------- #
 # Finding 模型
 # --------------------------------------------------------------------------- #
-def finding(checker, severity, category, message, file=None, line=None, suggestion=None):
+def finding(checker, severity, category, message, file=None, line=None, suggestion=None, ref=None):
     return {
         "checker": checker,
         "severity": severity,
@@ -245,6 +245,9 @@ def finding(checker, severity, category, message, file=None, line=None, suggesti
         "file": file,
         "line": line,
         "suggestion": suggestion,
+        # ref：被引用（若不存在即缺失）文件的归一化路径，仅供跨检查器去重归并使用；
+        # 不参与任何比对/报告（人类报告按 checker/category 分组，机读快照按签名比对忽略此键）。
+        "ref": ref,
     }
 
 
@@ -302,6 +305,90 @@ def resolve_exists(skill_dir, ref, scripts_dir, extra_roots=None):
     if os.path.isabs(ref):
         paths.append(ref)
     return any(os.path.exists(p) for p in paths)
+
+
+# --------------------------------------------------------------------------- #
+# 缺失引用类 finding 去重（降噪）
+# --------------------------------------------------------------------------- #
+# 同一「被引用但不存在」的文件，会被 doc / structure / runtime 多个检查器各报一条
+# （DEAD_PATH / broken_ref / script_ref_missing）；doc 检查器还会对同一裸文件名逐次报
+# EXTERNAL_REF。这导致 ERROR/WARN 计数虚高、读数失真。此处按「引用路径」归并，合并为单条，
+# 保留最高严重级，并在 message 标注命中检查器集合、附 dedup 溯源字段，便于 agent / 使用者复核。
+# 设计要点：①仅归并「同一路径的同类重复」，绝不跨不同根因合并，不会掩盖真实缺陷；
+# ②分组键含类型（missing / extref），缺失文件与裸文件名引用不会互相吞并。
+_MISSING_REF_CATS = {"DEAD_PATH", "broken_ref", "script_ref_missing"}
+_EXTREF_CATS = {"EXTERNAL_REF"}
+_SEV_RANK = {SEVERITY_INFO: 0, SEVERITY_WARN: 1, SEVERITY_ERROR: 2}
+_SEV_NAME = {0: SEVERITY_INFO, 1: SEVERITY_WARN, 2: SEVERITY_ERROR}
+_REP_CHK_ORDER = {"doc": 0, "structure": 1, "runtime": 2}
+
+
+def dedupe_findings(findings):
+    """按引用路径归并跨检查器 / 同检查器重复的缺失引用类 finding。
+
+    返回去重后的 finding 列表（原列表不变）。不参与去重的 finding 原样保留。
+    """
+    groups = {}          # key -> [finding]
+    order = []           # 保持首次出现顺序
+    kept = []            # 不参与去重的 finding（原样保留）
+    for f in findings:
+        cat = f.get("category")
+        ref = f.get("ref")
+        if ref and cat in _MISSING_REF_CATS:
+            key = ("missing", ref)
+        elif ref and cat in _EXTREF_CATS:
+            key = ("extref", ref)
+        else:
+            kept.append(f)
+            continue
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(f)
+    if not groups:
+        return findings
+    out = list(kept)
+    for key in order:
+        grp = groups[key]
+        if len(grp) == 1:
+            out.append(grp[0])
+            continue
+        sev = max(_SEV_RANK[f["severity"]] for f in grp)
+        sev_name = _SEV_NAME[sev]
+        checkers = sorted({f["checker"] for f in grp},
+                          key=lambda c: _REP_CHK_ORDER.get(c, 9))
+        cats = sorted({f["category"] for f in grp})
+        ref = key[1]
+        # 代表 category：缺失类优先 DEAD_PATH，其次 broken_ref / script_ref_missing；extref 用 EXTERNAL_REF
+        if "DEAD_PATH" in cats:
+            rep_cat = "DEAD_PATH"
+        elif "broken_ref" in cats:
+            rep_cat = "broken_ref"
+        elif "script_ref_missing" in cats:
+            rep_cat = "script_ref_missing"
+        else:
+            rep_cat = cats[0]
+        # 代表 checker：取拥有 rep_cat 的检查器（缺失类恒含 doc 的 DEAD_PATH；extref 恒为 doc）
+        rep_chk = next((f["checker"] for f in grp if f["category"] == rep_cat), checkers[0])
+        sugg = next((f["suggestion"] for f in grp if f.get("suggestion")), None)
+        if key[0] == "missing":
+            msg = "文档引用的文件 `%s` 不存在（被 %s 检查器重复报告，已合并去重）" % (
+                ref, "、".join(checkers))
+        else:
+            msg = "裸文件名引用 `%s`，可能指向技能外文件（文档中多次出现，已合并去重）" % ref
+        out.append({
+            "checker": rep_chk,
+            "severity": sev_name,
+            "category": rep_cat,
+            "category_cn": category_cn(rep_cat),
+            "message": msg,
+            "file": "SKILL.md",
+            "line": None,
+            "suggestion": sugg,
+            "ref": ref,
+            "dedup": {"checkers": checkers, "categories": cats, "count": len(grp)},
+        })
+    return out
 
 
 def prune_backups(doc_path, limit):

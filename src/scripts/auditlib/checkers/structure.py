@@ -94,7 +94,7 @@ def check_structure(ctx):
         if not os.path.exists(os.path.join(skill_dir, ref)):
             findings.append(finding("structure", SEVERITY_ERROR, "broken_ref",
                                     "文档里引用加载的脚本或文件 %s 不存在（请检查引用路径是否写错）" % ref, file="SKILL.md",
-                                    suggestion="修正路径或补充文件"))
+                                    suggestion="修正路径或补充文件", ref=ref))
 
     # 硬编码用户绝对路径（上下文感知，降低文档示例误报）
     # 仅对「真实指令行」报：跳过代码围栏、表格行、引用块、以及含豁免/示例性语言的描述行，

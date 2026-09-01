@@ -54,6 +54,7 @@ python src/scripts/dev_self_audit.py --strict   # CI 门禁：WARN 也计入失�
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.25.5 | **缺失引用去重降噪 + 检查器执行回执 + doc-llm 注册键修复 + 扫描范围收敛 + 文档三分式固化**：`dedupe_findings()` 按引用路径归并 `doc`(DEAD_PATH)/`structure`(broken_ref)/`runtime`(script_ref_missing) 与 `doc` 内重复 `EXTERNAL_REF` 为单条（保留最高严重级 + `dedup` 溯源字段），ERROR/WARN 计数不再虚高；检查器执行回执根治「静默落空却显通过」；doc-llm 注册键 bug 修复（此前从未真跑）；doc/doc-llm 默认扫 `references/*.md`、开发者模式递归扫全部 `.md`。`self_validate` 黄金快照重基线全 PASS，部署自审 `ERROR 0 / WARN 0 / INFO 48` |
 | 1.25.4 | **文档三分式重构 + 内联版本号收敛 + 开发链路固化**：`SKILL.md` 精简为用户模式（能力地图 + 去重大段 blockquote 改指向 `checkers.md`）、`checkers.md` 收为完整参考单一真相源、新增 `DEVELOPMENT.md` 收纳开发模式（dev-only，不进部署副本）；Q1 收敛文档内联版本号标注（保留行为解释型、删纯里程碑）；部署副本同步自动化进 git 提交流程（`sync_deploy.py` + `post-commit` 钩子）、新增 `dev_self_audit.py` 自审计脚本。文档级改动，部署自审 `ERROR 0 / WARN 0 / INFO 37` |
 | 1.25.3 | **fixtures 移出版本管理 + make_fixtures 升级为整套重建工具**：`tests/fixtures/` 改由 `.gitignore` 排除（生成产物，clone 后由 self_validate 自动重建）；`make_fixtures.py` 新增 `--baseline`，可重建 fixtures 后一并重建黄金快照 `tests/examples/*.expected.json`（人工显式动作，正常校验流程不自动重建以免削弱回归护栏）。dev-only。部署自审 `ERROR 0 / WARN 0 / INFO 20` |
 | 1.25.2 | **fixture 生成器作为 self_validate 辅助套件**：`tests/fixtures` 整体缺失时，`self_validate.py` 自动 `import make_fixtures` 并调用 `build()` 重建后继续校验，仅当 import/写盘失败时回退到手动提示；二者构成 coherent 自校验套件。dev-only（不进 dist/部署副本）。部署自审 `ERROR 0 / WARN 0 / INFO 20` |

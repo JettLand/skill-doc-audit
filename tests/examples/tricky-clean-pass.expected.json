@@ -7,6 +7,22 @@
     "doc",
     "structure"
   ],
+  "checker_runs": [
+    {
+      "name": "doc",
+      "code": 1,
+      "status": "OK",
+      "findings": 0,
+      "error": null
+    },
+    {
+      "name": "structure",
+      "code": 2,
+      "status": "OK",
+      "findings": 1,
+      "error": null
+    }
+  ],
   "backup": null,
   "summary": {
     "error": 0,
@@ -23,7 +39,8 @@
       "message": "description 建议含四要素（做什么/何时用/关键能力/触发短语）",
       "file": null,
       "line": null,
-      "suggestion": null
+      "suggestion": null,
+      "ref": null
     }
   ],
   "portability_matrix": [

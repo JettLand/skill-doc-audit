@@ -10,9 +10,46 @@
     "runtime",
     "deps"
   ],
+  "checker_runs": [
+    {
+      "name": "doc",
+      "code": 1,
+      "status": "OK",
+      "findings": 7,
+      "error": null
+    },
+    {
+      "name": "structure",
+      "code": 2,
+      "status": "OK",
+      "findings": 5,
+      "error": null
+    },
+    {
+      "name": "security",
+      "code": 3,
+      "status": "OK",
+      "findings": 2,
+      "error": null
+    },
+    {
+      "name": "runtime",
+      "code": 4,
+      "status": "OK",
+      "findings": 3,
+      "error": null
+    },
+    {
+      "name": "deps",
+      "code": 5,
+      "status": "OK",
+      "findings": 1,
+      "error": null
+    }
+  ],
   "backup": null,
   "summary": {
-    "error": 13,
+    "error": 10,
     "warn": 3,
     "info": 2,
     "pass": false
@@ -21,32 +58,13 @@
     {
       "checker": "doc",
       "severity": "ERROR",
-      "category": "DEAD_PATH",
-      "category_cn": "死路径（文档引用文件已不存在）",
-      "message": "文档里写的路径 scripts/ghost.py 在当前技能目录中找不到",
-      "file": "SKILL.md",
-      "line": null,
-      "suggestion": "修正路径或补充文件"
-    },
-    {
-      "checker": "doc",
-      "severity": "ERROR",
-      "category": "DEAD_PATH",
-      "category_cn": "死路径（文档引用文件已不存在）",
-      "message": "文档里写的路径 references/old_notes.md 在当前技能目录中找不到",
-      "file": "SKILL.md",
-      "line": null,
-      "suggestion": "修正路径或补充文件"
-    },
-    {
-      "checker": "doc",
-      "severity": "ERROR",
       "category": "DEAD_FLAG",
       "category_cn": "失效命令行参数",
       "message": "文档命令行参数在代码中无实现: --recalc",
       "file": "SKILL.md",
       "line": null,
-      "suggestion": "实现该参数或更正文档示例"
+      "suggestion": "实现该参数或更正文档示例",
+      "ref": null
     },
     {
       "checker": "doc",
@@ -56,7 +74,8 @@
       "message": "文档列了退出码但代码从不返回: 0",
       "file": "SKILL.md",
       "line": null,
-      "suggestion": null
+      "suggestion": null,
+      "ref": null
     },
     {
       "checker": "doc",
@@ -66,7 +85,8 @@
       "message": "文档列了退出码但代码从不返回: 7",
       "file": "SKILL.md",
       "line": null,
-      "suggestion": null
+      "suggestion": null,
+      "ref": null
     },
     {
       "checker": "doc",
@@ -76,7 +96,8 @@
       "message": "代码会返回该退出码但文档未列: 42",
       "file": "SKILL.md",
       "line": null,
-      "suggestion": "在文档补全退出码说明"
+      "suggestion": "在文档补全退出码说明",
+      "ref": null
     },
     {
       "checker": "doc",
@@ -86,7 +107,8 @@
       "message": "文档里提到的名称 tune_model 在代码里找不到（可能拼写有误或已被删除；若为外部 MCP/插件工具请在 frontmatter 的 allowed-tools 声明）",
       "file": "SKILL.md",
       "line": null,
-      "suggestion": null
+      "suggestion": null,
+      "ref": null
     },
     {
       "checker": "structure",
@@ -96,7 +118,8 @@
       "message": "frontmatter name 与目录名不一致",
       "file": null,
       "line": null,
-      "suggestion": "改为 'dirty-skill'"
+      "suggestion": "改为 'dirty-skill'",
+      "ref": null
     },
     {
       "checker": "structure",
@@ -106,27 +129,8 @@
       "message": "description 建议含四要素（做什么/何时用/关键能力/触发短语）",
       "file": null,
       "line": null,
-      "suggestion": null
-    },
-    {
-      "checker": "structure",
-      "severity": "ERROR",
-      "category": "broken_ref",
-      "category_cn": "加载式引用失效",
-      "message": "文档里引用加载的脚本或文件 scripts/ghost.py 不存在（请检查引用路径是否写错）",
-      "file": "SKILL.md",
-      "line": null,
-      "suggestion": "修正路径或补充文件"
-    },
-    {
-      "checker": "structure",
-      "severity": "ERROR",
-      "category": "broken_ref",
-      "category_cn": "加载式引用失效",
-      "message": "文档里引用加载的脚本或文件 references/old_notes.md 不存在（请检查引用路径是否写错）",
-      "file": "SKILL.md",
-      "line": null,
-      "suggestion": "修正路径或补充文件"
+      "suggestion": null,
+      "ref": null
     },
     {
       "checker": "structure",
@@ -136,7 +140,8 @@
       "message": "含 TODO/FIXME 标记",
       "file": "SKILL.md",
       "line": 34,
-      "suggestion": null
+      "suggestion": null,
+      "ref": null
     },
     {
       "checker": "security",
@@ -146,7 +151,8 @@
       "message": "疑似硬编码密钥/凭据: scripts\\main.py",
       "file": "scripts\\main.py",
       "line": 5,
-      "suggestion": "移至配置或环境变量，勿落盘"
+      "suggestion": "移至配置或环境变量，勿落盘",
+      "ref": null
     },
     {
       "checker": "security",
@@ -156,7 +162,8 @@
       "message": "路径穿越（相对路径上溯）: scripts\\main.py",
       "file": "scripts\\main.py",
       "line": 10,
-      "suggestion": null
+      "suggestion": null,
+      "ref": null
     },
     {
       "checker": "runtime",
@@ -166,17 +173,8 @@
       "message": "Python 语法错误: scripts\\broken_syntax.py — SyntaxError: invalid syntax",
       "file": "scripts\\broken_syntax.py",
       "line": null,
-      "suggestion": "修正语法"
-    },
-    {
-      "checker": "runtime",
-      "severity": "ERROR",
-      "category": "script_ref_missing",
-      "category_cn": "脚本引用缺失",
-      "message": "文档引用的脚本不存在: scripts/ghost.py",
-      "file": "SKILL.md",
-      "line": null,
-      "suggestion": null
+      "suggestion": "修正语法",
+      "ref": null
     },
     {
       "checker": "runtime",
@@ -186,7 +184,8 @@
       "message": "脚本能力预检（静态列举，不执行）: scripts\\main.py:子进程",
       "file": null,
       "line": null,
-      "suggestion": null
+      "suggestion": null,
+      "ref": null
     },
     {
       "checker": "deps",
@@ -196,7 +195,54 @@
       "message": "代码调用外部 CLI 但文档未声明依赖: ffmpeg",
       "file": null,
       "line": null,
-      "suggestion": "在 SKILL.md 补充依赖声明与安装/降级方式"
+      "suggestion": "在 SKILL.md 补充依赖声明与安装/降级方式",
+      "ref": null
+    },
+    {
+      "checker": "doc",
+      "severity": "ERROR",
+      "category": "DEAD_PATH",
+      "category_cn": "死路径（文档引用文件已不存在）",
+      "message": "文档引用的文件 `scripts/ghost.py` 不存在（被 doc、structure、runtime 检查器重复报告，已合并去重）",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": "修正路径或补充文件",
+      "ref": "scripts/ghost.py",
+      "dedup": {
+        "checkers": [
+          "doc",
+          "structure",
+          "runtime"
+        ],
+        "categories": [
+          "DEAD_PATH",
+          "broken_ref",
+          "script_ref_missing"
+        ],
+        "count": 3
+      }
+    },
+    {
+      "checker": "doc",
+      "severity": "ERROR",
+      "category": "DEAD_PATH",
+      "category_cn": "死路径（文档引用文件已不存在）",
+      "message": "文档引用的文件 `references/old_notes.md` 不存在（被 doc、structure 检查器重复报告，已合并去重）",
+      "file": "SKILL.md",
+      "line": null,
+      "suggestion": "修正路径或补充文件",
+      "ref": "references/old_notes.md",
+      "dedup": {
+        "checkers": [
+          "doc",
+          "structure"
+        ],
+        "categories": [
+          "DEAD_PATH",
+          "broken_ref"
+        ],
+        "count": 2
+      }
     }
   ],
   "portability_matrix": [

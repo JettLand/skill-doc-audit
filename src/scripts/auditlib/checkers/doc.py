@@ -33,17 +33,17 @@ def check_doc(ctx):
                 if "/" in ref or "\\" in ref:
                     findings.append(finding("doc", SEVERITY_ERROR, "DEAD_PATH",
                                             "文档里写的路径 %s 在当前技能目录中找不到" % ref, file=doc_name,
-                                            suggestion="修正路径或补充文件"))
+                                            suggestion="修正路径或补充文件", ref=ref))
                 else:
                     findings.append(finding("doc", SEVERITY_INFO, "EXTERNAL_REF",
                                             "裸文件名引用，可能指向技能外文件，需人工确认: %s" % ref,
-                                            file=doc_name))
+                                            file=doc_name, ref=ref))
             else:
                 # 非 SKILL.md（references/开发文档）：叙述性内容，仅对裸文件名做 INFO 级提示，不报 ERROR
                 if "/" not in ref and "\\" not in ref:
                     findings.append(finding("doc", SEVERITY_INFO, "EXTERNAL_REF",
                                             "裸文件名引用，可能指向技能外文件，需人工确认: %s" % ref,
-                                            file=doc_name))
+                                            file=doc_name, ref=ref))
 
         # A2 失效参数（CLI 契约，仅 SKILL.md：开发文档命令示例常引用开发期工具如
         # make_fixtures.py --baseline，其参数不在发布面代码 blob 中，按能力目录口径跳过避免误报）

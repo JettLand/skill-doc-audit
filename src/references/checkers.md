@@ -6,7 +6,7 @@
 
 脚本能可靠判定的偏差由以下检查器产出，可按需启用。代码/配置文件覆盖多语言：`.py/.js/.jsx/.ts/.tsx/.vue/.go/.rs/.java/.c/.cpp/.h/.rb/.php/.swift/.kt/.lua/.sh/.ps1/.json`（含 Python 语法校验与多语言硬编码密钥检测）。
 
-- `doc`（常驻默认开）：文档一致性。**扫描范围**：默认 `SKILL.md` + `references/*.md`（技能自带参考文档，断链是真实漂移）；开发者模式 `--dev-docs` 递归扫描技能文件夹内全部 `.md` 描述性文档（`README`/`CHANGELOG`/`examples` 等）。`A1` 死路径（`DEAD_PATH`，ERROR）仅对 `SKILL.md` 生效（`references`/开发文档为叙述性内容、常含示例路径，套 ERROR 会误报，故仅对裸文件名报 `EXTERNAL_REF` INFO）；`A2`-`A5`/`C`/`B` 类检查仅 `SKILL.md`（能力目录口径，避免把变更日志叙事误判为漂移）。所有被扫文档均进入 `doc-llm` 语义 dossier。
+- `doc`（常驻默认开）：文档一致性。**扫描范围**：默认 `SKILL.md` + `references/*.md`（技能自带参考文档，断链是真实漂移）；开发者模式 `--dev-docs` 递归扫描技能文件夹内全部 `.md` 描述性文档（`README`/`CHANGELOG`/`examples` 等）。`A1` 死路径（`DEAD_PATH`，ERROR）仅对 `SKILL.md` 生效（`references`/开发文档为叙述性内容、常含示例路径，套 ERROR 会误报，故仅对裸文件名报 `EXTERNAL_REF` INFO）；`A2`-`A5`/`C`/`B` 类检查仅 `SKILL.md`（能力目录口径，避免把变更日志叙事误判为漂移）。所有被扫文档均进入 `doc-llm` 语义 dossier。**跨检查器去重**：同一缺失引用文件会被 `doc`(`DEAD_PATH`)/`structure`(`broken_ref`)/`runtime`(`script_ref_missing`) 各报一次，且 `doc` 内同裸文件名会逐次报 `EXTERNAL_REF`；v1.25.5 起这些按引用路径自动归并为单条（保留最高严重级，message 标注命中检查器集合，finding 附 `ref`/`dedup` 溯源字段），ERROR/WARN 聚合计数不再虚高、且不掩盖不同根因的真实缺陷。
 - `structure`：结构体检 + 元信息
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性

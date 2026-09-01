@@ -33,7 +33,7 @@ def check_runtime(ctx):
             ref = m.group(1)
             if not os.path.exists(os.path.join(skill_dir, ref)):
                 findings.append(finding("runtime", SEVERITY_ERROR, "script_ref_missing",
-                                        "文档引用的脚本不存在: %s" % ref, file="SKILL.md"))
+                                        "文档引用的脚本不存在: %s" % ref, file="SKILL.md", ref=ref))
 
         # 能力预检清单（静态列举，不执行）
         caps = set()
