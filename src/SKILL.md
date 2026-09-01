@@ -59,6 +59,14 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 
 该原则已在 doc-llm（`--doc-llm-mode` 默认问询、菜单含代价、超时回退默认）与 deadcode（`--deadcode-mode ask` 交互询问精度、非 TTY 显著告警）中落地。
 
+> **跨平台、跨 Agent 适配，不写死宿主假设。**
+
+本技能不假设自己只跑在 WorkBuddy 上、只装在某个固定用户名 / 盘符的目录。该原则统领路径解析与跨 Agent 分发：
+
+- **路径零宿主硬编码**：一律经 `os.path.expanduser("~")` / 环境变量解析，禁止写死随账号或盘符变化的用户主目录绝对路径（例如 Windows 用户目录下「用户名」起手的写法）；换机器 / 换用户名 / 自定义数据目录都不应破。
+- **开发期工具跨 agent 定位**：`sync_deploy` / `dev_self_audit` 经 `_devcommon.resolve_deploy_dir()` 定位「已部署副本」——`SKILL_DEPLOY_DIR` 显式覆盖最高优先（任意平台 / 任意 agent 通用），其次探测多 agent 候选根（WorkBuddy / Claude / Cursor / Codex / OpenCode 等）+ 跨平台主目录；找不到才优雅回落默认，绝不静默降级为「跳过」。
+- **用户侧审计本就 agent 无关**：`--skill <目录>` 收任意路径、`--all` 扫宿主 skills 根、`--source` 支持 github / skillhub / url；跨 Agent 分发以 `target_agent` 字段声明，portability 据此豁免耦合项（`agent_coupling`）。
+
 ## 快速开始
 
 三条命令覆盖 90% 场景：

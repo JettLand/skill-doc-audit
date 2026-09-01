@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 未发布改动（累积，待授权发布时统一升版本）
+
+### 设计原则新增「跨平台、跨 Agent 适配」+ 部署目录跨 agent 自动探测
+- SKILL.md「设计原则（核心约束）」新增第二条原则：**跨平台、跨 Agent 适配，不写死宿主假设**——路径一律 `expanduser("~")`/环境变量解析（禁硬编码 `C:/Users/admin/...`）；dev 工具经 `resolve_deploy_dir()` 定位部署副本（`SKILL_DEPLOY_DIR` 显式覆盖最高优先，任意平台/agent 通用）；用户侧审计本就 agent 无关。
+- `_devcommon.resolve_deploy_dir()` 拓宽候选根，真正适配非 WorkBuddy agent：新增通用覆盖 `SKILLS_DIR`/`AGENT_SKILLS_HOME`（任意 agent 可指向自家 skills 根）+ 已知第三方 agent 技能根（Claude/Cursor/Codex/OpenCode/Aider，含 Claude 插件嵌套布局 bounded walk 兜底）；宿主 agent 配置目录与标准默认保持不变。
+- 新增 `tests/test_resolve_deploy.py`：T1 显式覆盖 / T2 通用覆盖 / T3 宿主配置目录 / T4 跨 agent 扁平 / T5 跨 agent 嵌套 / T6 全未命中回落默认，全 PASS 证明跨平台+跨 agent 定位可靠。
+- 落地依据：原检测机制（仅 WorkBuddy 候选根）在非 WorkBuddy agent 装本技能时无法自动定位副本；现 `SKILL_DEPLOY_DIR` 通用覆盖 + 多 agent 候选根使机制真正跨 agent，不再依赖「用户手动设路径」才能工作。
+
 ## 1.25.4 打磨明细（文档三分式重构 + 内联版本号收敛 + 开发链路固化）
 
 ### 部署副本同步纳入提交流程

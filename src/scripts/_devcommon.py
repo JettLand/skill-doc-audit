@@ -20,26 +20,45 @@ SKILL_NAME = "skill-doc-audit"                           # 部署副本的技能
 
 
 def _candidate_roots():
-    """WorkBuddy 各已知技能根（跨平台 / 跨安装位置），按可靠性降序、去重保序。
+    """Cross-platform & cross-agent 搜索根（按可靠性降序、去重保序）。
 
     覆盖：
-      - WorkBuddy 运行时必导出的配置目录（最可靠，非标准安装也能定位）
-      - 数据文件夹名 + 用户主目录
-      - 经典 ~/.workbuddy（标准默认）
-      - 平台专属常见根（兜底裸终端运行、未继承 WORKBUDDY_* 变量时）
+      - 通用覆盖环境变量 SKILLS_DIR / AGENT_SKILLS_HOME（任意 agent 可指向，跨 agent 最高）
+      - 宿主 agent 运行时必导出的配置目录（WorkBuddy/CodeBuddy，非标准安装也可靠）
+      - 数据文件夹名 + 用户主目录（WORKBUDDY_DATA_FOLDER_NAME，默认 .workbuddy）
+      - 经典 ~/.workbuddy（标准跨平台默认）
+      - 已知第三方 agent 技能根（Claude / Cursor / Codex / OpenCode / Aider）
+      - 平台专属常见根（裸终端运行、未继承宿主 agent 变量时的兜底）
     """
     roots = []
-    # 1) WorkBuddy 运行时必导出的配置目录（非标准安装 / 换机器 / 自定义数据目录均可靠）
+    # 0) 通用覆盖：任意 agent 可设此指向自家 skills 根（跨 agent 自动探测次高优先级）
+    for var in ("SKILLS_DIR", "AGENT_SKILLS_HOME", "AGENT_SKILLS_DIR"):
+        v = os.environ.get(var, "").strip()
+        if v:
+            roots.append(v)
+    # 1) 宿主 agent 运行时必导出的配置目录（非标准安装 / 换机器 / 自定义数据目录均可靠）
     for var in ("WORKBUDDY_CONFIG_DIR", "CODEBUDDY_CONFIG_DIR"):
         v = os.environ.get(var, "").strip()
         if v:
             roots.append(os.path.join(v, "skills"))
-    # 2) 数据文件夹名（默认 .workbuddy）+ 用户主目录
+    # 2) 数据文件夹名 + 用户主目录
     folder = os.environ.get("WORKBUDDY_DATA_FOLDER_NAME", ".workbuddy").strip() or ".workbuddy"
-    roots.append(os.path.join(os.path.expanduser("~"), folder, "skills"))
-    # 3) 经典标准默认
-    roots.append(os.path.join(os.path.expanduser("~"), ".workbuddy", "skills"))
-    # 4) 平台专属常见根（裸终端运行、未继承 WORKBUDDY_* 时的兜底）
+    home = os.path.expanduser("~")
+    roots.append(os.path.join(home, folder, "skills"))
+    # 3) 经典标准跨平台默认
+    roots.append(os.path.join(home, ".workbuddy", "skills"))
+    # 4) 已知第三方 agent 技能根（跨 agent 自动探测；嵌套布局由 resolve_deploy_dir bounded walk 兜底）
+    for r in (
+        os.path.join(home, ".claude", "skills"),
+        os.path.join(home, ".claude", "plugins"),       # Claude 插件：plugins/<mkt>/skills/<name>
+        os.path.join(home, ".config", "claude", "skills"),
+        os.path.join(home, ".cursor", "skills"),
+        os.path.join(home, ".codex", "skills"),
+        os.path.join(home, ".opencode", "skills"),
+        os.path.join(home, ".aider", "skills"),
+    ):
+        roots.append(r)
+    # 5) 平台专属常见根（裸终端运行、未继承宿主 agent 变量时的兜底）
     local = os.environ.get("LOCALAPPDATA")
     if local:
         roots.append(os.path.join(local, "CodeBuddyExtension", "skills"))
@@ -50,7 +69,7 @@ def _candidate_roots():
     xdg = os.environ.get("XDG_DATA_HOME")
     if xdg:
         roots.append(os.path.join(xdg, "workbuddy", "skills"))
-    roots.append(os.path.expanduser("~/Library/Application Support/WorkBuddy/skills"))  # macOS
+    roots.append(os.path.join(home, "Library", "Application Support", "WorkBuddy", "skills"))  # macOS
     # 去重保序
     seen, out = set(), []
     for r in roots:
@@ -60,26 +79,44 @@ def _candidate_roots():
     return out
 
 
+def _find_skill_dir(root, name, maxdepth=3):
+    """在 root 下找 <name>/SKILL.md，返回该技能目录或 None。maxdepth 限深，避免大根拖慢。"""
+    direct = os.path.join(root, name)
+    if os.path.isfile(os.path.join(direct, "SKILL.md")):
+        return direct
+    # 嵌套布局（如 agent 插件 plugins/<mkt>/skills/<name>）bounded walk 兜底
+    for cur, dirs, _files in os.walk(root):
+        cand = os.path.join(cur, name)
+        if os.path.isfile(os.path.join(cand, "SKILL.md")):
+            return cand
+        depth = cur[len(root):].count(os.sep)
+        if depth >= maxdepth:
+            dirs[:] = []   # 不再下潜，限深
+    return None
+
+
 def resolve_deploy_dir(explicit=None):
-    """解析「已部署副本」目录，力求在任意安装位置（含非标准 / 换机器）都能定位。
+    """解析「已部署副本」目录，力求在任意安装位置（含非标准 / 换机器 / 非 WorkBuddy agent）都能定位。
 
     返回 (path, how)：path 为候选目录，how 为解析方式（便于日志 / 调试）。
 
     优先级（从高到低）：
-      1. SKILL_DEPLOY_DIR  —— 显式按机覆盖（最高，绕过一切自动探测）
-      2. WORKBUDDY_CONFIG_DIR / CODEBUDDY_CONFIG_DIR + /skills/<name>
-         —— WorkBuddy 运行时必导出，非标准安装 / 自定义数据目录 / 换用户名均可靠
-      3. ~/<WORKBUDDY_DATA_FOLDER_NAME>/skills/<name> —— 数据文件夹名 + 主目录
-      4. ~/.workbuddy/skills/<name> —— 标准跨平台默认
-      5. 探测：在候选根中找首个含 <name>/SKILL.md 的目录（兜底裸终端运行）
+      1. SKILL_DEPLOY_DIR  —— 显式按机覆盖（最高，绕过一切自动探测，任意平台/agent 通用）
+      2. SKILLS_DIR / AGENT_SKILLS_HOME —— 通用覆盖（任意 agent 可指向自家 skills 根）
+      3. WORKBUDDY_CONFIG_DIR / CODEBUDDY_CONFIG_DIR + /skills
+         —— 宿主 agent 运行时必导出，非标准安装 / 自定义数据目录 / 换用户名均可靠
+      4. ~/<WORKBUDDY_DATA_FOLDER_NAME>/skills/<name> —— 数据文件夹名 + 主目录
+      5. ~/.workbuddy/skills/<name> —— 标准跨平台默认
+      6. 探测：在候选根（含 Claude/Cursor/Codex/OpenCode/Aider 等第三方 agent + 平台根）中
+         找首个含 <name>/SKILL.md 的目录（嵌套布局 bounded walk 兜底）
       若全部未命中：退回标准默认（上层 sync/_verify 会判「not found」并优雅跳过）
     """
     env = (explicit or os.environ.get("SKILL_DEPLOY_DIR", "")).strip()
     if env:
         return os.path.expanduser(env), "SKILL_DEPLOY_DIR"
     for root in _candidate_roots():
-        p = os.path.join(root, SKILL_NAME)
-        if os.path.isfile(os.path.join(p, "SKILL.md")):
+        p = _find_skill_dir(root, SKILL_NAME)
+        if p:
             return p, "candidate_root:%s" % root
     # 全部未命中：退回标准默认（上层报 not found + 优雅处理）
     p = os.path.join(os.path.expanduser("~"), ".workbuddy", "skills", SKILL_NAME)
