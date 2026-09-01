@@ -5,7 +5,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))          # <root>/src/scripts
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 from _devcommon import ROOT, fail as _fail
-SCRIPTS = HERE
 TESTS = os.path.join(ROOT, 'tests')
 FIX = os.path.join(TESTS, 'fixtures')
 EXAMPLES = os.path.join(TESTS, 'examples')

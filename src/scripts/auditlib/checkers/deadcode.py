@@ -12,7 +12,6 @@ def _deadcode_name_of(node):
         return _deadcode_name_of(node.func)
     return ""
 
-
 def _has_keep(content, lineno):
     """该函数/导入所在行或上一行含 `# keep` 则视为有意保留，跳过告警。"""
     if not lineno:
@@ -24,7 +23,6 @@ def _has_keep(content, lineno):
             return True
     return False
 
-
 def _vulture_module():
     """尝试导入 vulture；不可用返回 None（不抛异常、不自动安装）。"""
     try:
@@ -32,7 +30,6 @@ def _vulture_module():
         return _v
     except Exception:
         return None
-
 
 def _try_install_vulture():
     """用户显式要求 vulture 但环境缺失时，尝试 pip 安装以满足其意图。
@@ -52,7 +49,6 @@ def _try_install_vulture():
     except Exception:
         return None
     return _vulture_module()
-
 
 def _resolve_deadcode_mode(args):
     """决定 deadcode 运行模式与是否「静默降级」。
@@ -94,7 +90,6 @@ def _resolve_deadcode_mode(args):
         )
         return "ast", True
     return _prompt_deadcode_mode()
-
 
 def _prompt_deadcode_mode():
     """交互询问 deadcode 模式；30 秒超时默认 ast（零依赖，易误报）。
@@ -138,7 +133,6 @@ def _prompt_deadcode_mode():
     if choice == "3":
         return "skip", False
     return "ast", False
-
 
 def check_deadcode(ctx):
     mode, degraded = _resolve_deadcode_mode(ctx.get("args"))
@@ -345,18 +339,12 @@ def check_deadcode(ctx):
 
     return findings
 
-
 # --------------------------------------------------------------------------- #
 # 检查器：portability（跨平台可移植性，零依赖纯静态分析）
 #   按 frontmatter 的 target_platform 字段豁免：声明平台「覆盖」该发现会崩的平台才抑制。
 #   规则：fire iff (声明平台 ∩ breaks_on) 非空；cross-platform(默认/省略) = 全平台 → 始终 fire。
 #   全部 WARN/INFO，绝不 ERROR（可移植性是程度问题，结论需人判；同 deadcode 提示项）。
 # --------------------------------------------------------------------------- #
-
-
-
-
-
 
 # 自注册
 CHECKERS["deadcode"] = check_deadcode

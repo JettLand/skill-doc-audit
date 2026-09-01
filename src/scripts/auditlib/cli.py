@@ -3,7 +3,6 @@ from auditlib.core import *
 from auditlib.model import *
 from auditlib.report import *
 from auditlib.sources import *
-import auditlib.checkers  # 触发检查器注册  # keep
 
 def main():
     global MAX_FILE_SIZE

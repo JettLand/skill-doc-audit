@@ -3,83 +3,11 @@ from auditlib.core import *   # 常量 + 公共 helper（finding/collect_code/�
 from auditlib.model import *  # SkillModel / detect_format 等（如需）
 from auditlib.core import (_normalize_target_platform, _normalize_target_agent, _parse_frontmatter_list)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _port_fire(declared, breaks_on):
     """声明平台与「该发现会崩的平台」有交集才 fire；否则该缺陷只存在于未声明的平台上 → 抑制。"""
     return bool(declared & breaks_on)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 SHELL_SCAN_TOKENS = ("subprocess", "os.system", "Popen", "os.popen", "shell=True", "run(")
-
 
 def check_portability(ctx):
     findings = []
@@ -174,7 +102,6 @@ def check_portability(ctx):
                         "%s:%d 耦合 WorkBuddy 平台约定（%s），跨 Agent 分发需抽象" % (rel, ln, " / ".join(coupled)),
                         suggestion="若计划跨 Agent 分发，将平台专有路径/约定抽取为可配置项；或声明 target_agent: workbuddy"))
 
-
     # #7 跨格式可移植性矩阵（lossy_port）：仅当声明跨 Agent 目标（不含 workbuddy）时升级为发现
     # 设计：纯 workbuddy / 未声明 → 不发 lossy 发现（跨 Agent 咨询已由 #6 agent_coupling 覆盖）；
     # 声明跨 Agent（claude-code/cursor 等且不含 workbuddy）→ 对声明目标端会丢失/降级的字段发 WARN/INFO。
@@ -197,20 +124,6 @@ def check_portability(ctx):
                     suggestion="若确需跨 Agent 分发，将该字段抽象为各端可识别形式（参考 --report portability-matrix）"))
 
     return findings
-
-
-# --------------------------------------------------------------------------- #
-# Vector 2 (v1.22.0)：doc-llm 选装 LLM 语义漂移检测（调用流程参考 deadcode 检查器）
-# --------------------------------------------------------------------------- #
-# 设计（v1.24.0 起重构）：语义漂移检测由 **agent 直接接手**，本脚本不再调用任何外部 LLM 端点。
-# 原因：外部 LLM 需用户自备 API Key、额外付费，提高使用成本；而 agent 本身即具备语义理解能力，
-# 由 agent 读 SKILL.md + 代码事实清单自行比对即可（仅占用 agent 自身推理 token，输入侧为主，不另付费）。
-#   - 模式：off（不运行）/ ask（交互菜单，由用户选 1=默认 2=agent接手）/ agent（直接由 agent 接手）。
-#   - agent 模式：脚本把「SKILL.md 全文 + 代码事实清单」写成 dossier 文件并打印
-#     `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 读取后自行完成语义比对，回报漂移。
-#   - 绝不依赖外部服务：本模块已移除 urllib/HTTP 调用与 API Key 配置项。
-#   - v1.24.1：移除选项 3（预览）——预览会重复把材料灌入上下文、徒增 token 消耗，无实质收益。
-
 
 # 自注册
 CHECKERS["portability"] = check_portability

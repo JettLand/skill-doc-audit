@@ -1,6 +1,5 @@
 # sources.py (拆分自 audit_docs.py)
 from auditlib.core import *
-from auditlib.core import *
 
 def find_skill_dirs(root):
     """遍历 root，返回所有含 SKILL.md 的目录（绝对路径）。

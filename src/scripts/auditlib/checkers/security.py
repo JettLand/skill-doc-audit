@@ -11,17 +11,18 @@ def check_security(ctx):
     for rel, content in code.items():
         for i, line in enumerate(content.splitlines(), 1):
             if any(tok in line for tok in SCAN_SKIP_TOKENS):
+                # 含检查器自身检测常量/调用的行（re.compile / subprocess|os.system 等）
+                # 整体跳过，避免把检查器源码误判为漏洞；此 continue 也保障下方
+                # hardcoded_endpoint 不会对检查器自身源码触发，故无需再判一次 SCAN_SKIP_TOKENS。
                 continue
-            # 硬编码远端端点（供应链风险）：须在 _security_irrelevant 跳过之前检测，
-            # 否则含 :// 的代码行会被整体跳过而漏报。仅排除注释行与检查器自身源码
-            # （re.compile 等），排除文档/示例/SDK 主机以避免把文档链接误报为硬编码端点。
+            # 硬编码远端端点（供应链风险）：仅排除注释行、并要求行内含代码上下文
+            # （赋值/调用/返回），避免把文档叙述/注释中的示例 URL 误报（如检查器自身 docstring）。
+            # 文档/示例/SDK 主机已在下方排除，避免把正常链接误报为硬编码端点。
             _ep = ENDPOINT_RE.search(line)
             _ep_comment = line.strip().startswith(("#", "//", "/*", "*", "<!--"))
-            # 仅当行内含代码上下文（赋值/调用/返回）才视为真实硬编码端点，
-            # 避免把文档叙述/注释中的示例 URL 误报（如检查器自身 docstring）。
             _ep_context = re.search(r"[=(\[]|return |yield ", line) is not None
-            if _ep and not _ep_comment and not any(tok in line for tok in SCAN_SKIP_TOKENS) \
-                    and _ep_context and _ep.group(1) not in EXCLUDE_ENDPOINT_HOSTS \
+            if _ep and not _ep_comment and _ep_context \
+                    and _ep.group(1) not in EXCLUDE_ENDPOINT_HOSTS \
                     and not _ep.group(1).endswith(".example.com"):
                 findings.append(finding("security", SEVERITY_WARN, "hardcoded_endpoint",
                                         "脚本硬编码远端端点: %s (%s)" % (_ep.group(0), rel),

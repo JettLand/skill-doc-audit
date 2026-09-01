@@ -1,7 +1,5 @@
 # model.py (拆分自 audit_docs.py)
 from auditlib.core import *
-from auditlib.core import *
-from auditlib.model import *
 from auditlib.core import _parse_frontmatter_list, _normalize_target_agent
 
 # ---- 跨 Agent 格式检测与统一模型（Phase 5 归一化内核）----

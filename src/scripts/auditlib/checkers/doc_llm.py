@@ -156,7 +156,7 @@ def check_doc_llm(ctx):
             suggestion="agent 读取 dossier，比对文档声称的能力/默认值/行为/数量/集合与代码事实清单，回报潜在语义漂移。",
         ))
         return findings
-    if mode in ("off", "skip"):
+    if mode == "off":
         if degraded and not explicit:
             # --all-checks 全量自带、非交互环境无法询问 → INFO 提示，不升 WARN
             findings.append(finding(

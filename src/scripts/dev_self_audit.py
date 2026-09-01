@@ -79,7 +79,6 @@ def main():
 
     # ---- 2) 导入审计器（触发检查器自注册）----
     try:
-        import auditlib
         from auditlib.model import analyze_skill
         from auditlib.core import ALL_CHECKERS
         from auditlib.report import summarize

@@ -1,6 +1,5 @@
 # report.py (拆分自 audit_docs.py)
 from auditlib.core import *
-from auditlib.core import *
 from auditlib.model import *
 
 def summarize(findings):
