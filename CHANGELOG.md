@@ -5,7 +5,7 @@
 > 排序：版本号降序（最新在前）。
 
 
-## 未发布改动（累积，待授权发布时统一升版本）
+## 1.25.6 打磨明细（跨平台黄金快照修复 + CI Node 20 警告消除 + 工程化行尾统一）
 
 ### 跨平台黄金快照比对修复（CI 在 ubuntu 上 self_validate 失败）
 - 问题：`runtime`(capability/py_syntax) 与 `security`(hardcoded_secret/path_traversal/...) 检查器把真实脚本路径（来自 `code` 字典键，由 `os.path.relpath` 生成）写入 finding 的 `file` 字段与 `message`；Windows 下为反斜杠（`scripts\main.py`）、Linux 下为正斜杠（`scripts/main.py`）。`self_validate` 的黄金快照在 Windows 生成并固化了反斜杠，导致 ubuntu CI 上 `dirty-skill` 比对出现 4 条「额外发现/缺失发现」差异、exit code 1 标红。
@@ -13,7 +13,11 @@
 - 验证：`make_fixtures.py --baseline` 重基线（黄金快照仅 7 处 `scripts\`→`scripts/`，无其它变更）；本地删 fixtures 强制走 CI「make_fixtures 重建→比对」路径，`self_validate` 三例全 PASS（exit 0）；`dev_self_audit` 零回归。GitHub Actions `检查器行为回归 (self_validate)` 复验已绿（commit `c4f276c`）。
 
 ### CI 消除 Node 20 废弃警告
-- 升级 `.github/workflows/dev-qa.yml` 两个 job 的 GitHub Action：`actions/checkout@v4`→`@v5`、`actions/setup-python@v5`→`@v6`（GitHub 2025-09-19 公告弃用 Node 20 运行器，旧版本被强制在 Node 24 上跑并告警；这两个 major 版已迁移到 Node 24 运行器）。`python-version: "3.13"` 不变。纯 CI 配置改动，无代码/功能影响，不 bump 版本。
+- 升级 `.github/workflows/dev-qa.yml` 两个 job 的 GitHub Action：`actions/checkout@v4`→`@v5`、`actions/setup-python@v5`→`@v6`（GitHub 2025-09-19 公告弃用 Node 20 运行器，旧版本被强制在 Node 24 上跑并告警；这两个 major 版已迁移到 Node 24 运行器）。`python-version: "3.13"` 不变。纯 CI 配置改动，无代码/功能影响（补丁级，版本升 1.25.6）。
+
+### 工程化行尾统一（.gitattributes）
+- 新增 `.gitattributes`：`* text=auto eol=lf` 锁定所有文本文件（py/md/json/yml/hooks）以 LF 入库与检出，根除 Windows 上 `LF will be replaced by CRLF` 提示；`*.zip`/`*.png` 标 `binary` 免行尾转换（不损坏 `src/dist/skill-doc-audit.zip`、`icons/*.png`）。
+- `git add --renormalize .` 核验：已跟踪文本文件本即以 LF 入库（0 变更），故本次仅新增配置文件、零 blob 改动；此后 Windows 检出亦保持 LF，消除 CRLF 漂移对 CI 跨平台比对、黄金快照一致性与 diff 可读性的潜在干扰。纯工程配置（补丁级，版本升 1.25.6）。
 
 
 ## 1.25.5 打磨明细（缺失引用去重降噪 + 检查器执行回执 + doc-llm 注册键修复 + 扫描范围收敛 + 文档三分式固化）
