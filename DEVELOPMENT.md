@@ -19,7 +19,7 @@
 
 1. **同步校验**：复用 `sync_deploy._verify()` 确认「部署副本 ↔ 最新源码 `src/`」字节一致；不一致说明有未提交改动或钩子未触发，明确告警。
 2. **审计最新源码**：一律对 `src/`（最新提交）跑全量检查器，而非部署副本——避免审计过时产物。
-3. **开发文档纳入漂移**：`--dev-docs` 把 `README.md` / `CHANGELOG.md` 交 `doc`（A1 死路径）+ `doc-llm`（语义漂移）扫描。
+3. **开发文档纳入漂移**：`--dev-docs` 递归扫描 `src/` 内全部 `.md` 描述性文档（含 `README.md` / `CHANGELOG.md` / `references/*.md` / `examples` 等）交 `doc`（A1 裸文件名 `EXTERNAL_REF` 提示）+ `doc-llm`（语义漂移 dossier）扫描；默认（不带此旗标）仅扫 `SKILL.md` + `references/*.md`。
 4. **只扫发布面**：排除 `sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py`，使结果与发布质量对齐，不被 dev 工具噪音干扰。
 
 退出码：`0` = 无 ERROR（`--strict` 下还需无 WARN）；`1` = 发现 ERROR（或 `--strict` 下 WARN）；`2` = 参数/路径错误。
@@ -34,7 +34,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 ### 约定：哪些 dev 旗标进主 CLI、哪些不进（避免回退三分式）
 
-**`--dev-docs` 进主 CLI（`cli.py:44`）——合理，且性质不同于另两项。** 它是通用能力：任意技能的维护者都能把自己的 `README.md` / `CHANGELOG.md` 纳入漂移扫描，不是「关掉正确性检查」。所以它在用户模式 CLI 中可见是对的。
+**`--dev-docs` 进主 CLI（`cli.py:43`）——合理，且性质不同于另两项。** 它是通用能力：任意技能的维护者都能用 `--dev-docs` 把技能文件夹内全部 `.md`（`README`/`CHANGELOG`/`examples` 等）纳入漂移扫描，不是「关掉正确性检查」。所以它在用户模式 CLI 中可见是对的。默认（不带此旗标）仅扫 `SKILL.md` + `references/*.md`，开发者模式扩面到全部描述性文档。
 
 **`dev_audit=True` 与 `exclude=DEV_TOOLS` 不进主 CLI——属本仓库专属 hack，禁止提成开关。** 理由：
 
@@ -59,7 +59,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | 你改动了什么 | 该跑 | 不该跑 | 说明 |
 |---|---|---|---|
 | `src/` 任意发布面文件（SKILL.md / scripts/audit_docs.py / scripts/auditlib/ / references/checkers.md / dist） | `dev_self_audit.py`（建议 `--strict`） | — | 发布质量门禁：审计最新源码 + 验证「部署副本 ↔ src」一致 + 开发文档漂移 |
-| `README.md` / `CHANGELOG.md` | `dev_self_audit.py --dev-docs`（或 `--strict --dev-docs`） | — | 把开发文档纳入漂移扫描 |
+| `README.md` / `CHANGELOG.md` / `references/*.md` / 任意 `.md` | `dev_self_audit.py`（默认即 `--dev-docs`，递归扫描 `src/` 内全部 `.md`） | — | 把开发文档纳入漂移扫描 |
 | `src/scripts/auditlib/checkers/{doc,structure,security,runtime,deps}.py` 或公共层 `model` / `report` / `core` | `self_validate.py` | — | 检查器行为回归护栏：对 fixtures 跑确定性检查器、比对 `tests/examples/*.expected.json` 黄金快照 |
 | `src/scripts/auditlib/checkers/{deadcode,doc_llm,portability}.py` 或 fixtures / 文档自身 | `dev_self_audit.py`（视情况） | `self_validate.py` | deadcode/doc_llm/portability 不在 `DETERMINISTIC` 子集，跑 `self_validate` 无回归捕捉价值、反引入噪音 |
 | dev 工具自身（sync_deploy / self_validate / make_fixtures / dev_self_audit / `_devcommon`） | 仅 `dev_self_audit.py` 复查 | `self_validate.py` | dev 工具不进发布面，`self_validate` 审计的是用户技能行为、与 dev 工具改动无关 |

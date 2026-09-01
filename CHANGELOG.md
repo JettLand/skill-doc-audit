@@ -28,6 +28,13 @@
 - Q2 落地：新增 `src/scripts/release_check.py`（dev-only，被 `dev_self_audit.py` 调用，故本地 `pre-push` 与远程 `dev-qa` CI 都提示）输出带 `[agent-todo]` 标记的提示块——版本一致性(ERROR 阻断)/CHANGELOG 收口(WARN 阻断)/dist 过期(INFO)/temp 残留(INFO)；阻断项并入 `dev_self_audit` 退出码（`--strict` 下拦 push）。配套新增 `src/scripts/build_dist.py`（可复现打包命令，提示里直接给出）。`dev_self_audit.py` 的 `DEV_TOOLS` 排除集补入两新脚本避免 orphan_asset 误报。
 - 严格测试：负向验证——临时把 `sources.py` UA 改为 1.25.3，`dev_self_audit --strict` 即 `EXIT=1` 并输出 `[agent-todo][ERROR] 版本号不一致…改为 skill-doc-audit/1.25.4`；还原后 `EXIT=0`、当前状态无阻断提示。`dev_self_audit --strict` 全检查器 ERROR 0 / WARN 0 / INFO 40 无回归；重建的 `dist` 已纳入提交。
 
+### doc / doc-llm 扫描范围收敛：默认纳入 references/*.md，开发者模式递归扫全部 .md
+- 落地用户拍板的折中方案：doc / doc-llm 默认扫描集从「仅 SKILL.md」扩为「SKILL.md + `references/*.md`」（技能自带参考文档，随代码漂移真实存在，此前完全不扫）；开发者模式（`--dev-docs`）递归扫描技能文件夹内**全部** `.md` 描述性文档（README/CHANGELOG/examples/License 等），并额外纳入显式传入的 out-of-tree 文档。
+- 关键修正（基于真实代码发现）：`checkers.md` 自身第 181 行含示例路径 `` `references/x.md` `` / `` `scripts/x.py` ``（带 `/`）。若把 `references/*.md` 直接套 A1 字面死路径（`DEAD_PATH` ERROR），会把这些叙述性示例路径误报为死路径，直接破坏自审计 `ERROR 0` 不变量。故把 `DEAD_PATH`(ERROR) 限定为**仅 `SKILL.md`**（规范能力目录才要求每个带 `/` 路径真实存在）；`references/*.md` 与开发文档为叙述性内容，A1 只对裸文件名报 `EXTERNAL_REF`(INFO)（低噪音、非阻断），真实断链改由 `doc-llm` 语义 dossier 覆盖。`A2`-`A5`/`C`/`B` 类检查维持仅 `SKILL.md`（能力目录口径，避免把变更日志叙事误判为漂移），与既有口径一致。
+- 实现：`model.py analyze_skill` 默认把 `references/*.md` 加入 `docs` 扫描集（去重防 `os.walk` 重复）；`dev_docs is not None` 时 `os.walk(skill_dir)` 递归收集全部 `.md` 并追加显式路径（`extra_roots` 按文件自身目录解析引用）。`doc.py` A1 块新增 `doc_name == "SKILL.md"` 门控（非 SKILL.md 只报裸文件名 `EXTERNAL_REF` INFO）。`cli.py --dev-docs` 由 `nargs="+"` 改为 `nargs="*"`（空即「扫全部 .md」），preview 同步列出实际被扫文档。
+- 文档真相源同步：`checkers.md` 的 doc 检查器项补充「扫描范围」说明 + `DEAD_PATH` 仅 SKILL.md 生效的口径；`DEVELOPMENT.md` 的 `--dev-docs` 行为描述与触发表更新为「递归扫描 src/ 内全部 .md」。
+- 零回归验证：`dev_self_audit --no-sync-check` 全检查器 ERROR 0 / WARN 0 / INFO 42（与改动前 INFO 数一致，无新增 ERROR/WARN）；对部署副本跑默认 `doc` 检查确认 `checkers.md` 示例路径不再误报 `DEAD_PATH`；`self_validate.py` 确定性检查器黄金快照全 PASS（exit 0）；`py_compile` 全部通过。
+
 ## 1.25.4 打磨明细（文档三分式重构 + 内联版本号收敛 + 开发链路固化）
 
 ### 部署副本同步纳入提交流程

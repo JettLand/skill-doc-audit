@@ -6,7 +6,7 @@
 
 脚本能可靠判定的偏差由以下检查器产出，可按需启用。代码/配置文件覆盖多语言：`.py/.js/.jsx/.ts/.tsx/.vue/.go/.rs/.java/.c/.cpp/.h/.rb/.php/.swift/.kt/.lua/.sh/.ps1/.json`（含 Python 语法校验与多语言硬编码密钥检测）。
 
-- `doc`（常驻默认开）：文档一致性
+- `doc`（常驻默认开）：文档一致性。**扫描范围**：默认 `SKILL.md` + `references/*.md`（技能自带参考文档，断链是真实漂移）；开发者模式 `--dev-docs` 递归扫描技能文件夹内全部 `.md` 描述性文档（`README`/`CHANGELOG`/`examples` 等）。`A1` 死路径（`DEAD_PATH`，ERROR）仅对 `SKILL.md` 生效（`references`/开发文档为叙述性内容、常含示例路径，套 ERROR 会误报，故仅对裸文件名报 `EXTERNAL_REF` INFO）；`A2`-`A5`/`C`/`B` 类检查仅 `SKILL.md`（能力目录口径，避免把变更日志叙事误判为漂移）。所有被扫文档均进入 `doc-llm` 语义 dossier。
 - `structure`：结构体检 + 元信息
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性
@@ -21,7 +21,7 @@
 
 | 检查器 | 项（category） | 中文标签 | 说明 | 默认级别 |
 |---|---|---|---|---|
-| doc | `DEAD_PATH` | 死路径 | 文档引用的文件路径已不存在 | ERROR |
+| doc | `DEAD_PATH` | 死路径 | `SKILL.md` 引用的带 `/` 文件路径已不存在（**仅 SKILL.md 报 ERROR**；`references`/开发文档为叙述性内容，示例路径不报 ERROR，仅裸文件名报 `EXTERNAL_REF` INFO） | ERROR |
 | doc | `DEAD_FLAG` | 失效命令行参数 | 文档提到的命令行参数在代码中无实现 | ERROR |
 | doc | `EXIT_DOC_ONLY` | 文档独有退出码 | 文档列了退出码，但代码从不返回 | ERROR |
 | doc | `EXIT_CODE_ONLY` | 代码独有退出码 | 代码会返回某退出码，但文档未列 | ERROR |

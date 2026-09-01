@@ -11,7 +11,8 @@ dev_self_audit.py —— skill-doc-audit 开发模式自审计（脚本化，不
   1) 同步校验：脚本化确认「已部署副本」与「最新源码 src/」字节一致（复用 sync_deploy._verify）。
      若不一致，说明有未提交改动或钩子未触发，明确告警。
   2) 审计最新源码：一律对 src/（最新提交）跑全量检查器，而非部署副本——避免审计过时产物。
-  3) 开发文档纳入漂移：--dev-docs 把 README.md / CHANGELOG.md 一并交给 doc（内容漂移）与
+  3) 开发文档纳入漂移：--dev-docs 递归扫描 src/ 内全部 .md 描述性文档（含 README.md /
+     CHANGELOG.md / references/*.md / examples 等）交 doc（A1 裸文件名 EXTERNAL_REF 提示）与
      doc-llm（语义漂移 dossier）扫描，捕捉发布文档之外的漂移。
   4) 只扫发布面：排除 sync_deploy.py / self_validate.py / make_fixtures.py / dev_self_audit.py
      等开发期工具，使结果与「实际发布质量」对齐，不被 dev 工具噪音干扰。
@@ -99,7 +100,8 @@ def main():
     print("[audit] 审计目标：%s（最新源码）" % SRC)
     print("[audit] deadcode 精度模式：%s%s" % (
         deadcode_mode, "（已装 vulture）" if deadcode_mode == "vulture" else "（零依赖 ast，易误报）"))
-    print("[audit] 开发文档纳入漂移扫描：%s" % ", ".join(os.path.basename(d) for d in dev_docs))
+    print("[audit] 开发者模式：递归扫描 %s 内全部 .md + 显式开发文档：%s"
+          % (SRC, ", ".join(os.path.basename(d) for d in dev_docs)))
     print("[audit] 排除开发期工具：%s" % ", ".join(sorted(DEV_TOOLS)))
 
     result = analyze_skill(

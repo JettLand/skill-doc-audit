@@ -158,21 +158,51 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
     code, skipped_code = collect_code(skill_dir, exclude=exclude)
     blob = "\n".join(code.values())
 
-    # 开发模式（--dev-docs）：额外纳入 README.md / CHANGELOG.md 等开发文档到 doc / doc-llm 扫描集。
-    # 这些文档以仓库根为基准引用文件，故把其所在目录收进 extra_roots 供 resolve_exists 解析，降低 DEAD_PATH 误报。
+    # 文档扫描集（doc / doc-llm 消费）：
+    #  - 默认即纳入 references/*.md：它们是技能契约的一部分，断链是真实问题，且应进入
+    #    doc-llm 语义 dossier 供 agent 比对；A2-A5/C/B 仅 SKILL.md（能力目录口径）自动跳过，
+    #    避免 README/CHANGELOG 类叙述噪音。A1 死路径(DEAD_PATH, ERROR)仅 SKILL.md 生效，
+    #    因 references 为叙述性内容、常含示例路径，套 ERROR 会误报，故只报 EXTERNAL_REF(INFO)。
+    #  - 开发者模式（dev_docs 非 None）：在默认基础上**递归扫描技能文件夹内全部 .md 描述性文档**
+    #    （README/CHANGELOG/examples/License 等），并额外纳入显式传入的 out-of-tree 文档
+    #    （如项目根 README/CHANGELOG）；其仓库相对引用按文件自身目录解析，降低 DEAD_PATH 误报。
     docs = [{"name": "SKILL.md", "content": doc}]
     extra_roots = []
-    for dd in (dev_docs or []):
-        dd = os.path.abspath(dd)
-        if not os.path.isfile(dd):
-            continue
+    _seen_doc = {os.path.abspath(doc_path)}   # 已加入文档的绝对路径，去重（防 walk 重复加 SKILL.md/references）
+
+    def _add_doc(abs_path, name=None, extra_root=None):
+        ap = os.path.abspath(abs_path)
+        if ap in _seen_doc or not os.path.isfile(ap):
+            return
         try:
-            with open(dd, encoding="utf-8", errors="replace") as _fh:
-                _dt = _fh.read()
+            with open(ap, encoding="utf-8", errors="replace") as _fh:
+                _c = _fh.read()
         except Exception:
-            continue
-        docs.append({"name": os.path.basename(dd), "content": _dt})
-        extra_roots.append(os.path.dirname(dd))
+            return
+        _seen_doc.add(ap)
+        docs.append({"name": name or os.path.basename(ap), "content": _c})
+        if extra_root:
+            extra_roots.append(extra_root)
+
+    # 默认扩面：references/*.md（技能自带参考文档，随代码漂移真实存在）
+    _refs_dir = os.path.join(skill_dir, "references")
+    if os.path.isdir(_refs_dir):
+        for _fn in sorted(os.listdir(_refs_dir)):
+            if _fn.endswith(".md"):
+                _add_doc(os.path.join(_refs_dir, _fn), name="references/%s" % _fn)
+
+    # 开发者模式：递归扫描技能文件夹内全部 .md + 显式 out-of-tree 文档
+    if dev_docs is not None:
+        for _root, _dirs, _names in os.walk(skill_dir):
+            _dirs[:] = [d for d in _dirs if d not in SKIP_DIRS and not d.startswith(".")]
+            for _n in _names:
+                if not _n.endswith(".md"):
+                    continue
+                _fp = os.path.join(_root, _n)
+                _rel = os.path.relpath(_fp, skill_dir).replace(os.sep, "/")
+                _add_doc(_fp, name=_rel)
+        for dd in (dev_docs or []):
+            _add_doc(dd, extra_root=os.path.dirname(os.path.abspath(dd)))
 
     # 声明式外部工具名（MCP / 插件工具）：frontmatter 的 allowed-tools / tools 字段，
     # 以及全仓库 .md 中出现的 mcp__*__<name> 标记。这些名称只出现在文档/声明里、不在本地
