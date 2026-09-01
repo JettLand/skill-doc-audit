@@ -43,6 +43,15 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 **硬性边界**：`dev_audit` / `exclude` 的打开点只存在于 `dev_self_audit.py`（`src/scripts/` 内，已被 `sync_deploy.py` 排除在部署副本外）。若日后有人想把 `--dev-audit` 加到 `cli.py`（它是部署副本一部分），**等于把维护者专属逻辑塞回用户技能、直接回退三分式隔离**，应拒绝。引擎默认 `dev_audit=False`（`model.py:152`）即用户模式，符合「默认零依赖、绝不替用户决定」。
 
+### 判定逻辑：进入开发者模式由「调用入口」决定，非运行时自判
+
+- **没有自动检测**：引擎 `analyze_skill`（`model.py:151`）默认 `dev_audit=False` / `exclude=None` / `dev_docs=None`，即用户模式；脚本**不**探测 cwd / 环境变量 / git 远端 / 调用者身份来「判断」当前处于哪种模式。
+- **由调用入口决定**：跑 `audit_docs.py`（随技能发布的用户 CLI）→ 永远用户模式（`cli.py:114-116` 只传 `dev_docs=args.dev_docs`，`dev_audit` / `exclude` 不传 → 取引擎默认）；跑 `dev_self_audit.py`（dev-only）→ 开发者自审计（`dev_self_audit.py:109-116` 硬编码 `dev_audit=True` + `dev_docs=[README.md, CHANGELOG.md]` + `exclude=DEV_TOOLS`）。
+- **流程完全可控、确定性**：无隐式切换、无运行时自判、无 agent 决断。终端用户装到的部署副本不含 `dev_self_audit.py`，只能跑用户 CLI，用户模式由**结构**保证，不可能「误入」开发模式。
+- **唯一的运行时探测与模式无关**：`dev_self_audit.py:95` `_detect_vulture()` 仅决定 deadcode 精度（vulture / ast），非模式判断；`dev_self_audit.py:98` `doc_llm_mode=None` 非交互下跳过 doc-llm、语义比较留给交互 agent 接手，是**能力选择**（符合「默认零依赖、绝不替用户决定」），非模式开关。
+- **dev 自审计内部三参不可 flag 调**：`dev_audit` / `dev_docs` / `exclude` 为硬编码常量，`dev_self_audit.py` 无 `--dev-audit` 之类开关；脚本可调 flag 仅 `--strict` / `--no-sync-check` / `--deadcode-mode`（调严度，不切换模式）。
+- **禁止反向加自动检测**：不要为「是否进入开发模式」引入运行时 if 判定（如 `if os.path.basename(cwd) == "src": dev_audit=True`），那会破坏上述结构保证、引入隐式切换与回归风险；判定一律由入口显式决定。
+
 ## 自校验（self_validate.py）与 fixture 生成器（make_fixtures.py）
 
 - `self_validate.py`：基于 `auditlib` 对 `tests/fixtures/` 跑确定性检查器，掩去绝对路径后比对 `tests/examples/*.expected.json` 黄金快照。新环境 clone 后任意 CWD 可跑（`tests/fixtures/` 已由 `.gitignore` 排除，缺失时自动调 `make_fixtures.build()` 重建）。
