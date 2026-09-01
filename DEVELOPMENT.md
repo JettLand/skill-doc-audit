@@ -86,6 +86,32 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 - **同步校验开关是本地与远程的唯一实质差异**：本机有部署副本故 `pre-push` 保留校验；GitHub 机器无副本，`dev-qa` 加 `--no-sync-check`。两套门禁的检查内容（`dev_self_audit --strict` + `self_validate`）完全一致。
 - **`[agent-todo]` 在远程 CI 仅日志噪音、但门禁（退出码）仍生效**：GitHub 上无 agent 消费提示文本，而 `release_check` 阻断项会升 `dev_self_audit` 退出码 → `dev-qa` 的 `publish-gate` job 失败 → PR 标红，是本地钩子未拦住时的远程兜底。
 
+### `[agent-todo]` 提示具体长什么样（由 `release_check.py` 产出、`dev_self_audit.py:153-165` 渲染）
+
+执行 `dev_self_audit.py --strict` 时，若命中下列任一检查项，会打印一个提示块，**每项都给出发指令级的可照做动作**。共 4 类检查：
+
+| 检查项 | 严重度 | 是否阻断 | 触发条件 | 发出的 `todo` 指令（原文） |
+|---|---|---|---|---|
+| 版本号一致性 | `ERROR` | **是** | `SKILL.md version` ≠ `sources.py` 第144行 `User-Agent` | `将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/<SKILL版本>` |
+| CHANGELOG 收口 | `WARN` | **是** | `SKILL.md version` 高于 `CHANGELOG.md` 最高版本节 | `将 CHANGELOG.md 的「未发布改动」节提升为 '<SKILL版本> 打磨明细' 节后再提交` |
+| dist 制品过期 | `INFO` | 否 | `dist/skill-doc-audit.zip` 早于发布面源码 mtime | `发布 SkillHub 前重打包：python src/scripts/build_dist.py` |
+| temp 残留 | `INFO` | 否 | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py` | `及时清理 temp/ 测试残留；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` |
+
+**提示块的实际打印格式**（来自 `dev_self_audit.py:153-165`，以「版本不一致」为例的真实渲染）：
+
+```
+========================================================================
+发布前待办（Agent 提示 · 由 pre-push 钩子与 dev-qa 工作流发出）
+========================================================================
+  [agent-todo][ERROR] 版本号不一致：SKILL.md 与 sources.py User-Agent 不同步
+      SKILL.md version=1.25.4，但 sources.py 的 HTTP User-Agent=skill-doc-audit/1.25.3
+      → 将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/1.25.4
+
+⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。
+```
+
+> 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·dist·temp」，绝不因此阻断门禁。
+
 ## 自校验（self_validate.py）与 fixture 生成器（make_fixtures.py）
 
 - `self_validate.py`：基于 `auditlib` 对 `tests/fixtures/` 跑确定性检查器，掩去绝对路径后比对 `tests/examples/*.expected.json` 黄金快照。新环境 clone 后任意 CWD 可跑（`tests/fixtures/` 已由 `.gitignore` 排除，缺失时自动调 `make_fixtures.build()` 重建）。
