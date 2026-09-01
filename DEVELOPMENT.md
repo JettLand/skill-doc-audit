@@ -8,7 +8,7 @@
 |---|---|---|
 | 文档 | `src/SKILL.md` + `src/references/checkers.md` | 本文件 |
 | 受众 | 任何安装并使用本技能审计自己技能的人 | 本技能的开发者 / 贡献者 |
-| 工具 | `scripts/audit_docs.py`（随技能发布） | `dev_self_audit.py` / `self_validate.py` / `make_fixtures.py` / `sync_deploy.py`（dev-only，已被 `sync_deploy.py` 排除在部署副本外） |
+| 工具 | `scripts/audit_docs.py`（随技能发布） | `dev_self_audit.py` / `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `_devcommon.py`（dev-only 共享样板；均已被 `sync_deploy.py` 排除在部署副本外，`_devcommon.py` 亦在 `dev_self_audit.py` 的 `DEV_TOOLS` 排除集内避免 orphan_asset 误报） |
 | 关键动作 | 跑 `--all-checks` 审计目标技能 | 审计最新源码 `src/`、自校验 fixtures、把 `src/` 同步到部署副本、走「未发布改动」累积发布 |
 
 **设计边界**：技术隔离已存在——dev 工具根本不进部署副本，终端用户拿不到。本文件是把「哪些是给用户、哪些是给维护者」的叙事显式二分，避免读者混淆；并明确 dev-only CLI 旗标仅在本仓库内有效。

@@ -16,7 +16,9 @@
 import os, sys, argparse, json
 
 HERE = os.path.dirname(os.path.abspath(__file__))        # <root>/src/scripts
-ROOT = os.path.dirname(os.path.dirname(HERE))            # <root>
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+from _devcommon import ROOT
 DEFAULT_OUT = os.path.join(ROOT, "tests", "fixtures")
 
 # 每个 fixture 的设计意图（仅文档用途，不参与生成）

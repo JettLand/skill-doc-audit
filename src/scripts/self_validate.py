@@ -2,20 +2,19 @@ import glob, os, sys, json, argparse
 
 # ---- 仓库根解析（fresh-clone 安全：完全基于 __file__，不依赖 CWD）----
 HERE = os.path.dirname(os.path.abspath(__file__))          # <root>/src/scripts
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+from _devcommon import ROOT, fail as _fail
 SCRIPTS = HERE
-ROOT = os.path.dirname(os.path.dirname(HERE))             # <root>
 TESTS = os.path.join(ROOT, 'tests')
 FIX = os.path.join(TESTS, 'fixtures')
 EXAMPLES = os.path.join(TESTS, 'examples')
 MANIFEST = os.path.join(EXAMPLES, 'manifest.json')
 
 def fail(msg, code=2):
-    sys.stderr.write('[self_validate] ERROR: %s\n' % msg)
-    sys.exit(code)
+    _fail(msg, code, tag='self_validate')
 
 # ---- 导入审计器包（触发检查器自注册）----
-if SCRIPTS not in sys.path:
-    sys.path.insert(0, SCRIPTS)
 try:
     import auditlib                       # noqa: F401  (导入即触发 checkers 自注册)
     from auditlib.model import analyze_skill

@@ -28,29 +28,23 @@ import sys
 import argparse
 from types import SimpleNamespace
 
+# 仓库根经 __file__ 解析（不依赖 CWD）；dev 脚本共享样板见 _devcommon
 HERE = os.path.dirname(os.path.abspath(__file__))          # <root>/src/scripts
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
-ROOT = os.path.dirname(os.path.dirname(HERE))             # <root>
-SRC = os.path.join(ROOT, "src")                            # 技能源码根（最新提交）
+from _devcommon import ROOT, SRC, fail as _fail
+
 DEP = os.environ.get("SKILL_DEPLOY_DIR",
                      r"C:/Users/admin/.workbuddy/skills/skill-doc-audit")
 
 # 发布面之外的开发期工具：纳入扫描会产生与技能质量无关的噪音，显式排除。
-DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py", "dev_self_audit.py"}
+# _devcommon.py 同为 dev-only（不进部署副本），列入排除避免 orphan_asset 误报。
+DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
+             "dev_self_audit.py", "_devcommon.py"}
 
 
 def fail(msg, code=2):
-    sys.stderr.write("[dev_self_audit] ERROR: %s\n" % msg)
-    sys.exit(code)
-
-
-def _detect_vulture():
-    try:
-        import vulture  # noqa: F401
-        return True
-    except Exception:
-        return False
+    _fail(msg, code, tag="dev_self_audit")
 
 
 def main():
@@ -88,11 +82,13 @@ def main():
         from auditlib.model import analyze_skill
         from auditlib.core import ALL_CHECKERS
         from auditlib.report import summarize
+        from auditlib.checkers.deadcode import _vulture_module
     except Exception as e:
         fail("无法导入 auditlib 包：%s" % e)
 
     # ---- 3) 审计最新源码发布面 + dev 文档 ----
-    deadcode_mode = args.deadcode_mode or ("vulture" if _detect_vulture() else "ast")
+    # 复用引擎 deadcode 检查器已有的 _vulture_module()（避免与 dev_self_audit 重复实现）
+    deadcode_mode = args.deadcode_mode or ("vulture" if _vulture_module() is not None else "ast")
     cli_args = SimpleNamespace(
         deadcode_mode=deadcode_mode,
         doc_llm_mode=None,        # 非交互：doc-llm 跳过（INFO doc_llm_skipped）；语义比对留给交互 agent 接手

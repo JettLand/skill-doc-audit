@@ -47,8 +47,9 @@ import hashlib
 import filecmp
 
 HERE = os.path.dirname(os.path.abspath(__file__))   # .../src/scripts
-SRC = os.path.dirname(HERE)                          # .../src  (skill root)
-ROOT = os.path.dirname(SRC)                           # repo root (unused)
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+from _devcommon import ROOT, SRC
 
 DEP = os.environ.get(
     "SKILL_DEPLOY_DIR",
