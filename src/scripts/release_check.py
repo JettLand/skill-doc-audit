@@ -9,7 +9,7 @@
   服务器）。本模块把这类步骤固化为可重复检查，由 dev_self_audit.py（本地 pre-push 钩子
   与远程 dev-qa CI 都调用它）统一输出 `[agent-todo]` 提示块，agent 无需回忆即可照做。
 
-  注：**重打包 dist 制品不再需要 agent 执行**——v1.25.8 起 `src/dist/skill-doc-audit.zip`
+  注：**重打包 dist 制品不再需要 agent 执行**——本仓库发布流程中 `src/dist/skill-doc-audit.zip`
   不入库、由 post-commit 钩子经 `sync_deploy.py` 自动 `build_dist.ensure_fresh()` 重建，
   `check_dist_staleness` 仅作「同步钩子未跑」的兜底守卫（正常流程恒不提示）。
 
@@ -142,7 +142,7 @@ def check_changelog_promotion():
 def check_dist_staleness():
     """兜底守卫：正常流程无需 agent 手动重打包。
 
-    v1.25.8 起 `src/dist/skill-doc-audit.zip` 不再入库、由 `sync_deploy.py`
+    本仓库发布流程中 `src/dist/skill-doc-audit.zip` 不再入库、由 `sync_deploy.py`
     （post-commit 钩子）在每次提交后自动 `build_dist.ensure_fresh()` 重建，
     故常规开发与发布前 zip 永远是最新的、本检查恒返回 None（不提示）。
     仅当「同步钩子未跑」（如钩子跳过、python 未定位）导致 zip 缺失或早于

@@ -6,7 +6,7 @@ dev-only（不进部署副本）。部署副本用的是 sync_deploy 同步的*�
 但 `skillhub publish` 发的是这个 zip，所以发布面前文件一变就必须重打包。
 
 本脚本让重打包可复现，并给发布门禁一个可提示的单条命令。
-**自 v1.25.8 起，zip 不再入库**（视为生成产物，见 .gitignore），由
+**本仓库发布流程中，zip 不再入库**（视为生成产物，见 .gitignore），由
 `sync_deploy.py` 在每次提交后自动调用 `ensure_fresh()` 重建，agent 无需手动重打包；
 `release_check.py::check_dist_staleness` 仅作为「同步钩子未跑」时的兜底守卫。
 

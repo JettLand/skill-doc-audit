@@ -33,6 +33,7 @@
 - **`release_check.py::check_dist_staleness` 降级为兜底守卫**：常规流程 zip 已由钩子重建、恒不提示；仅当 `hooks/post-commit` 未运行（钩子跳过 / python 未定位）导致 zip 缺失或过期时才发 `[agent-todo][INFO]` 提示手动重建。模块顶部说明同步更新（dist 重打包移出「必须由 agent 执行」清单）。
 - **文档同步**：DEVELOPMENT.md「同步钩子具体执行什么」补「按需重建 zip」步骤、第 4 类 `[agent-todo]` 改为兜底守卫文案、`release_check` 节与 sync_deploy 节措辞更新；README.md「打包与发布」与 `core.hooksPath` 绝对路径说明更正。
 - 验证：`sync_deploy.py` 过期/缺失 zip 场景确自动重建、最新场景跳过重建；部署副本 zip 与 `src/` zip sha256 一致；`dev_self_audit --strict` ERROR 0/WARN 0/INFO 33 零回归。
+- **补充验证（兜底守卫正向触发实测 + 版本号漂移修正）**：用户追问下实测兜底守卫两个正向分支均能正常触发——① zip 早于发布面源码（模拟 `post-commit` 钩子跳过）确打印 `[agent-todo][INFO] dist 制品可能过期（同步钩子未重建）`；② zip 缺失（模拟钩子从未运行）确打印 `[agent-todo][INFO] dist 制品缺失（同步钩子可能未运行）`；两者 EXIT 0（INFO 不阻断，符合设计），正常流程（zip 最新）恒不误报。另修正 `release_check.py` / `build_dist.py` / `DEVELOPMENT.md` 中误写的「v1.25.8 起」——当前版本仍为 1.25.7（未发布累积、dev-only 改动不进部署副本），按约定版本号于授权发布时统一升，故改为版本中立措辞；全仓已无 1.25.8 残留。
 
 ## 1.25.7 打磨明细（TRACE 评测整改 + 市场质量基准实测器固化收口）
 
