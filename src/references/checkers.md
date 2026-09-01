@@ -30,12 +30,12 @@
 | doc | `EXTERNAL_REF` | 外部裸文件名引用 | 裸文件名引用，可能指向技能外文件，需人工确认 | INFO |
 | doc | `B_STATUS` | 运行状态枚举 | 运行状态全集（供 AI 复核） | INFO |
 | doc | `B_CONFIG` | 配置项枚举 | 配置项全集（供 AI 复核） | INFO |
-| doc | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致 | 文档枚举的集合（如 deadcode 模式 `{ask,vulture,ast,skip}` 或 `ask/vulture/ast/skip`）与代码权威集合 `DEADCODE_MODES` 不符（v1.21.0） | WARN |
-| doc | `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致 | 文档「N 个检查器」等数量声明与 `len(ALL_CHECKERS)` 实际计数不符（v1.21.0） | WARN |
-| doc | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | 能力声明动词（提供/支持/默认/自动/…）行内的反引号标识符在代码与声明中均不存在（能力可能已移除或拼写有误）（v1.21.0） | WARN |
+| doc | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致 | 文档枚举的集合（如 deadcode 模式 `{ask,vulture,ast,skip}` 或 `ask/vulture/ast/skip`）与代码权威集合 `DEADCODE_MODES` 不符 | WARN |
+| doc | `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致 | 文档「N 个检查器」等数量声明与 `len(ALL_CHECKERS)` 实际计数不符 | WARN |
+| doc | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | 能力声明动词（提供/支持/默认/自动/…）行内的反引号标识符在代码与声明中均不存在（能力可能已移除或拼写有误） | WARN |
 | doc-llm | `DOC_LLM_DRIFT` | 文档/代码语义漂移（agent 判定） | `doc-llm` 检查器（v1.23.0 起纳入 `--all-checks`，v1.24.0 起由 agent 直接接手）经 agent 用自身能力判定的语义漂移条目，仅作线索（v1.22.1 引入 / 接手机制 v1.24.0） | WARN |
-| doc-llm | `doc_llm_agent_handoff` | 语义漂移检测已转交 agent 接手 | 用户选「agent 接手」或显式 `--doc-llm-mode agent`：脚本写 dossier + 打印 `AGENT_TAKEOVER` 哨兵，由 agent 读取后自行比对（v1.24.0） | INFO |
-| doc-llm | `doc_llm_skipped` | 全量检测中语义漂移检测跳过 | `--all-checks` 全量自带 `doc-llm`、非交互环境无法向用户询问 → 跳过且未调用任何 LLM，属预期行为，记 INFO 不告警（保「全量检测 WARN 0」不变量）（v1.23.0） | INFO |
+| doc-llm | `doc_llm_agent_handoff` | 语义漂移检测已转交 agent 接手 | 用户选「agent 接手」或显式 `--doc-llm-mode agent`：脚本写 dossier + 打印 `AGENT_TAKEOVER` 哨兵，由 agent 读取后自行比对 | INFO |
+| doc-llm | `doc_llm_skipped` | 全量检测中语义漂移检测跳过 | `--all-checks` 全量自带 `doc-llm`、非交互环境无法向用户询问 → 跳过且未调用任何 LLM，属预期行为，记 INFO 不告警（保「全量检测 WARN 0」不变量） | INFO |
 | structure | `name_mismatch` | 名称不一致 | frontmatter name 与目录名不一致 | WARN |
 | structure | `version_missing` | 版本缺失 | 缺少合规 version | ERROR |
 | structure | `name_missing` | 名称缺失 | 缺少 name 声明 | ERROR |

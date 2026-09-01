@@ -22,6 +22,12 @@
 - `deadcode` 孤儿资源扫描与 `structure` 名称一致性检查适配开发自审计：`orphan_asset` 尊重 `exclude`（不再把 dev 工具误报为孤儿）；`dev_audit=True` 时跳过 `name_mismatch`（审计 `src/` 目录名是 `src` 而非技能名，非真实漂移）。
 - `analyze_skill` 新增 `dev_audit` / `exclude` 上下文透传；`cli.py` 维持 `--dev-docs` 入口（Q3：开发文档纳入语义 / 内容漂移扫描）。
 
+### 文档内联版本号标注收敛（Q1：保留行为解释型）
+- 用户决策（2026-09-01）：技能文档（SKILL.md / checkers.md）正文的内联版本号标注，仅保留「解释当前行为为何如此」的类型（如「v1.24.0 起由 agent 直接接手、不再调外部 LLM」说明现行设计理由）；删除纯里程碑标注（仅记录「X 起新增/支持」，与 CHANGELOG 重复且易过时）。frontmatter 强制 `version:` 字段不受影响。
+- SKILL.md：删 `## 设计原则（核心约束 · v1.23.1 确立）` 的 `· v1.23.1 确立` 里程碑标记；`使用以下统一措辞模板`（v1.23.6 经用户改进…）→ 去版本号、保留「经用户改进」行为解释。保留全部解释现行设计理由的标注（agent 接手、v1.18.0 上下文感知过滤、v1.21.0 内容漂移等）。
+- checkers.md 错误码明细表：删纯引入版本标注 `（v1.21.0）`（DOC_ENUM_DRIFT / DOC_COUNT_DRIFT / DOC_CAPABILITY_DRIFT）、`（v1.24.0）`（doc_llm_agent_handoff）、`（v1.23.0）`（doc_llm_skipped）；保留行为解释型标注（doc-llm 接手机制、agent_coupling 抑制规则、等价映射约定等）。
+- 验证：dev_self_audit.py --strict → 全检查器 `ERROR 0 / WARN 0 / INFO 37`，无回归（doc ERROR 0 / WARN 0）。
+
 ## 1.25.3 打磨明细（fixtures 移出版本管理 + make_fixtures 升级为整套重建工具）
 
 ### 背景（用户决策 + 建议）
