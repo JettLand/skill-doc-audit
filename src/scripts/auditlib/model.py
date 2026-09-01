@@ -148,7 +148,8 @@ def build_portability_matrix(model):
     return rows
 
 
-def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=BACKUP_LIMIT):
+def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=BACKUP_LIMIT,
+                  dev_docs=None, exclude=None, dev_audit=False):
     doc_path = os.path.join(skill_dir, "SKILL.md")
     if not os.path.isfile(doc_path):
         return {"skill": skill_dir, "error": "no SKILL.md", "findings": []}
@@ -156,8 +157,24 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
     with open(doc_path, encoding="utf-8") as fh:
         doc = fh.read()
     scripts_dir = os.path.join(skill_dir, "scripts")
-    code, skipped_code = collect_code(skill_dir)
+    code, skipped_code = collect_code(skill_dir, exclude=exclude)
     blob = "\n".join(code.values())
+
+    # 开发模式（--dev-docs）：额外纳入 README.md / CHANGELOG.md 等开发文档到 doc / doc-llm 扫描集。
+    # 这些文档以仓库根为基准引用文件，故把其所在目录收进 extra_roots 供 resolve_exists 解析，降低 DEAD_PATH 误报。
+    docs = [{"name": "SKILL.md", "content": doc}]
+    extra_roots = []
+    for dd in (dev_docs or []):
+        dd = os.path.abspath(dd)
+        if not os.path.isfile(dd):
+            continue
+        try:
+            with open(dd, encoding="utf-8", errors="replace") as _fh:
+                _dt = _fh.read()
+        except Exception:
+            continue
+        docs.append({"name": os.path.basename(dd), "content": _dt})
+        extra_roots.append(os.path.dirname(dd))
 
     # 声明式外部工具名（MCP / 插件工具）：frontmatter 的 allowed-tools / tools 字段，
     # 以及全仓库 .md 中出现的 mcp__*__<name> 标记。这些名称只出现在文档/声明里、不在本地
@@ -246,6 +263,8 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         "skill_dir": skill_dir,
         "doc": doc,
         "doc_path": doc_path,
+        "docs": docs,
+        "extra_roots": extra_roots,
         "code": code,
         "blob": blob,
         "scripts_dir": scripts_dir,
@@ -256,6 +275,10 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         "platform": platform,
         "format": fmt,
         "skill_model": sm,
+        # 开发模式自审计（dev_self_audit.py / --dev-docs）专用上下文：
+        # exclude=发布面之外的开发期工具（避免死代码孤儿/噪音）；dev_audit=审计 src/ 而非技能目录（抑制 name_mismatch 误报）
+        "exclude": set(exclude or set()),
+        "dev_audit": dev_audit,
     }
     findings = []
     for name in enabled:

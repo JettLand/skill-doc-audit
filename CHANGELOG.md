@@ -16,6 +16,12 @@
 ### make_fixtures.py 路径分隔符瑕疵修复（前批遗留未提交，本批一并提交）
 - `check()` 的 MISSING / MISMATCH 提示路径统一 `p.replace(os.sep, "/")`（跨平台正斜杠）；仅输出风格，不影响判定逻辑与退出码。
 
+### 开发模式自审计脚本化 + 开发文档纳入漂移扫描（dev_self_audit.py）
+- 新增 `src/scripts/dev_self_audit.py`（dev-only，不进部署副本）：把「审计最新源码 `src/`（而非部署副本）+ 开发文档 README/CHANGELOG 纳入漂移 + 部署副本↔源码同步校验」固化为可重复命令，规避 agent 长期项目的记忆漂移 / 幻觉 / 漏操作。要点：①复用 `sync_deploy._verify()` 校验部署副本与 `src/` 字节一致，不一致明确告警；②一律审计最新提交源码发布面（排除 dev 工具 `sync_deploy.py`/`self_validate.py`/`make_fixtures.py`/`dev_self_audit.py`，使结果与发布质量对齐，不被 dev 工具噪音干扰）；③`--dev-docs` 把 README/CHANGELOG 交 `doc`（A1 死路径）+ `doc-llm`（语义漂移 dossier）扫描；④退出码 0=无 ERROR（`--strict` 下还需无 WARN）。
+- `doc` 检查器口径收敛：A2 失效参数 / A4 标识符能力漂移 / C 类数量·枚举漂移 限定 `SKILL.md`（规范性能力目录）；开发文档为叙述性变更日志，常含「第 7 个检查器」「已移除的 `_call_llm`」「`make_fixtures.py --baseline`」等历史 / 开发期表述，按能力目录口径跳过避免误报。仅 A1 死路径（具体文件引用，真实漂移）与 `doc-llm` 语义扫描保留逐文档。
+- `deadcode` 孤儿资源扫描与 `structure` 名称一致性检查适配开发自审计：`orphan_asset` 尊重 `exclude`（不再把 dev 工具误报为孤儿）；`dev_audit=True` 时跳过 `name_mismatch`（审计 `src/` 目录名是 `src` 而非技能名，非真实漂移）。
+- `analyze_skill` 新增 `dev_audit` / `exclude` 上下文透传；`cli.py` 维持 `--dev-docs` 入口（Q3：开发文档纳入语义 / 内容漂移扫描）。
+
 ## 1.25.3 打磨明细（fixtures 移出版本管理 + make_fixtures 升级为整套重建工具）
 
 ### 背景（用户决策 + 建议）

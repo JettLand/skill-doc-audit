@@ -41,6 +41,10 @@ def main():
                     help="--report translate 的目标格式（与源格式双向）：workbuddy / agentskills / claude-code / cursor-plugin / generic。其中 agentskills 与 cursor-plugin 即 Agent Skills 开放标准(agentskills.io)，一次转译可被 40+ 工具(Claude Code、Cursor、Gemini CLI、Codex、Copilot、Windsurf、Kiro、OpenCode 等)直接消费；generic 为仅保留 name/description 的降级兜底")
     ap.add_argument("--verify", action="store_true",
                     help="跨格式转译时做内存往返保真校验（emit→re-parse→比对，不落盘）")
+    ap.add_argument("--dev-docs", nargs="+", metavar="PATH",
+                    help="开发模式：额外纳入语义/内容漂移扫描的文档（如 README.md CHANGELOG.md），"
+                         "相对仓库根或绝对路径，空格分隔可一次传多个；其仓库相对引用按文件自身目录+仓库根解析，降低 DEAD_PATH 误报。"
+                         "这些文档会被 doc（内容漂移）与 doc-llm（语义漂移 dossier）一并扫描。")
     args = ap.parse_args()
 
     MAX_FILE_SIZE = args.max_file_size
@@ -98,6 +102,8 @@ def main():
             if "deadcode" in enabled:
                 print("  deadcode 精度模式: %s（ask=已装vulture则自动高精度,否则交互询问30s→ast/非TTY回退ast并提示精度降级）" % args.deadcode_mode)
             print("  文档: %s" % ("SKILL.md" if os.path.isfile(d) else "（无）"))
+            if args.dev_docs:
+                print("  开发文档（纳入 doc/doc-llm 漂移扫描）: %s" % ", ".join(args.dev_docs))
             print("  将扫描代码/配置文件 %d 个:" % len(code))
             for rel in sorted(code.keys()):
                 print("    - %s" % rel)
@@ -106,7 +112,8 @@ def main():
         sys.exit(0)
 
     results = [analyze_skill(t, enabled, args=args, do_backup=args.backup,
-                             backup_limit=args.backup_limit) for t in targets]
+                             backup_limit=args.backup_limit,
+                             dev_docs=args.dev_docs) for t in targets]
     if args.report != "translate":
         print_human(results)
     if args.report == "portability-matrix":

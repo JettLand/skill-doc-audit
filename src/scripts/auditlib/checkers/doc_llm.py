@@ -94,29 +94,33 @@ def _prompt_doc_llm_mode(timeout=30):
 
 
 def _write_doc_llm_dossier(ctx):
-    """把 SKILL.md 全文 + 代码事实清单写入 dossier 文件，供 agent 直接接手语义比对。
+    """把被扫文档（SKILL.md + 开发模式下的 README/CHANGELOG 等）全文 + 代码事实清单写入 dossier，
+    供 agent 直接接手语义比对。
 
     返回 dossier 的绝对路径。agent 读取后使用自身能力判定文档声称的能力/默认值/行为/数量/集合
     与代码事实是否一致，回报潜在语义漂移。**不依赖任何外部 LLM 端点（agent 读取后会占用其自身推理 token，输入侧为主）**。
     """
     import tempfile
-    doc = ctx.get("doc", "")
+    docs = ctx.get("docs") or [{"name": "SKILL.md", "content": ctx.get("doc", "")}]
     code = ctx.get("code", {}) or {}
     try:
         sheet = _code_fact_sheet(code)
     except Exception as e:  # noqa: BLE001
         sheet = "（无法生成事实清单：%s）" % e
+    doc_sections = "\n\n".join(
+        "## 文档 %s 全文\n\n%s" % (d["name"], d["content"]) for d in docs
+    )
     content = (
         "# doc-llm 语义漂移检测 Dossier（agent 接手）\n\n"
         "本文件由 skill-doc-audit 生成，供 **agent 直接接手** 完成语义漂移检测。\n"
-        "请勿依赖任何外部 LLM；agent 应使用自身能力比对下方两份材料。\n\n"
-        "## 材料一：SKILL.md 全文\n\n%s\n\n"
-        "## 材料二：代码事实清单（由源码抽取：顶层定义 / CLI 参数 / 返回码 / 常量）\n\n%s\n\n"
+        "请勿依赖任何外部 LLM；agent 应使用自身能力比对下方材料。\n\n"
+        "%s\n\n"
+        "## 代码事实清单（由源码抽取：顶层定义 / CLI 参数 / 返回码 / 常量）\n\n%s\n\n"
         "## 比对要点\n"
-        "逐条核对 SKILL.md 声称的：能力范围、默认值、行为、数量、集合、CLI 参数、退出码、配置项 —— "
+        "逐条核对上述各文档声称的：能力范围、默认值、行为、数量、集合、CLI 参数、退出码、配置项 —— "
         "是否与代码事实清单一致。\n"
         "仅报告确有依据的语义漂移（文档说法与代码事实冲突），不报告风格/措辞问题。\n"
-    ) % (doc, sheet)
+    ) % (doc_sections, sheet)
     path = os.path.join(tempfile.gettempdir(), "skill_doc_audit_doc_llm_dossier.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)

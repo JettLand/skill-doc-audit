@@ -40,6 +40,7 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
   python audit_docs.py --source skillhub --ref <slug> --all-checks       # 经 skillhub CLI 拉取集市技能并审计
   python audit_docs.py --source github --ref owner/repo --keep-temp      # 保留克隆临时目录供排查
   python audit_docs.py --skill <目录> --check portability                # 仅跨平台可移植性；SKILL.md 声明 target_platform: windows 可豁免对应 Unix 专有项
+  python audit_docs.py --skill <技能目录> --dev-docs README.md CHANGELOG.md --all-checks   # 开发模式：把 README/CHANGELOG 一并纳入 doc 内容漂移与 doc-llm 语义漂移扫描（在仓库根目录运行）
 """
 
 import argparse
@@ -247,17 +248,22 @@ def finding(checker, severity, category, message, file=None, line=None, suggesti
 # --------------------------------------------------------------------------- #
 # 通用辅助
 # --------------------------------------------------------------------------- #
-def collect_code(skill_dir):
+def collect_code(skill_dir, exclude=None):
     """收集技能目录下所有可作为基准的代码/配置文件内容（不含 SKILL.md）。
 
     返回 (files, skipped)：files 为 路径->内容；skipped 为因超过 MAX_FILE_SIZE
     而被跳过的文件相对路径列表（避免超大生成物/资源文件拖慢或卡死扫描）。
+    exclude：额外排除的文件名集合（如开发期工具 sync_deploy.py / self_validate.py /
+    make_fixtures.py，它们不属于发布面，纳入扫描会产生与技能质量无关的噪音）。
     """
+    exc = set(exclude or set())
     files = {}
     skipped = []
     for root, dirs, names in os.walk(skill_dir):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
         for n in names:
+            if n in exc:
+                continue
             if n.endswith(CODE_EXT):
                 p = os.path.join(root, n)
                 rel = os.path.relpath(p, skill_dir)
@@ -278,13 +284,20 @@ def collect_code(skill_dir):
     return files, skipped
 
 
-def resolve_exists(skill_dir, ref, scripts_dir):
+def resolve_exists(skill_dir, ref, scripts_dir, extra_roots=None):
     cand = ref.replace("/", os.sep).replace("\\", os.sep)
     paths = [
         os.path.join(skill_dir, cand),
         os.path.join(scripts_dir, os.path.basename(cand)),
         os.path.join(skill_dir, "scripts", cand),
     ]
+    # 开发文档（如 README.md / CHANGELOG.md）里的引用常以仓库根为基准，额外按 extra_roots 解析，
+    # 避免把「src/scripts/...」「hooks/...」这类仓库相对路径误判为死路径。
+    for root in (extra_roots or []):
+        paths.append(os.path.join(root, cand))
+    # 绝对路径（如部署副本的 Windows 绝对路径）直接判存在，避免误报死路径
+    if os.path.isabs(ref):
+        paths.append(ref)
     return any(os.path.exists(p) for p in paths)
 
 

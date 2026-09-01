@@ -292,6 +292,9 @@ def check_deadcode(ctx):
                 continue
             if fn in ("__init__.py",):
                 continue
+            if fn in ctx.get("exclude", set()):
+                # 开发期工具（如 sync_deploy.py / dev_self_audit.py）不属于发布面，排除避免误报孤儿资源
+                continue
             base = fn
             relref = "%s/%s" % (sub, fn)
             mod_name = os.path.splitext(fn)[0]

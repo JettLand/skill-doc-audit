@@ -16,7 +16,9 @@ def check_structure(ctx):
         name_m = re.search(r"^name:\s*(.+)$", fm_text, re.M)
         ver_m = re.search(r"^version:\s*[\"']?([0-9][0-9A-Za-z.\-]*)[\"']?", fm_text, re.M)
         desc_m = re.search(r"^description:\s*(.+)$", fm_text, re.M)
-        if name_m and name_m.group(1).strip().strip("\"'") != dir_name:
+        # 开发模式自审计审计的是 src/（目录名是 src 而非技能名），名称不一致是目录布局使然、非真实漂移；
+        # dev_audit 时跳过，避免污染 ERROR/WARN 门禁信号（真实部署目录名与技能名一致，常规审计仍照常检查）。
+        if name_m and name_m.group(1).strip().strip("\"'") != dir_name and not ctx.get("dev_audit"):
             findings.append(finding("structure", SEVERITY_WARN, "name_mismatch",
                                     "frontmatter name 与目录名不一致",
                                     suggestion="改为 '%s'" % dir_name))

@@ -9,7 +9,7 @@
   - `src/references/checkers.md`：检查器明细基准
   - `src/dist/skill-doc-audit.zip`：可发布制品
 - `icons/`：已选定技能图标
-- `src/scripts/make_fixtures.py`、`src/scripts/self_validate.py`、`src/scripts/sync_deploy.py`：开发期维护工具（**dev-only，不进 `dist/` / 部署副本**）；`sync_deploy.py` 负责把 `src/` 的发布面同步到已安装的部署副本 `~/.workbuddy/skills/skill-doc-audit`
+- `src/scripts/make_fixtures.py`、`src/scripts/self_validate.py`、`src/scripts/sync_deploy.py`、`src/scripts/dev_self_audit.py`：开发期维护工具（**dev-only，不进 `dist/` / 部署副本**）；`sync_deploy.py` 负责把 `src/` 的发布面同步到已安装的部署副本 `~/.workbuddy/skills/skill-doc-audit`；`dev_self_audit.py` 是开发模式自审计脚本（审计最新源码 + 开发文档漂移 + 部署副本同步校验）
 
 ## 本地开发 / 自测
 ```bash
@@ -26,6 +26,9 @@ python src/scripts/self_validate.py
 python src/scripts/make_fixtures.py              # 重建 tests/fixtures/
 python src/scripts/make_fixtures.py --check      # 校验现有 fixtures 与 recipe 一致
 python src/scripts/make_fixtures.py --baseline   # 重建 fixtures 后一并重建黄金快照 tests/examples/*.expected.json（人工显式动作）
+# 开发模式自审计：审计最新源码发布面 + 开发文档(README/CHANGELOG)漂移 + 部署副本↔源码同步校验（应 0 ERROR，退出码 0）
+python src/scripts/dev_self_audit.py
+python src/scripts/dev_self_audit.py --strict   # CI 门禁：WARN 也计入失败
 ```
 
 ## 打包与发布

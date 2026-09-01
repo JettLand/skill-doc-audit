@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+dev_self_audit.py —— skill-doc-audit 开发模式自审计（脚本化，不依赖 agent 记忆）
+
+为什么需要它（长期项目痛点）：
+  开发期 agent 容易出现「记忆漂移 / 幻觉 / 漏操作」——例如审计了过时的部署副本而非最新
+  源码、忘了把 README/CHANGELOG 的漂移一并检查、忘记提交即同步部署副本。本脚本把以下约定
+  固化成可重复执行的命令，任何人都跑得出来、结果一致：
+
+  1) 同步校验：脚本化确认「已部署副本」与「最新源码 src/」字节一致（复用 sync_deploy._verify）。
+     若不一致，说明有未提交改动或钩子未触发，明确告警。
+  2) 审计最新源码：一律对 src/（最新提交）跑全量检查器，而非部署副本——避免审计过时产物。
+  3) 开发文档纳入漂移：--dev-docs 把 README.md / CHANGELOG.md 一并交给 doc（内容漂移）与
+     doc-llm（语义漂移 dossier）扫描，捕捉发布文档之外的漂移。
+  4) 只扫发布面：排除 sync_deploy.py / self_validate.py / make_fixtures.py / dev_self_audit.py
+     等开发期工具，使结果与「实际发布质量」对齐，不被 dev 工具噪音干扰。
+
+退出码：0 = 无 ERROR（--strict 下还需无 WARN）；1 = 发现 ERROR（或 --strict 下 WARN）；2 = 参数/路径错误。
+
+用法：
+  python src/scripts/dev_self_audit.py                 # 校验同步 + 审计最新源码发布面 + dev 文档
+  python src/scripts/dev_self_audit.py --strict        # CI 门禁：WARN 也计为失败
+  python src/scripts/dev_self_audit.py --no-sync-check  # 跳过同步校验（仅审计）
+"""
+import os
+import sys
+import argparse
+from types import SimpleNamespace
+
+HERE = os.path.dirname(os.path.abspath(__file__))          # <root>/src/scripts
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))             # <root>
+SRC = os.path.join(ROOT, "src")                            # 技能源码根（最新提交）
+DEP = os.environ.get("SKILL_DEPLOY_DIR",
+                     r"C:/Users/admin/.workbuddy/skills/skill-doc-audit")
+
+# 发布面之外的开发期工具：纳入扫描会产生与技能质量无关的噪音，显式排除。
+DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py", "dev_self_audit.py"}
+
+
+def fail(msg, code=2):
+    sys.stderr.write("[dev_self_audit] ERROR: %s\n" % msg)
+    sys.exit(code)
+
+
+def _detect_vulture():
+    try:
+        import vulture  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def main():
+    ap = argparse.ArgumentParser(description="skill-doc-audit 开发模式自审计（最新源码 + dev 文档）")
+    ap.add_argument("--strict", action="store_true",
+                    help="WARN 也计入退出码（CI 门禁用）")
+    ap.add_argument("--no-sync-check", action="store_true",
+                    help="跳过「部署副本 ↔ 源码」同步校验")
+    ap.add_argument("--deadcode-mode", default=None,
+                    help="deadcode 精度模式（默认：已装 vulture 用 vulture，否则 ast）")
+    args = ap.parse_args()
+
+    if not os.path.isdir(SRC):
+        fail("未找到源码根：%s" % SRC)
+
+    # ---- 1) 同步校验 ----
+    sync_ok = True
+    if not args.no_sync_check:
+        try:
+            import sync_deploy
+            if not os.path.isdir(DEP):
+                print("[sync] 部署副本不存在：%s（跳过同步校验）" % DEP)
+            else:
+                sync_ok = sync_deploy._verify()
+                print("[sync] 部署副本 ↔ 源码 src/：%s" % ("一致 OK" if sync_ok else "不一致 MISMATCH"))
+                if not sync_ok:
+                    print("[sync] ⚠ 不一致：可能存在未提交改动，或 post-commit 钩子未触发同步。"
+                          " 请先 `git status` 确认，或手动 `python src/scripts/sync_deploy.py`。")
+        except Exception as e:
+            print("[sync] 同步校验跳过（无法导入 sync_deploy：%s）" % e)
+
+    # ---- 2) 导入审计器（触发检查器自注册）----
+    try:
+        import auditlib
+        from auditlib.model import analyze_skill
+        from auditlib.core import ALL_CHECKERS
+        from auditlib.report import summarize
+    except Exception as e:
+        fail("无法导入 auditlib 包：%s" % e)
+
+    # ---- 3) 审计最新源码发布面 + dev 文档 ----
+    deadcode_mode = args.deadcode_mode or ("vulture" if _detect_vulture() else "ast")
+    cli_args = SimpleNamespace(
+        deadcode_mode=deadcode_mode,
+        doc_llm_mode=None,        # 非交互：doc-llm 跳过（INFO doc_llm_skipped）；语义比对留给交互 agent 接手
+        max_file_size=2_000_000,
+    )
+    dev_docs = [os.path.join(ROOT, "README.md"), os.path.join(ROOT, "CHANGELOG.md")]
+
+    print("[audit] 审计目标：%s（最新源码）" % SRC)
+    print("[audit] deadcode 精度模式：%s%s" % (
+        deadcode_mode, "（已装 vulture）" if deadcode_mode == "vulture" else "（零依赖 ast，易误报）"))
+    print("[audit] 开发文档纳入漂移扫描：%s" % ", ".join(os.path.basename(d) for d in dev_docs))
+    print("[audit] 排除开发期工具：%s" % ", ".join(sorted(DEV_TOOLS)))
+
+    result = analyze_skill(
+        SRC,
+        enabled=list(ALL_CHECKERS),
+        args=cli_args,
+        dev_docs=dev_docs,
+        exclude=DEV_TOOLS,
+        dev_audit=True,    # src/ 目录名是 src 而非技能名，抑制 structure name_mismatch 误报
+    )
+
+    # ---- 4) 汇总 ----
+    findings = result.get("findings", [])
+    s = summarize(findings)
+    print("\n" + "=" * 72)
+    print("开发模式自审计结果")
+    print("=" * 72)
+    by = {}
+    for f in findings:
+        by.setdefault(f["checker"], []).append(f)
+    for chk in ALL_CHECKERS:
+        fs = by.get(chk, [])
+        cs = summarize(fs)
+        flag = "✓" if cs["error"] == 0 and (args.strict or cs["warn"] == 0) else "✗"
+        print("  [%s] %s ERROR %d / WARN %d / INFO %d" % (chk, flag, cs["error"], cs["warn"], cs["info"]))
+        for f in fs:
+            if f["severity"] in ("ERROR", "WARN"):
+                loc = f.get("file") or ""
+                if f.get("line"):
+                    loc += ":%d" % f["line"]
+                print("      - [%s] %s%s%s" % (
+                    f["severity"], f.get("category_cn", f["category"]),
+                    ("（%s）" % loc) if loc else "",
+                    "：%s" % f["message"] if f["severity"] == "WARN" else ""))
+
+    print("\n汇总：ERROR %d / WARN %d / INFO %d" % (s["error"], s["warn"], s["info"]))
+    if not sync_ok:
+        print("⚠ 同步校验未通过（部署副本与源码不一致），发布前请先解决。")
+    failed = (s["error"] > 0) or (args.strict and s["warn"] > 0)
+    sys.exit(0 if not failed else 1)
+
+
+if __name__ == "__main__":
+    main()
