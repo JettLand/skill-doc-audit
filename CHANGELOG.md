@@ -5,7 +5,15 @@
 > 排序：版本号降序（最新在前）。
 
 
-## 未发布改动（累计，发布时统一升版本号）
+## 1.26.0 打磨明细（泛用版 examples 检查器 + 开发套件改进收口）
+
+### 泛用版 examples 检查器（v1.26.0 新增，检查器 #9，进 --all-checks）
+- 对任意技能文档里的命令示例做静态校验：示例引用的脚本文件是否存在（`EXAMPLE_TARGET_MISSING`）、传给脚本的参数是否在脚本中声明（`EXAMPLE_FLAG_UNKNOWN`，仅 SKILL.md）、示例调用的外部 CLI 是否在文档声明（`EXAMPLE_EXT_CMD` INFO）、是否含危险/不可逆命令（`EXAMPLE_DANGEROUS` ERROR/WARN）。
+- 三档模式（`--examples-mode`）：`static`（默认，纯静态，零执行/零网络/零 token）/ `ask`（交互询问是否允许沙箱试运行，30 秒超时或本地非交互回退 static 并 INFO 标注降级）/ `run`（受限沙箱试运行带 `expected` 标注的示例）/ `off`（跳过）。
+- 安全红线不可放宽：即便 `run` 模式也绝不执行文档里的任意 shell——只跑白名单解释器（python/python3/node）+ 技能内脚本 + 无 shell 元字符 + 带 `expected` 标注 + 超时（`--examples-timeout` 默认 20s）/ 条数上限（`--examples-max-cmd` 默认 12）约束的命令；不满足即跳过并 INFO 说明。
+- 仅核验脚本扩展名（`.py/.js/.mjs/.ts/.sh/.ps1`），仓库引用 / 安装路径 / 输出文件 / 占位目录一律跳过（避免把说明性路径误判为缺失文件）；通用文件引用由 `doc` 的 `DEAD_PATH` 覆盖。参数校验仅 SKILL.md、无参数表可确定时跳过；纯文档快照退 INFO。
+- 注册与接线：`ALL_CHECKERS` 追加 `examples`、`CHECKER_CODES["examples"]=9`、`CATEGORY_LABELS` 登记 12 个 EXAMPLE_* 项；CLI 新增 `--examples-mode/--examples-timeout/--examples-max-cmd`；`self_validate` 的 `DETERMINISTIC` 收口 examples，`tests/examples/manifest.json` 新增 `examples-skill` 夹具（覆盖引用缺失/危险命令/未声明外部 CLI/带期望标注四类场景），`make_fixtures.py` 同步 recipe；`sources.py` User-Agent 升 1.26.0。
+- 验证：`py_compile` 通过；examples 检查器对当前技能文档 `ERROR 0 / WARN 0 / INFO 0`（无脚本引用误报）；examples-skill 夹具四类场景均按预期触发；run 模式沙箱正负向实测（白名单内脚本执行、越界/含元字符/非白名单解释器均跳过）；`self_validate` 全 PASS；`dev_self_audit --strict` 零回归（详见下方「部署自审」计数）。
 
 ### 开发套件解耦改造（dev-only，_devcommon.py / dev_market_bench.py / hooks / 文档）
 继技能本体解耦后，对 dev 工具做同等改造——dev 工具虽不进部署副本，却运行在环境差异最大的位置（git 钩子本机 vs CI、换机器/用户名/操作系统/宿主 agent）。

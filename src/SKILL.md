@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.25.7"
+version: "1.26.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -261,6 +261,23 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 > 触发判据：用户意图围绕「文档与代码一致性 / 结构 / 安全红线 / 可运行性 / 依赖平台」的静态审计时使用；纯运行期、动态行为或部署类诉求不在范围内。
 
 **误报自纠错能力**：`security` 检查器对所有正则统一采用上下文感知过滤，自动排除注释、文档 URL、自引用资源上溯，避免上下文盲误报；**该能力同样覆盖 `structure`/`portability`**——`hardcoded_path` 已跳过表格/引用块/示例性描述行，`encoding_sep` 已排除 `urlopen`/`io.open` 等非文件 `open`（如 `--source url` 的 `urllib.request.urlopen` 不再误报），`hardcoded_endpoint` 已对 `raw.githubusercontent.com` 等 url 源规范主机白名单放行。完整机制见 `references/checkers.md`。
+
+## examples 检查器：文档示例静态校验（v1.26.0 新增，检查器 #9）
+
+校验**任意技能**文档里写出的命令示例是否站得住脚——避免「文档教用户的命令一跑就挂」这类漂移。默认**纯静态**（零执行 / 零网络 / 零 token），执行为需显式授权的可选能力。
+
+- **三档模式（`--examples-mode`）**：`static`（默认，纯静态解析）/ `ask`（交互询问是否允许沙箱试运行，30 秒超时或本地非交互一律回退 static 并 INFO 标注降级）/ `run`（受限沙箱试运行）/ `off`（跳过）。
+- **默认静态档查什么**：① 示例命令引用的脚本文件是否存在（`EXAMPLE_TARGET_MISSING`，仅核验 `.py/.js/.mjs/.ts/.sh/.ps1` 这类脚本扩展名，仓库引用 / 安装路径 / 输出文件一律跳过，避免误报）；② 传给脚本的参数是否在脚本中声明（`EXAMPLE_FLAG_UNKNOWN` WARN，仅 SKILL.md）；③ 示例调用的外部 CLI 是否在文档声明依赖（`EXAMPLE_EXT_CMD` INFO）；④ 是否含危险 / 不可逆命令（`EXAMPLE_DANGEROUS` ERROR/WARN）。纯文档快照（未取到代码）时退为 INFO，绝不把「没下载到」误判成「文件不存在」。
+- **安全红线（不可放宽）**：即便 `run` 模式也**绝不执行文档里的任意 shell**。只执行同时满足全部条件的命令：白名单解释器（python/python3/node）+ 无 shell 元字符（`; | & < > $ \` ( )` 等）+ 目标脚本在技能目录内 + 扩展名白名单 + 该示例块由作者显式标注了期望 + 受超时与条数上限约束。不满足即跳过并 INFO 说明，绝不「尽力执行」。
+- **示例标注语法（作者可选，供 run 模式比对）**：
+
+```bash {example expected-exit=0 expected-stdout="OK"}
+python scripts/audit_docs.py --check doc
+```
+
+支持 `expected-exit` / `expected-stdout` / `expected-stderr`。未标注的示例任何模式都只做静态检查、不执行。
+
+> 与 `self_validate.py` 的区别：本检查器是审计**目标技能**的插件式检查器（进 `CHECKERS` 与 `--all-checks`）；`self_validate.py` 是维护者自校工具，只校验本技能自身。两者不同类。
 
 ## 常见问题与避坑
 

@@ -30,6 +30,14 @@
         "security"
       ],
       "golden": "multifile-baseline.expected.json"
+    },
+    {
+      "name": "examples-skill-baseline",
+      "fixture": "examples-skill",
+      "checkers": [
+        "examples"
+      ],
+      "golden": "examples-skill-baseline.expected.json"
     }
   ]
 }

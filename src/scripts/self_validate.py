@@ -22,7 +22,8 @@ except Exception as e:
     fail('无法导入 auditlib 包：%s\n（请确认在仓库源码环境运行，且 scripts/auditlib/ 完整）' % e)
 
 # 仅用确定性检查器，避免 vulture 版本 / agent 推理带来的黄金快照漂移
-DETERMINISTIC = ["doc", "structure", "security", "runtime", "deps"]
+# v1.26.0：纳入 examples（纯静态解析，零执行/零网络/零 token，确定性可比对）
+DETERMINISTIC = ["doc", "structure", "security", "runtime", "deps", "examples"]
 
 
 def normalize(results):

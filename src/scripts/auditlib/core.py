@@ -200,6 +200,19 @@ CATEGORY_LABELS = {
     "interpreter_lock": "解释器/运行时锁",
     "encoding_sep": "编码/路径分隔符假设",
     "agent_coupling": "Agent 平台耦合",
+    # examples：文档示例校验（v1.26.0，泛用版；默认纯静态，执行为需授权的可选能力）
+    "EXAMPLE_TARGET_MISSING": "示例引用文件不存在（照抄将失败）",
+    "EXAMPLE_TARGET_UNVERIFIABLE": "示例引用无法核验（纯文档快照）",
+    "EXAMPLE_FLAG_UNKNOWN": "示例参数在脚本中无声明",
+    "EXAMPLE_EXT_CMD": "示例调用外部命令但未声明依赖",
+    "EXAMPLE_DANGEROUS": "示例含危险/不可逆命令",
+    "EXAMPLE_UNVERIFIED": "示例标注了期望但未执行验证",
+    "EXAMPLE_SANDBOX_SKIP": "示例未执行（沙箱拒绝）",
+    "EXAMPLE_OUTPUT_DRIFT": "示例执行结果与标注期望不符",
+    "EXAMPLE_RUN_FAIL": "示例执行失败/超时",
+    "EXAMPLE_RUN_LIMIT": "示例执行已达上限",
+    "examples_degraded": "示例执行验证已降级为纯静态",
+    "examples_run_noop": "沙箱已启用但无标注示例",
     # 检查器执行回执（v1.25.5）：身份 / 执行状态自检
     "CHECKER_UNKNOWN": "检查器未注册（从未被真正执行）",
     "CHECKER_ERROR": "检查器执行异常（已被捕获，未中断其余检查器）",
@@ -217,6 +230,11 @@ DEADCODE_MODES = ("ask", "vulture", "ast", "skip")
 # v1.24.1 起：明确 agent 接手会占用 agent 自身推理 token（输入侧为主，输出极少），仅不向外部 LLM 服务
 # 付费，故移除「零额外成本」误导表述；preview 模式（选项3）因会重复占用上下文 token 已移除。
 DOCLLM_MODES = ("off", "agent", "ask")
+# examples 检查器模式权威集合（v1.26.0）：
+# static=默认，纯静态（零执行/零网络/零 token）；ask=交互询问是否允许沙箱试运行，
+# 30 秒超时或本地非交互一律回退 static 并 INFO 标注；run=允许受限沙箱试运行
+# （仅白名单解释器 + 技能内脚本 + 带 expected 标注的块 + 超时保护）；off=本次不运行。
+EXAMPLES_MODES = ("static", "ask", "run", "off")
 # 文档声称的检查器数量："(N) 个检查器"
 DOC_CHECKER_COUNT_RE = re.compile(r"(\d+)\s*个\s*检查器")
 # 文档以大括号枚举 deadcode 模式：{ask,vulture,ast,skip}
@@ -516,7 +534,7 @@ ENTRY_HINTS = {"main", "run", "start", "handler", "setup", "init", "register",
 CHECKERS = {}
 DEFAULT_CHECKERS = ["doc"]
 ALL_CHECKERS = ["doc", "structure", "security", "runtime", "deps",
-                "deadcode", "portability", "doc-llm"]
+                "deadcode", "portability", "doc-llm", "examples"]
 
 # 检查器身份代号（单一真相源，v1.25.5 新增）：供执行回执 / --json / 机读稳定标识。
 # 选用「数字代号」而非缩写名作权威身份：doc-llm 事故根因正是「注册键连字符/下划线拼写
@@ -532,5 +550,6 @@ CHECKER_CODES = {
     "deadcode": 6,
     "portability": 7,
     "doc-llm": 8,
+    "examples": 9,
 }
 

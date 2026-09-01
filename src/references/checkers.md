@@ -14,16 +14,17 @@
 - `deadcode`（运行前按 `--deadcode-mode` 选精度，已装 vulture 则自动高精度、不询问）：死代码检测（未使用定义/导入、不可达代码、孤立资源文件）
 - `portability`（零依赖纯静态分析，全部 WARN/INFO 不报 ERROR）：跨平台可移植性——硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合 / 跨格式可移植性损失（`lossy_port`，Phase 6）。按 SKILL.md 的 `target_platform` 字段豁免对应平台项；`--report portability-matrix` 可打印「源格式 → 各目标格式」的 P/D/L 损失矩阵
 - `doc-llm`（**独立检查器**，v1.23.0 起纳入 `--all-checks` 全量集，v1.24.0 起由 agent 直接接手）：语义漂移增强检测——覆盖 `doc` 触及不到的自由散文语义漂移，由 agent 用自身能力判定（不再调用外部 LLM）；默认 `ask` 问询、非交互记 INFO `doc_llm_skipped`。错误码见下方明细 `DOC_LLM_DRIFT` / `doc_llm_agent_handoff` / `doc_llm_skipped`
+- `examples`（**新增检查器 #9**，v1.26.0 起纳入 `--all-checks` 全量集）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 参数是否声明 / 外部 CLI 是否声明 / 是否含危险命令）。默认 `static`（纯静态、零执行 / 零网络 / 零 token）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。错误码见下方明细 `EXAMPLE_TARGET_MISSING` / `EXAMPLE_DANGEROUS` / `EXAMPLE_FLAG_UNKNOWN` / `EXAMPLE_EXT_CMD` / `EXAMPLE_UNVERIFIED` 等
 
 ### 检查器执行回执（身份代号 + 调用结果，v1.25.5）
 任一检查器被调用时，引擎（`auditlib/model.py` 的 dispatch 循环）都会为它生成一条**执行回执**，明确告知 agent / 使用者「这个检查器到底有没有真跑过」——杜绝 doc-llm 类「静默落空却显示通过」的隐患。
 
-- **身份代号（数字，单一真相源 `CHECKER_CODES`）**：doc=#01、structure=#02、security=#03、runtime=#04、deps=#05、deadcode=#06、portability=#07、doc-llm=#08。选用数字而非缩写名作权威身份：注册键拼写漂移（连字符/下划线不一致）是 doc-llm 静默休眠的根因，数字代号集中登记、绝不会与注册键拼写漂移。回执同时打印 `#编号 名称` 兼顾机读与人读。
+- **身份代号（数字，单一真相源 `CHECKER_CODES`）**：doc=#01、structure=#02、security=#03、runtime=#04、deps=#05、deadcode=#06、portability=#07、doc-llm=#08、examples=#09。选用数字而非缩写名作权威身份：注册键拼写漂移（连字符/下划线不一致）是 doc-llm 静默休眠的根因，数字代号集中登记、绝不会与注册键拼写漂移。回执同时打印 `#编号 名称` 兼顾机读与人读。
 - **三态状态**：每条回执携带 `status`：
   - `OK`——检查器成功执行（返回其 `#身份代号`，即成功回执）；
   - `FAILED`——检查器执行中抛异常（已被捕获、未中断其余检查器，异常转成 `CHECKER_ERROR` ERROR 发现，退出码真实反映）；
   - `UNKNOWN`——`CHECKERS` 中无此键（未注册 / 名称拼写不一致），**绝不静默跳过**，转成 `CHECKER_UNKNOWN` ERROR 发现。
-- **消费层**：`print_human` 每检查器头部标 `[#NN 名称]` + `✓ 已执行 / ✗ 执行失败 / ✗ 未注册(UNKNOWN)`，每个技能尾部打印一行回执（`检查器执行回执: ✓doc … ✓doc-llm  [8/8 已执行 OK]`）；`--json` 在记录中给出 `checker_runs`；`dev_self_audit` 与 `cli.py --preview` 同样展示 `#代号`。
+- **消费层**：`print_human` 每检查器头部标 `[#NN 名称]` + `✓ 已执行 / ✗ 执行失败 / ✗ 未注册(UNKNOWN)`，每个技能尾部打印一行回执（`检查器执行回执: ✓doc … ✓doc-llm ✓examples  [9/9 已执行 OK]`）；`--json` 在记录中给出 `checker_runs`；`dev_self_audit` 与 `cli.py --preview` 同样展示 `#代号`。
 
 ## 检查项明细（权威错误码对照表）
 
@@ -89,6 +90,18 @@
 | portability | `encoding_sep` | 编码/路径分隔符假设 | `open()` 未指定 `encoding`，Windows 文本模式默认非 UTF-8 易致解码错误 | WARN |
 | portability | `agent_coupling` | Agent 平台耦合 | 耦合 WorkBuddy 平台约定（`.workbuddy`/`allowed-tools`），受 `target_agent` 字段门控：声明跨 Agent 目标（不含 workbuddy，如 claude-code/cross-agent）且仍含 WorkBuddy 耦合升 WARN，其余（未声明/声明含 workbuddy/推断 workbuddy）均 INFO 提示（不再抑制）；开放标准 `compatibility` 视作 `target_agent` | INFO/WARN |
 | portability | `lossy_port` | 跨格式可移植性损失 | Phase 6 矩阵发现：技能显式声明跨 Agent 目标（如 `compatibility: [claude-code, cursor]`）却含目标端无对应字段（`lost`，升 WARN）或需转译（`degraded`，仅 INFO）的字段；纯 workbuddy/未声明目标不触发 | INFO/WARN |
+| examples | `EXAMPLE_TARGET_MISSING` | 示例引用文件不存在（照抄将失败） | 示例命令引用的脚本文件（`.py/.js/.mjs/.ts/.sh/.ps1`）在技能目录中不存在（仅核验脚本扩展名，仓库引用 / 安装路径 / 输出文件跳过，避免误报）；SKILL.md 报 ERROR、其余文档 WARN | ERROR/WARN |
+| examples | `EXAMPLE_TARGET_UNVERIFIABLE` | 示例引用无法核验（纯文档快照） | 纯文档快照（未取到技能代码）时示例引用无法核验，退为 INFO 提示，绝不把「没下载到」误判成「文件不存在」 | INFO |
+| examples | `EXAMPLE_FLAG_UNKNOWN` | 示例参数在脚本中无声明 | 示例给脚本传了参数，但该脚本中未找到对应 `add_argument` 声明（AST 解析 + 单层跟随导入 + 字面量兜底；仅 SKILL.md） | WARN |
+| examples | `EXAMPLE_EXT_CMD` | 示例调用外部命令但未声明依赖 | 示例调用外部 CLI（curl/pip/git/docker…），但文档未出现该依赖说明 | INFO |
+| examples | `EXAMPLE_DANGEROUS` | 示例含危险/不可逆命令 | 示例含 `rm -rf /`、fork 炸弹、`mkfs`、`dd` 写块设备、远端内容直喂 shell、`sudo rm` 等危险/不可逆命令（照抄风险） | ERROR/WARN |
+| examples | `EXAMPLE_UNVERIFIED` | 示例标注了期望但未执行验证 | 示例块标注了 `expected-*`，但当前为纯静态模式，未做执行验证（如需执行请 `--examples-mode run`） | INFO |
+| examples | `EXAMPLE_SANDBOX_SKIP` | 示例未执行（沙箱拒绝） | run 模式下示例因不满足沙箱白名单（解释器 / 脚本路径 / 元字符）被跳过，INFO 说明原因（安全红线，不可放宽） | INFO |
+| examples | `EXAMPLE_OUTPUT_DRIFT` | 示例执行结果与标注期望不符 | run 模式执行示例后，退出码 / 标准输出 / 标准错误与 `expected-*` 标注不一致 | WARN |
+| examples | `EXAMPLE_RUN_FAIL` | 示例执行失败/超时 | run 模式执行示例抛异常或超时（> `--examples-timeout`，默认 20s） | WARN |
+| examples | `EXAMPLE_RUN_LIMIT` | 示例执行已达上限 | 单技能执行示例数已达 `--examples-max-cmd`（默认 12），其余标注示例未执行 | INFO |
+| examples | `examples_degraded` | 示例执行验证已降级为纯静态 | 非交互环境且未显式授权执行，回退纯静态并显式标注（绝不静默代决） | INFO |
+| examples | `examples_run_noop` | 沙箱已启用但无标注示例 | 已启用 run 模式，但文档中没有任何带 `expected` 标注的示例块，本次未执行任何命令 | INFO |
 
 ## 平台豁免字段 `target_platform`
 
@@ -192,6 +205,15 @@
 
 **两种精度模式的分工（避免重复报告）**：`ast` 模式由 AST 负责未使用导入 / 未使用定义 / 不可达代码 + 孤儿资源；`vulture` 模式由 vulture 负责导入 / 定义 / 类 / 方法 / 变量检测（高精度、低噪声），并叠加 AST 独有的不可达代码与孤儿资源检测，**不再重复报告 AST 的导入/定义项**。两种模式均支持 `# keep` 内联白名单（vulture 分支同样按定义行/上一行判定 `# keep` 并跳过）。vulture 分析若异常（如版本 API 不兼容），会在 stderr 打印告警并跳过该步、不影响其余检查器。
 
+## examples 检查器误报抑制（v1.26.0）
+
+文档示例本质是「给人看的例子」，天然含占位 / 说明性路径，故本检查器做了多重保守设计，只报高置信缺陷、绝不把说明性内容当缺失文件：
+
+1. **仅核验脚本扩展名**：示例命令里只有以 `.py/.js/.mjs/.ts/.sh/.ps1` 结尾的引用才核验存在性；仓库引用（`owner/repo`）、用户安装路径（`~/.workbuddy/...`）、输出文件（`audit.json`）、占位目录（`./huge-monorepo`）等一律跳过——这些不是「照抄会失败」的脚本，套 ERROR 会误报。通用文件引用由 `doc` 的 `DEAD_PATH` 覆盖。
+2. **参数校验仅 SKILL.md**：示例给脚本传的参数是否在脚本中声明，只对技能本体 `SKILL.md` 生效（`references`/开发文档常引用开发期工具如 `make_fixtures.py --baseline`，其参数表不在发布面代码内，套用会误报）。且无参数表可静态确定时跳过（不猜、不误报）。
+3. **纯文档快照退 INFO**：`--source url` 只取到 SKILL.md、无代码文件时，无法核验示例目标是否存在，一律退为 `EXAMPLE_TARGET_UNVERIFIABLE` INFO，绝不把「没下载到」误判成「文件不存在」。
+4. **执行红线不可放宽**：`run` 模式也绝不执行任意 shell——只跑白名单解释器 + 技能内脚本 + 无 shell 元字符 + 带 `expected` 标注 + 超时保护的命令，不满足即跳过并 INFO 说明。
+
 ## 命令行参数速查
 
 | 参数 | 作用 |
@@ -207,4 +229,7 @@
 | `--timeout <秒>` | 整体超时保护，超时优雅终止（退出码 130）而非卡死 |
 | `--max-file-size <字节>` | 超大文件跳过阈值，避免拖慢 |
 | `--backup` / `--backup-limit N` | 审计前备份 SKILL.md（默认最多保留 3 个备份） |
+| `--examples-mode {static,ask,run,off}` | examples 检查器模式；`static` 默认纯静态(零执行/零网络/零 token)，`ask` 交互询问是否沙箱试运行(30s 超时/非交互回退 static 并 INFO 标注)，`run` 受限沙箱试运行带 expected 标注的示例，`off` 跳过 |
+| `--examples-timeout <秒>` | examples run 模式下单条示例命令执行超时（默认 20） |
+| `--examples-max-cmd <条>` | examples run 模式下单技能最多执行示例命令条数（默认 12，防突刺） |
 

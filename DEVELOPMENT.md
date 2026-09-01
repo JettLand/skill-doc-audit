@@ -231,7 +231,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 > 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·dist·temp」，绝不因此阻断门禁。
 
-> 此外，`dev_self_audit` / `cli.py` 的汇总区会打印**检查器执行回执**（v1.25.5）：逐检查器标 `#身份代号 名称` 与 `✓ 已执行 / ✗ 执行失败 / ✗ 未注册(UNKNOWN)`，尾部一行 `检查器执行回执: ✓doc … ✓doc-llm  [8/8 已执行 OK]`。这是给 agent / 使用者的显式信号——确证每个检查器「真的跑过」，而非像 doc-llm 旧 bug 那样静默落空却显通过；`UNKNOWN`（注册键拼写不一致）/ `FAILED`（执行抛异常）会额外转成 ERROR 发现并升退出码。
+> 此外，`dev_self_audit` / `cli.py` 的汇总区会打印**检查器执行回执**（v1.25.5）：逐检查器标 `#身份代号 名称` 与 `✓ 已执行 / ✗ 执行失败 / ✗ 未注册(UNKNOWN)`，尾部一行 `检查器执行回执: ✓doc … ✓doc-llm ✓examples  [9/9 已执行 OK]`。这是给 agent / 使用者的显式信号——确证每个检查器「真的跑过」，而非像 doc-llm 旧 bug 那样静默落空却显通过；`UNKNOWN`（注册键拼写不一致）/ `FAILED`（执行抛异常）会额外转成 ERROR 发现并升退出码。
 
 ### 远程 CI（`dev-qa.yml`）发出什么
 

@@ -95,10 +95,6 @@ AUDIT_FLAGS = ["--all-checks", "--deadcode-mode", "vulture",
                "--doc-llm-mode", "agent", "--json"]
 PER_AUDIT_TIMEOUT = 240  # 秒
 
-# 真实代码检查的 8 个检查器（与 CHECKER_CODES 对齐，用于回执完整性统计）
-EXPECTED_CHECKERS = ["doc", "structure", "security", "runtime", "deps",
-                     "deadcode", "portability", "doc-llm"]
-
 LIST_ENDPOINTS = [
     "https://api.skillhub.cn/api/skills?pageSize={size}&page={page}",
     "https://lightmake.site/api/skills?pageSize={size}&page={page}",

@@ -1,0 +1,223 @@
+{
+  "skill": "<ROOT>",
+  "version": "0.1.0",
+  "doc_lines": 43,
+  "code_files": 1,
+  "checkers": [
+    "examples"
+  ],
+  "checker_runs": [
+    {
+      "name": "examples",
+      "code": 9,
+      "status": "OK",
+      "findings": 4,
+      "error": null
+    }
+  ],
+  "backup": null,
+  "summary": {
+    "error": 2,
+    "warn": 0,
+    "info": 2,
+    "pass": false
+  },
+  "findings": [
+    {
+      "checker": "examples",
+      "severity": "ERROR",
+      "category": "EXAMPLE_TARGET_MISSING",
+      "category_cn": "示例引用文件不存在（照抄将失败）",
+      "message": "示例命令引用的文件 `scripts/missing_tool.py` 在技能目录中不存在（照抄将直接失败）",
+      "file": "SKILL.md",
+      "line": 23,
+      "suggestion": "修正示例中的路径，或补齐该文件",
+      "ref": "scripts/missing_tool.py"
+    },
+    {
+      "checker": "examples",
+      "severity": "ERROR",
+      "category": "EXAMPLE_DANGEROUS",
+      "category_cn": "示例含危险/不可逆命令",
+      "message": "文档示例含危险命令（递归删除根目录/家目录/通配（不可逆且范围失控））：sudo rm -rf /tmp/scratch",
+      "file": "SKILL.md",
+      "line": 29,
+      "suggestion": "示例会被照抄，建议改为更安全的等价写法并加显式提示",
+      "ref": null
+    },
+    {
+      "checker": "examples",
+      "severity": "INFO",
+      "category": "EXAMPLE_EXT_CMD",
+      "category_cn": "示例调用外部命令但未声明依赖",
+      "message": "示例调用了外部命令 `curl`，但该 CLI 未在本技能代码中出现、也未在 frontmatter 声明，可能缺少依赖说明",
+      "file": "SKILL.md",
+      "line": 35,
+      "suggestion": "在文档补充该外部依赖声明与缺失时的降级方式",
+      "ref": null
+    },
+    {
+      "checker": "examples",
+      "severity": "INFO",
+      "category": "EXAMPLE_UNVERIFIED",
+      "category_cn": "示例标注了期望但未执行验证",
+      "message": "示例（SKILL.md 第 41 行）标注了期望值，但当前为纯静态模式，未做执行验证",
+      "file": "SKILL.md",
+      "line": 41,
+      "suggestion": "如需执行验证请显式指定 --examples-mode run（仅白名单解释器 + 技能内脚本 + 超时保护）",
+      "ref": null
+    }
+  ],
+  "portability_matrix": [
+    {
+      "feature": "description",
+      "target": "agentskills",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "agentskills",
+      "status": "degraded",
+      "note": "displayname 在 agentskills 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "agentskills",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "name",
+      "target": "agentskills",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "agentskills",
+      "status": "lost",
+      "note": "version 在 agentskills 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "claude-code",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "claude-code",
+      "status": "degraded",
+      "note": "displayname 在 claude-code 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "claude-code",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "name",
+      "target": "claude-code",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "claude-code",
+      "status": "lost",
+      "note": "version 在 claude-code 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "cursor-plugin",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "cursor-plugin",
+      "status": "degraded",
+      "note": "displayname 在 cursor-plugin 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "cursor-plugin",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "name",
+      "target": "cursor-plugin",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "cursor-plugin",
+      "status": "lost",
+      "note": "version 在 cursor-plugin 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "cursor-mdc",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "displayname 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "license",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "license 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "name",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "name 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "version",
+      "target": "cursor-mdc",
+      "status": "lost",
+      "note": "version 在 cursor-mdc 无对应字段，将丢失"
+    },
+    {
+      "feature": "description",
+      "target": "generic",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "displayname",
+      "target": "generic",
+      "status": "degraded",
+      "note": "displayname 在 generic 中以 name 表达（需转译）"
+    },
+    {
+      "feature": "license",
+      "target": "generic",
+      "status": "lost",
+      "note": "license 在 generic 无对应字段，将丢失"
+    },
+    {
+      "feature": "name",
+      "target": "generic",
+      "status": "preserved",
+      "note": ""
+    },
+    {
+      "feature": "version",
+      "target": "generic",
+      "status": "lost",
+      "note": "version 在 generic 无对应字段，将丢失"
+    }
+  ]
+}
