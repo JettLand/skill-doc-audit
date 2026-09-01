@@ -35,6 +35,12 @@
 - 文档真相源同步：`checkers.md` 的 doc 检查器项补充「扫描范围」说明 + `DEAD_PATH` 仅 SKILL.md 生效的口径；`DEVELOPMENT.md` 的 `--dev-docs` 行为描述与触发表更新为「递归扫描 src/ 内全部 .md」。
 - 零回归验证：`dev_self_audit --no-sync-check` 全检查器 ERROR 0 / WARN 0 / INFO 42（与改动前 INFO 数一致，无新增 ERROR/WARN）；对部署副本跑默认 `doc` 检查确认 `checkers.md` 示例路径不再误报 `DEAD_PATH`；`self_validate.py` 确定性检查器黄金快照全 PASS（exit 0）；`py_compile` 全部通过。
 
+### doc-llm 注册键 bug 修复（关键）+ 开发者模式默认 agent 接手
+- **关键 bug（doc-llm 此前从未真正执行）**：`doc_llm.py` 自注册键误写为下划线 `CHECKERS["doc_llm"]`，但 `ALL_CHECKERS` 列表、命令行、以及 `finding()` 的 checker 名均为连字符 `doc-llm`。`analyze_skill` 遍历 `enabled` 执行 `CHECKERS.get(name)` 时，`"doc-llm"` → `None`，检查器被整体跳过。后果：`dev_self_audit` 全量、`cli.py --all-checks`、用户 `--check doc-llm`（会被判「未知检查器」）**doc-llm 全部落空**——整个语义漂移检测能力长期处于休眠，包括此前多轮「全量审计 / 版本迭代体检」均未实际跑 doc-llm。
+- 修复：`CHECKERS["doc-llm"] = check_doc_llm`（连字符，与全量集合 / 命令行 / 文档一致）；全仓仅此一处下划线键，无其它残留引用。修复后 `--check doc-llm` 被正确接受，`--all-checks` 与 `dev_self_audit` 均真实执行 doc-llm。
+- 开发者模式默认 agent 接手（用户拍板）：`dev_self_audit.py` 的 `doc_llm_mode` 由 `None`（非交互静默跳过）改为 `"agent"`——非交互也写出语义漂移 dossier（含 SKILL.md + `references/*.md` + 全部 dev .md）并打印 `AGENT_TAKEOVER`，语义比对材料落到磁盘供 agent 接手；CI 下仅多写一个临时 dossier、不影响退出码。开发者模式「扫全部描述性文档」至此真正贯通 `doc`（A1 裸文件名 `EXTERNAL_REF`）+ `doc-llm`（语义 dossier）两层。
+- 零回归验证：`dev_self_audit --no-sync-check` 全检查器 ERROR 0 / WARN 0 / INFO 47（doc-llm INFO 1 为 agent handoff，无新增 ERROR/WARN）；`cli.py --all-checks --doc-llm-mode agent` 对部署副本 ERROR 0 / WARN 0；`self_validate.py` 确定性检查器黄金快照全 PASS（exit 0）；`py_compile` 全过；`--check doc-llm` 不再报「未知检查器」。
+
 ## 1.25.4 打磨明细（文档三分式重构 + 内联版本号收敛 + 开发链路固化）
 
 ### 部署副本同步纳入提交流程

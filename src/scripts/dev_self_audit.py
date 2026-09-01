@@ -92,7 +92,10 @@ def main():
     deadcode_mode = args.deadcode_mode or ("vulture" if _vulture_module() is not None else "ast")
     cli_args = SimpleNamespace(
         deadcode_mode=deadcode_mode,
-        doc_llm_mode=None,        # 非交互：doc-llm 跳过（INFO doc_llm_skipped）；语义比对留给交互 agent 接手
+        # doc-llm：开发者模式默认 agent 接手——写出语义漂移 dossier（含 SKILL.md + references/*.md +
+        # 全部 dev .md）并打印 AGENT_TAKEOVER，供交互 agent 直接接手比对；非交互（钩子/CI）下无害
+        # （仅多写一个临时 dossier 文件，无 agent 读取时不影响退出码）。语义比对不再静默跳过。
+        doc_llm_mode="agent",
         max_file_size=2_000_000,
     )
     dev_docs = [os.path.join(ROOT, "README.md"), os.path.join(ROOT, "CHANGELOG.md")]

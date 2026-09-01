@@ -168,5 +168,8 @@ def check_doc_llm(ctx):
     # 不应到达
     return findings
 # 自注册
-CHECKERS["doc_llm"] = check_doc_llm
+# 注意：注册键必须与 ALL_CHECKERS / 命令行 / finding() 的 checker 名一致，均为连字符 "doc-llm"。
+# 此前误写为下划线 "doc_llm"，导致 analyze_skill 里 CHECKERS.get("doc-llm") 始终返回 None、
+# doc-llm 检查器从未被真正执行（--all-checks / --check doc-llm / dev_self_audit 全量均落空）。
+CHECKERS["doc-llm"] = check_doc_llm
 
