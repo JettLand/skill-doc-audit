@@ -22,6 +22,7 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 # 自校验（基于 tests/fixtures 跑确定性检查器，比对黄金快照；新环境 clone 后任意 CWD 可跑）
 python src/scripts/self_validate.py
 # fixtures 丢失时的声明式 recipe 重建（git 不可用时的技术兜底）
+# 注：self_validate.py 已将 make_fixtures 作为辅助套件——fixtures 缺失时自动调用其 build() 重建，无需手动执行下行
 python src/scripts/make_fixtures.py          # 重建 tests/fixtures/
 python src/scripts/make_fixtures.py --check  # 校验现有 fixtures 与 recipe 一致
 ```
@@ -35,6 +36,7 @@ python src/scripts/make_fixtures.py --check  # 校验现有 fixtures 与 recipe 
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.25.2 | **fixture 生成器作为 self_validate 辅助套件**：`tests/fixtures` 整体缺失时，`self_validate.py` 自动 `import make_fixtures` 并调用 `build()` 重建后继续校验，仅当 import/写盘失败时回退到手动提示；二者构成 coherent 自校验套件。dev-only（不进 dist/部署副本）。部署自审 `ERROR 0 / WARN 0 / INFO 20` |
 | 1.25.1 | **fixtures 声明式 recipe 生成器（self_validate 技术兜底）**：新增 dev 工具 `make_fixtures.py`，将每个 fixture 的「手工创建过程」编码为 recipe（frontmatter + 文件内容），可字节级精确复刻 `tests/fixtures/`，支持 `--check` 校验与 `--out` 指定目录；`self_validate.py` 缺失 fixtures 时提示改用本生成器重建。与「从 golden 反推」的弱方案不同——recipe 复刻原始 fixture 本身（无损），golden 仍只作断言基准，不削弱回归严格性。dev-only（不进 dist/部署副本）。部署自审 `ERROR 0 / WARN 0 / INFO 20` |
 | 1.25.0 | **audit_docs.py 模块化拆分 + 内置自校验工具 self_validate.py**：将 2491 行单体 `audit_docs.py` 拆为薄入口 + `auditlib/` 包（core/model/report/sources/cli + checkers/ 八检查器自注册）；新增开发期自校验工具 `self_validate.py`——基于 `auditlib` 对 `tests/fixtures` 跑确定性检查器、掩去绝对路径后比对 `tests/examples/*.expected.json` 黄金快照，`--baseline` 可重建快照，纯 `__file__` 解析仓库根、新环境 clone 后任意 CWD 可跑。部署自审 `ERROR 0 / WARN 0 / INFO 20` |
 | 1.24.1 | **doc-llm 移除预览选项 + 全量校正 token 成本表述**：用户指出「agent 接手也会消耗 token（输入输出都消耗，输入为主），并非零额外成本」。据此删除 `preview` 模式（`DOCLLM_MODES` 由 `(off,agent,ask,preview)` 改为 `(off,agent,ask)`），删除 `_print_doc_llm_preview` 与 `--doc-llm-mode preview` 处理分支、AskUserQuestion 选项 3 及「前置步骤」流程；交互菜单精简为「1) 默认模式 / 2) 启用语义漂移检查（agent 介入，消耗额外 token）」；全量校正所有「零额外成本 / 不消耗用户 token」表述为「会占用 agent 自身推理 token（输入侧为主），但不向外部 LLM 服务付费」。部署自审 `ERROR 0 / WARN 0 / INFO 20` |

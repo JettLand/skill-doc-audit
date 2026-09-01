@@ -5,6 +5,21 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.25.2 打磨明细（fixture 生成器作为 self_validate 辅助套件）
+
+### 背景（用户指令）
+用户指出：fixture 生成器可作为自校验工具的一个辅助套件，使 fixtures 缺失时能自动恢复，而非仅提示手动重建。
+
+### 改动
+- `self_validate.py` 在 `tests/fixtures` 目录整体缺失时，自动 `import make_fixtures` 并调用 `make_fixtures.build(FIX, quiet=True)` 重建；重建成功则继续校验，仅当 import/写盘异常时才回退到原提示信息。实现「生成器即自校验工具的辅助套件」。
+- `make_fixtures.py` 仍为独立 dev 工具（`--check`/`--out`），既有契约不变。
+- 版本串升 1.25.2（`src/SKILL.md` frontmatter + `sources.py` `User-Agent`）。
+
+### 验证
+- `self_validate.py` 从无关 CWD（`C:/`）运行：三例 `[PASS]`，exit 0。
+- 模拟 `tests/fixtures` 缺失：自动重建并三例 `[PASS]`，首行打印 `[self_validate] fixtures 缺失，已用 make_fixtures 自动重建于 ...`。
+- 部署副本自审 `--all-checks --deadcode-mode vulture`：`ERROR 0 / WARN 0 / INFO 20`（与基线无回归）。
+
 ## 1.25.1 打磨明细（fixtures 声明式 recipe 生成器，self_validate 技术兜底）
 
 ### 背景（用户指令）

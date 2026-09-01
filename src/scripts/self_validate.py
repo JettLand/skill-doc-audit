@@ -71,7 +71,18 @@ def main():
     args = ap.parse_args()
 
     if not os.path.isdir(FIX):
-        fail('未找到 fixtures 目录：%s\n（self_validate 仅能在源码仓库环境运行；若 fixtures 丢失，可运行 `python src/scripts/make_fixtures.py` 重建）' % FIX)
+        # 辅助套件：fixtures 缺失时，优先用 make_fixtures 的声明式 recipe 自动重建
+        regen_ok = False
+        try:
+            import make_fixtures
+            make_fixtures.build(FIX, quiet=True)
+            regen_ok = os.path.isdir(FIX)
+        except Exception:
+            regen_ok = False
+        if regen_ok:
+            print('[self_validate] fixtures 缺失，已用 make_fixtures 自动重建于 %s' % FIX)
+        else:
+            fail('未找到 fixtures 目录：%s\n（self_validate 仅能在源码仓库环境运行；可运行 `python src/scripts/make_fixtures.py` 重建）' % FIX)
     if not os.path.isfile(MANIFEST):
         fail('未找到 manifest：%s' % MANIFEST)
 
