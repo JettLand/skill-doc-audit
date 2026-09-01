@@ -33,14 +33,14 @@
 把「批量实测 skill-doc-audit 在规模化真实世界的稳定性」固化成可重复命令。关键设计（用户 2026-09-01 要求，取代旧 `bench/market-audit/run_market_audit.py`）：
 
 1. **取样指标改为质量分（非热度）**：旧脚本按市场 `score`（热度）升序取最低 50（实测全 `score=0` 长尾）；新工具按 **TRACE 官方质量评测分**（`overall`，5.0 分制）取样——取值方法与 trace-selfcheck 的 `benchmark_official.py` 同源：`fetch_evaluation(slug)` → `parse_eval` → overall。
-2. **取样规则**：从候选池（全市场**随机页偏移**抽样 `pool` 个 slug，默认 3000，避免热度偏差）→ 逐个 `fetch_evaluation` 取质量分 → 升序取**质量最低 1000** → 随机抽 50 做审计。默认不固定种子（每次天然不同）+ 维护采样历史（`sampled_history.json`）排除近 3 次已采 slug，进一步避免重复样本。
+2. **取样规则**：从候选池（全市场**随机页偏移**抽样 `pool` 个 slug，默认 1000，避免热度偏差）→ 逐个 `fetch_evaluation` 取质量分 → 升序取**质量最低 1000** → 随机抽 50 做审计。默认不固定种子（每次天然不同）+ 维护采样历史（`sampled_history.json`）排除近 3 次已采 slug，进一步避免重复样本。
 3. **规模约束与近似（已在代码中实测确认）**：市场技能 13.3 万；列表接口仅支持 `score/downloads/stars/updatedAt` 排序、**不返回质量分字段**；全量爬评测（13 万次请求）不可行。故「质量最低 1000」是候选池内的工程化近似，非字面全局最低 1000（已在报告头部显式标注，避免误读）。
 4. **不进自动调度**：实际跑基准（`run`）只在人工要求或 agent 评估重大版本变动后建议时执行；`check-bump` 子命令供 `dev_self_audit` 在次/主版本变动时打印建议（best-effort、不失败 CI、绝不触发 `run`）。
 
 子命令：
 
 ```bash
-python src/scripts/dev_market_bench.py index            # 构建/刷新质量索引（随机候选池 + 逐个取质量分，默认 3000 次评测请求，约数分钟）
+python src/scripts/dev_market_bench.py index            # 构建/刷新质量索引（随机候选池 + 逐个取质量分，默认 1000 次评测请求，约数分钟）
 python src/scripts/dev_market_bench.py run              # 采样最低质量 1000 中 50 → 下载 → 全量审计 → 报告（缺索引时自动 index）
 python src/scripts/dev_market_bench.py run --sample 50 --seed 7   # 可复现抽样
 python src/scripts/dev_market_bench.py check-bump       # 版本监测（由 dev_self_audit 自动调用）

@@ -17,7 +17,7 @@ dev_market_bench.py —— 市场质量基准实测器（dev-only 辅助开发�
 为什么是近似（受 13.3 万技能规模约束，已在代码中实测确认）：
   市场列表接口只支持 score/downloads/stars/updatedAt 排序、**不返回质量分字段**；且全量
   逐个拉评测（13 万次请求）不可行。故采用「随机均匀抽样候选池 + 逐个取质量分 + 池内取
-  最低 1000」的近似：候选池为全市场随机页偏移抽样的 pool 个 slug（默认 3000，散布随机页
+  最低 1000」的近似：候选池为全市场随机页偏移抽样的 pool 个 slug（默认 1000，散布随机页
   避免热度偏差），在其质量分内取最低 1000、再随机抽 50。这是「质量最低区间」的工程化近似，
   非字面全局最低 1000（全局最低需爬全量评测，不现实）。
 
@@ -34,7 +34,7 @@ dev_market_bench.py —— 市场质量基准实测器（dev-only 辅助开发�
   0 正常；2 参数/路径错误；run 下被审技能出现 ERROR 属被测现象、不升退出码（与 run_market_audit 一致）。
 
 典型用法：
-  python src/scripts/dev_market_bench.py index            # 刷新质量索引（重随机候选池，约 3000 次评测请求）
+  python src/scripts/dev_market_bench.py index            # 刷新质量索引（重随机候选池，约 1000 次评测请求）
   python src/scripts/dev_market_bench.py run              # 采样最低质量 1000 中 50 个 → 审计 → 报告
   python src/scripts/dev_market_bench.py run --sample 50 --seed 7   # 可复现抽样
   python src/scripts/dev_market_bench.py check-bump       # 版本监测（由 dev_self_audit 自动调用）
@@ -438,7 +438,7 @@ def write_report(summary, meta):
 
 
 # ── run 子命令 ────────────────────────────────────────────────────────────────
-def run_bench(sample=50, seed=None, dedup=3, pool=3000, refresh=False, no_index=False):
+def run_bench(sample=50, seed=None, dedup=3, pool=1000, refresh=False, no_index=False):
     if refresh or (not no_index and not os.path.isfile(INDEX_JSON)):
         if no_index and not os.path.isfile(INDEX_JSON):
             log("[run] 质量索引缺失且 --no-index，退出。请先 `index`。")
@@ -594,7 +594,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd")
 
     p_idx = sub.add_parser("index", help="构建/刷新质量索引（随机候选池 + 逐个取质量分）")
-    p_idx.add_argument("--pool", type=int, default=3000, help="候选池大小（默认 3000）")
+    p_idx.add_argument("--pool", type=int, default=1000, help="候选池大小（默认 1000）")
     p_idx.add_argument("--page-size", type=int, default=100, help="列表分页大小（默认 100）")
 
     p_run = sub.add_parser("run", help="采样最低质量 1000 中 50 → 审计 → 报告")
@@ -602,7 +602,7 @@ def main():
     p_run.add_argument("--seed", type=int, default=None, help="随机种子（指定可复现；默认每次不同）")
     p_run.add_argument("--dedup", type=int, default=3,
                        help="排除近 N 次已采 slug（默认 3；0=不排除）")
-    p_run.add_argument("--pool", type=int, default=3000, help="index 候选池大小（默认 3000）")
+    p_run.add_argument("--pool", type=int, default=1000, help="index 候选池大小（默认 1000）")
     p_run.add_argument("--refresh-index", action="store_true", help="强制重建质量索引")
     p_run.add_argument("--no-index", action="store_true", help="索引缺失时直接报错（不自动 index）")
 
