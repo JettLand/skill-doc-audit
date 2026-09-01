@@ -64,6 +64,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | `src/scripts/auditlib/checkers/{deadcode,doc_llm,portability}.py` 或 fixtures / 文档自身 | `dev_self_audit.py`（视情况） | `self_validate.py` | deadcode/doc_llm/portability 不在 `DETERMINISTIC` 子集，跑 `self_validate` 无回归捕捉价值、反引入噪音 |
 | dev 工具自身（sync_deploy / self_validate / make_fixtures / dev_self_audit / `_devcommon`） | 仅 `dev_self_audit.py` 复查 | `self_validate.py` | dev 工具不进发布面，`self_validate` 审计的是用户技能行为、与 dev 工具改动无关 |
 | 发布前（统一动作） | `dev_self_audit.py --strict` **+** `self_validate.py` | — | 一键全量：先质量门禁、再检查器回归（也可靠 CI 钩子自动覆盖） |
+| 版本迭代 / 发布前收尾 | （`dev_self_audit.py` 内置 `release_check` 自动提示） | 手动记忆 | 版本号一致性(SKILL.md↔sources.py) / CHANGELOG 收口 / dist 重打包 / temp 清理——改为门禁输出 `[agent-todo]`，不再依赖记忆 |
 | 准备 `git commit` | （`post-commit` 钩子自动 `sync_deploy`） | 手动 | 提交即同步部署副本 |
 | `git push origin main` | （`pre-push` 钩子自动跑 `dev_self_audit --strict` + `self_validate`） | 手动 | 本地发布门禁，失败拦截 push |
 | 推到 GitHub / 开 PR 到 `main` | （GitHub Actions `dev-qa.yml` 自动跑 `dev_self_audit --strict --no-sync-check` + `self_validate`） | 手动 | 远程兜底，防绕过 |
@@ -80,6 +81,17 @@ python src/scripts/self_validate.py
 python src/scripts/make_fixtures.py --check
 python src/scripts/make_fixtures.py --baseline   # 仅人工显式触发
 ```
+
+## 发布就绪检查（release_check.py · 让钩子/CI 对 agent 发提示）
+
+版本迭代后有一批「必须由 agent 执行」的收尾操作，此前依赖 agent 记忆、易漏做并造成隐蔽漂移（例如 `sources.py` 的 `User-Agent` 版本号带陈旧值自报给远端）。现固化为 `src/scripts/release_check.py`，由 `dev_self_audit.py` 调用——本地 `pre-push` 与远程 `dev-qa` CI 都跑 `dev_self_audit`，故**两道门禁都会输出带 `[agent-todo]` 标记的提示块**，agent 无需回忆即可照做：
+
+- **版本号一致性（阻断）**：`SKILL.md` `version` 必须等于 `sources.py` 第144行的 `User-Agent: skill-doc-audit/<ver>`；不一致 → ERROR 并打印精确修复指令，`--strict` 下拦下 push。
+- **CHANGELOG 收口（阻断）**：`SKILL.md` 版本高于 CHANGELOG 最高版本节时，提示把「未发布改动」提升为 `<ver> 打磨明细`；WARN，`--strict` 下拦截。
+- **dist 制品过期（提示）**：`src/dist/skill-doc-audit.zip` 早于发布面源码时，提示重打包（发布 SkillHub 前必做）；INFO，不阻塞。配套 `src/scripts/build_dist.py`（可复现打包命令，提示里直接给出）。
+- **temp/ 残留（提示）**：`temp/` 发现 `*_test*.py` / `*.mhtml` / `_eval*.txt` / `stress*` 等临时产物时提示清理；INFO，且提示重申「清理前先确认非用户手动放入的文件」（遵循 temp/ 管理约定）。
+
+阻断项与 `--strict` 的 WARN 同样计入 `dev_self_audit` 退出码，故会拦下 `pre-push`；非阻断项仅作 INFO 提示，不阻塞常规提交/推送。效果：把「发布前该做什么」从记忆下沉为门禁输出。
 
 ## 部署副本同步（sync_deploy.py + 提交即同步钩子）
 

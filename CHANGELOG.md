@@ -22,6 +22,12 @@
 - 用户要求终校 SKILL.md 是否残留「普通用户无需关注」的内容。宽口径扫描确认：版本号（7 处，前轮已清）、内部开发阶段标签（Phase 6，前轮已清）；本轮清出 2 处开发者视角泄漏：①「设计原则·跨 Agent 适配」节原用 `sync_deploy`/`dev_self_audit`/`_devcommon.resolve_deploy_dir()` 等**开发期脚本名**+「已部署副本」内部概念解释原则——普通用户跑 `audit_docs.py` 永不接触这些脚本，已删除该子弹（原则由「路径零宿主硬编码」+「用户侧审计本就 agent 无关」两子弹完整表达）；②运行示例原写「对本技能项目目录 `src/` 的审计；因目录名 `src` ≠ 技能名 `skill-doc-audit`」，`src/` 与 `skill-doc-audit` 为项目内部标识符，已改写为通用表述、保留「目录名≠技能名会多一个良性 name_mismatch」的讲解。
 - 保留项核查：第 128/226 行 `src/` 指「被审计仓库内 SKILL.md 可嵌套在 `src/` 子目录」这一**通用能力说明**（适用于任意技能仓库），非本项目内部泄漏，保留；frontmatter 强制 `name/slug/version` 字段为 WorkBuddy 技能强制字段，非泄漏。
 
+### 发布就绪检查（release_check.py · 让同步钩子/本地CI 对 agent 发提示，减少记忆依赖）
+- 用户两问：①版本迭代/文件修改后是否还有需「同步钩子/本地CI」囊括的执行操作；②版本迭代后必须由 agent 执行的操作（如清理测试残留、重打包过期制品）能否让钩子/CI 对 agent 发提示，减少对记忆文件的依赖。
+- Q1 核查缺口（此前仅靠 agent 记忆）：a) **版本号一致性**：`SKILL.md` `version` 与 `sources.py` 第144行 `User-Agent: skill-doc-audit/1.25.4` 无任何检查，升版本忘改 UA 会带陈旧版本自报远端；b) **CHANGELOG 收口**：升版本后须把「未发布改动」提升为版本节，未强制；c) **dist 制品重建**：`README:39` 要求改动发布面后重打包 `dist/skill-doc-audit.zip`，无构建命令、钩子不重建（部署副本用实时文件故运行无碍，但 SkillHub 发布会打包旧代码——实测重建后 sha 改变，证实此前提交的 zip 确已过期）；d) **temp/ 残留清理**：记忆约定「清理前先问用户」，属易漏的 agent 操作。
+- Q2 落地：新增 `src/scripts/release_check.py`（dev-only，被 `dev_self_audit.py` 调用，故本地 `pre-push` 与远程 `dev-qa` CI 都提示）输出带 `[agent-todo]` 标记的提示块——版本一致性(ERROR 阻断)/CHANGELOG 收口(WARN 阻断)/dist 过期(INFO)/temp 残留(INFO)；阻断项并入 `dev_self_audit` 退出码（`--strict` 下拦 push）。配套新增 `src/scripts/build_dist.py`（可复现打包命令，提示里直接给出）。`dev_self_audit.py` 的 `DEV_TOOLS` 排除集补入两新脚本避免 orphan_asset 误报。
+- 严格测试：负向验证——临时把 `sources.py` UA 改为 1.25.3，`dev_self_audit --strict` 即 `EXIT=1` 并输出 `[agent-todo][ERROR] 版本号不一致…改为 skill-doc-audit/1.25.4`；还原后 `EXIT=0`、当前状态无阻断提示。`dev_self_audit --strict` 全检查器 ERROR 0 / WARN 0 / INFO 40 无回归；重建的 `dist` 已纳入提交。
+
 ## 1.25.4 打磨明细（文档三分式重构 + 内联版本号收敛 + 开发链路固化）
 
 ### 部署副本同步纳入提交流程

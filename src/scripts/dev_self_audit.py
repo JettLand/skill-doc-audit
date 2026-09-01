@@ -38,8 +38,10 @@ DEP, _DEP_HOW = resolve_deploy_dir()   # 自动探测：优先 WORKBUDDY_CONFIG_
 
 # 发布面之外的开发期工具：纳入扫描会产生与技能质量无关的噪音，显式排除。
 # _devcommon.py 同为 dev-only（不进部署副本），列入排除避免 orphan_asset 误报。
+# release_check.py / build_dist.py 为本轮新增的 dev-only 发布就绪检查与制品构建脚本，
+# 同样不进部署副本、不属发布面，列入排除避免 orphan_asset / 源码噪音误报。
 DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
-             "dev_self_audit.py", "_devcommon.py"}
+             "dev_self_audit.py", "_devcommon.py", "release_check.py", "build_dist.py"}
 
 
 def fail(msg, code=2):
@@ -137,7 +139,33 @@ def main():
     print("\n汇总：ERROR %d / WARN %d / INFO %d" % (s["error"], s["warn"], s["info"]))
     if not sync_ok:
         print("⚠ 同步校验未通过（部署副本与源码不一致），发布前请先解决。")
-    failed = (s["error"] > 0) or (args.strict and s["warn"] > 0)
+
+    # ---- 5) 发布就绪检查：对 agent 发出待办提示（减少记忆依赖）----
+    # 由 pre-push 钩子与 dev-qa CI 共同调用，故本地与远程门禁都会提示。
+    try:
+        from release_check import run_release_checks
+        rel_block, rel_info = run_release_checks()
+    except Exception as e:
+        rel_block, rel_info = [], [{"severity": "INFO",
+                                     "title": "发布就绪检查不可用",
+                                     "detail": str(e),
+                                     "todo": "手动核对版本号/CHANGELOG/dist/temp"}]
+    if rel_block or rel_info:
+        print("\n" + "=" * 72)
+        print("发布前待办（Agent 提示 · 来自同步钩子/本地CI）")
+        print("=" * 72)
+        for r in rel_block:
+            print("  [agent-todo][%s] %s" % (r["severity"], r["title"]))
+            print("      %s" % r["detail"])
+            print("      → %s" % r["todo"])
+        for r in rel_info:
+            print("  [agent-todo][%s] %s" % (r["severity"], r["title"]))
+            print("      %s" % r["detail"])
+            print("      → %s" % r["todo"])
+        if rel_block:
+            print("\n⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。")
+    # 阻断项并入失败判定（版本不一致 / CHANGELOG 未收口）
+    failed = (s["error"] > 0) or (args.strict and s["warn"] > 0) or bool(rel_block)
     sys.exit(0 if not failed else 1)
 
 
