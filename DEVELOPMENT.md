@@ -71,6 +71,21 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 > 记忆锚点：`self_validate` 只在「动了检查器代码」时有意义；`dev_self_audit` 在「动了发布面 / 文档」或「发布前」跑。两者均不进部署副本，终端用户拿不到。
 
+### 三道自动化机制分工对比
+
+上表按「改动类型」给触发建议；下表按「自动化机制」横向对比三者各自做什么、差异在哪，避免混淆「哪个钩子负责什么」：
+
+| 机制 | 触发时机 | 执行的命令 | 同步校验（副本 ↔ src） | 发 `[agent-todo]` | 门禁拦截 | 失败后果 |
+|---|---|---|---|---|---|---|
+| 同步钩子 `post-commit` | 每次 `git commit` | `sync_deploy.py`（仅同步副本） | 自身即同步动作 | **否** | 否 | 仅告警（commit 已成功），不阻塞 |
+| 本地 CI `pre-push` | `git push origin main` | `dev_self_audit.py --strict` + `self_validate.py` | **是**（本机有副本） | **是** | 是（任一失败拦 push） | 拦截本次 push，须先修复 |
+| 远程 CI `dev-qa.yml` | push/PR 到 `main`（GitHub Actions） | `dev_self_audit.py --strict --no-sync-check` + `self_validate.py` | **否**（`--no-sync-check`，CI 无副本） | **是** | 是（job 失败标红 PR） | PR 标红，拦下合并/发布 |
+
+要点：
+- **`post-commit` 只同步、不发提示、不门禁**——职责单一（提交即把 `src/` 发布面同步到部署副本）；`[agent-todo]` 由 `dev_self_audit` 输出，故只来自 `pre-push` 与 `dev-qa`。
+- **同步校验开关是本地与远程的唯一实质差异**：本机有部署副本故 `pre-push` 保留校验；GitHub 机器无副本，`dev-qa` 加 `--no-sync-check`。两套门禁的检查内容（`dev_self_audit --strict` + `self_validate`）完全一致。
+- **`[agent-todo]` 在远程 CI 仅日志噪音、但门禁（退出码）仍生效**：GitHub 上无 agent 消费提示文本，而 `release_check` 阻断项会升 `dev_self_audit` 退出码 → `dev-qa` 的 `publish-gate` job 失败 → PR 标红，是本地钩子未拦住时的远程兜底。
+
 ## 自校验（self_validate.py）与 fixture 生成器（make_fixtures.py）
 
 - `self_validate.py`：基于 `auditlib` 对 `tests/fixtures/` 跑确定性检查器，掩去绝对路径后比对 `tests/examples/*.expected.json` 黄金快照。新环境 clone 后任意 CWD 可跑（`tests/fixtures/` 已由 `.gitignore` 排除，缺失时自动调 `make_fixtures.build()` 重建）。
