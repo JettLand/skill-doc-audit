@@ -10,7 +10,10 @@
 ### 跨平台黄金快照比对修复（CI 在 ubuntu 上 self_validate 失败）
 - 问题：`runtime`(capability/py_syntax) 与 `security`(hardcoded_secret/path_traversal/...) 检查器把真实脚本路径（来自 `code` 字典键，由 `os.path.relpath` 生成）写入 finding 的 `file` 字段与 `message`；Windows 下为反斜杠（`scripts\main.py`）、Linux 下为正斜杠（`scripts/main.py`）。`self_validate` 的黄金快照在 Windows 生成并固化了反斜杠，导致 ubuntu CI 上 `dirty-skill` 比对出现 4 条「额外发现/缺失发现」差异、exit code 1 标红。
 - 修复：`core.finding()` 出口统一将 `file`/`message`/`ref` 的反斜杠归一为正斜杠（`replace("\\","/")`），Windows 与 Linux 输出一致；正斜杠对所有平台合法可读。这是唯一改动点，检查器逻辑不变。
-- 验证：`make_fixtures.py --baseline` 重基线（黄金快照仅 7 处 `scripts\`→`scripts/`，无其它变更）；本地删 fixtures 强制走 CI「make_fixtures 重建→比对」路径，`self_validate` 三例全 PASS（exit 0）；`dev_self_audit` 零回归。GitHub Actions `检查器行为回归 (self_validate)` 复验待用户推送后确认。
+- 验证：`make_fixtures.py --baseline` 重基线（黄金快照仅 7 处 `scripts\`→`scripts/`，无其它变更）；本地删 fixtures 强制走 CI「make_fixtures 重建→比对」路径，`self_validate` 三例全 PASS（exit 0）；`dev_self_audit` 零回归。GitHub Actions `检查器行为回归 (self_validate)` 复验已绿（commit `c4f276c`）。
+
+### CI 消除 Node 20 废弃警告
+- 升级 `.github/workflows/dev-qa.yml` 两个 job 的 GitHub Action：`actions/checkout@v4`→`@v5`、`actions/setup-python@v5`→`@v6`（GitHub 2025-09-19 公告弃用 Node 20 运行器，旧版本被强制在 Node 24 上跑并告警；这两个 major 版已迁移到 Node 24 运行器）。`python-version: "3.13"` 不变。纯 CI 配置改动，无代码/功能影响，不 bump 版本。
 
 
 ## 1.25.5 打磨明细（缺失引用去重降噪 + 检查器执行回执 + doc-llm 注册键修复 + 扫描范围收敛 + 文档三分式固化）

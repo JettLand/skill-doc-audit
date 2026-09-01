@@ -19,8 +19,8 @@ jobs:
     name: 发布质量门禁 (dev_self_audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: 开发模式自审计（CI 无部署副本，跳过同步校验）
@@ -31,8 +31,8 @@ jobs:
     name: 检查器行为回归 (self_validate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: 示例回归自校验（确定性 + 快，每次都跑）
