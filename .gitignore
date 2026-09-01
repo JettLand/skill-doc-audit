@@ -12,5 +12,7 @@ backups/
 __pycache__/
 *.pyc
 
-# 回归测试夹具（脏样本基线，self_validate.py 的输入，必须随仓库分发以保证 clone 后自校验可用）
-# 注：tests/examples/ 的黄金快照(*.expected.json)与 manifest.json 已纳入版本管理
+# 回归测试夹具（脏样本基线）：由 make_fixtures.py 声明式 recipe 生成，不进版本库
+# （git checkout 后由 self_validate.py 自动重建，或手动 `python src/scripts/make_fixtures.py`）
+tests/fixtures/
+# 注：tests/examples/ 的黄金快照(*.expected.json)与 manifest.json 必须纳入版本管理（断言基线，不可自动重建以免削弱回归护栏）

@@ -5,6 +5,23 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.25.3 打磨明细（fixtures 移出版本管理 + make_fixtures 升级为整套重建工具）
+
+### 背景（用户决策 + 建议）
+- 用户决策：既然已有 fixture 生成器（v1.25.1 recipe + v1.25.2 自动重建），`tests/fixtures/` 应移出 git 跟踪，转为生成产物。
+- 用户建议：既然 fixtures 能自主重建，黄金快照也应能一并重建，且该能力应并入 `make_fixtures`。
+
+### 改动
+- `.gitignore` 重新排除 `tests/fixtures/`（生成产物）；`git rm --cached` 取消跟踪（保留工作树，clone 后由 self_validate 自动重建）。`tests/examples/*.expected.json` 黄金快照与 `manifest.json` 仍纳入版本管理（断言基线）。
+- `make_fixtures.py` 新增 `--baseline`：先 `build()` 重建 fixtures，再复用 `self_validate.normalize` 掩码逻辑重建黄金快照；使生成器成为「fixtures + 黄金快照」整套重建工具。
+- **关键约束（已固化到代码注释与文档）**：黄金快照重建是人工显式动作，**不是** self_validate 正常校验流程的一部分——否则会拿「当前逻辑输出」比「当前逻辑输出」永远 PASS，削弱回归护栏。
+- 版本串升 1.25.3（`src/SKILL.md` frontmatter + `sources.py` `User-Agent`）。
+
+### 验证
+- `make_fixtures.py --baseline` 重建黄金快照后 `git diff tests/examples` 为空（与已提交黄金字节一致）。
+- `self_validate.py` 从无关 CWD（`C:/`）运行：fixtures 缺失时自动重建并三例 `[PASS]`，exit 0。
+- 部署副本自审 `--all-checks --deadcode-mode vulture`：`ERROR 0 / WARN 0 / INFO 20`（与基线无回归）。
+
 ## 1.25.2 打磨明细（fixture 生成器作为 self_validate 辅助套件）
 
 ### 背景（用户指令）

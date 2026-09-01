@@ -9,10 +9,11 @@
 # 仓库根经 __file__ 解析，不依赖 CWD（新环境 clone 后任意目录可跑）。
 #
 # 用法：
-#   python src/scripts/make_fixtures.py            # 重建 tests/fixtures/
-#   python src/scripts/make_fixtures.py --check    # 校验现有 fixtures 与 recipe 一致（不写盘）
-#   python src/scripts/make_fixtures.py --out DIR  # 输出到指定目录
-import os, sys, argparse
+#   python src/scripts/make_fixtures.py                # 重建 tests/fixtures/
+#   python src/scripts/make_fixtures.py --check        # 校验现有 fixtures 与 recipe 一致（不写盘）
+#   python src/scripts/make_fixtures.py --out DIR      # 输出到指定目录
+#   python src/scripts/make_fixtures.py --baseline     # 重建 fixtures 后一并重建黄金快照 tests/examples/*.expected.json（人工显式动作）
+import os, sys, argparse, json
 
 HERE = os.path.dirname(os.path.abspath(__file__))        # <root>/src/scripts
 ROOT = os.path.dirname(os.path.dirname(HERE))            # <root>
@@ -56,11 +57,46 @@ def check(out_dir):
     print("check: %s" % ("OK" if ok else "MISMATCH"))
     return ok
 
+def rebuild_baseline():
+    """重建黄金快照 tests/examples/*.expected.json（复用 self_validate 的掩码逻辑）。
+
+    复用 self_validate.normalize（顶层 skill 路径 -> <ROOT>），保证与
+    `self_validate.py --baseline` 产出一致。
+
+    注意：这是人工显式动作，不是 self_validate 正常校验流程的一部分——
+    若在正常流程自动重建黄金快照，会拿「当前逻辑输出」比「当前逻辑输出」，
+    永远 PASS，从而削弱回归护栏。黄金快照必须保持入库（断言基线）。
+    """
+    sys.path.insert(0, HERE)
+    import self_validate as sv
+    from auditlib.model import analyze_skill
+    manifest = json.load(open(sv.MANIFEST, encoding="utf-8"))
+    for ex in manifest.get("examples", []):
+        fx = ex.get("fixture"); golden = ex.get("golden")
+        if not fx or not golden:
+            continue
+        fx_path = os.path.join(sv.FIX, fx)
+        checkers = ex.get("checkers") or sv.DETERMINISTIC
+        results = analyze_skill(fx_path, enabled=list(checkers), args=None)
+        got = sv.normalize(results)
+        golden_path = os.path.join(sv.EXAMPLES, golden)
+        json.dump(got, open(golden_path, "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=2)
+        print("baseline: %s -> %s" % (fx, golden))
+    print("黄金快照已重建。请人工评审 diff 后提交 tests/examples/。")
+
+
 def main():
-    ap = argparse.ArgumentParser(description="fixtures 声明式生成器（self_validate 兜底）")
+    ap = argparse.ArgumentParser(description="fixtures 声明式生成器（self_validate 辅助套件）")
     ap.add_argument("--out", default=DEFAULT_OUT, help="输出目录（默认 tests/fixtures）")
     ap.add_argument("--check", action="store_true", help="校验现有 fixtures 与 recipe 一致，不写盘")
+    ap.add_argument("--baseline", action="store_true",
+                    help="重建 fixtures 后一并重建黄金快照 tests/examples/*.expected.json（人工显式动作，非自校验自动调用）")
     args = ap.parse_args()
+    if args.baseline:
+        build(args.out)
+        rebuild_baseline()
+        sys.exit(0)
     if args.check:
         sys.exit(0 if check(args.out) else 1)
     build(args.out)
