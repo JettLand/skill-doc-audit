@@ -1,0 +1,7 @@
+# 统一文本文件行尾为 LF（Windows 检出也保持 LF），消除 CRLF 漂移对
+# CI（ubuntu）跨平台比对、黄金快照一致性与 diff 可读性的干扰。
+* text=auto eol=lf
+
+# 二进制文件：禁止行尾转换与文本差异处理，避免损坏
+*.zip binary
+*.png binary
