@@ -28,6 +28,13 @@
 - checkers.md 错误码明细表：删纯引入版本标注 `（v1.21.0）`（DOC_ENUM_DRIFT / DOC_COUNT_DRIFT / DOC_CAPABILITY_DRIFT）、`（v1.24.0）`（doc_llm_agent_handoff）、`（v1.23.0）`（doc_llm_skipped）；保留行为解释型标注（doc-llm 接手机制、agent_coupling 抑制规则、等价映射约定等）。
 - 验证：dev_self_audit.py --strict → 全检查器 `ERROR 0 / WARN 0 / INFO 37`，无回归（doc ERROR 0 / WARN 0）。
 
+### 文档三分式重构（用户模式 / 完整参考 / 开发模式）
+- 按用户 2026-09-01 决策，把文档显式二分：**用户模式**（`src/SKILL.md`，精简，仅能力一句话地图 + Agent 执行约定 + 紧凑错误码速查 + FAQ）与**完整参考**（`src/references/checkers.md`，模式机制 / 判定口径 / 误报抑制 / Phase 演进的明细基准）；**开发模式**单独落到新文件 `DEVELOPMENT.md`（仅维护者，dev-only 工具 / 自审计 / CI / 未发布改动流程，不进部署副本）。
+- `SKILL.md` 去重：①「能力边界」概述由每检查器大段机制铺陈压缩为「一句话能力地图」（模式细节/误报抑制改指向 checkers.md）；②「错误码对照表」下四处大段 blockquote（内容漂移 v1.21.0 / doc-llm Phase / portability Phase 5/6/7 内核与 agentskills 枢纽）删除，改为单行指向 checkers.md——其详细内容 checkers.md 本已完备，属纯重复；③「Agent 执行约定」v1.24.0 关键变更 blockquote 精简为单行 + 指向 checkers.md。保留紧凑错误码速查表（code + 中文 + 级别）供 Agent 现场解读。
+- 新增 `DEVELOPMENT.md`；README「本地开发 / 自测」加指向该文件的链接（项目根、不进部署副本，无死链）。`SKILL.md` 不反向链接 `DEVELOPMENT.md`，使部署副本零死链。
+- 价值：终端用户（本身就是技能开发者）不被 dev 内容干扰；详细规格归单一真相源（checkers.md），漂移风险与 Agent 上下文负载同步下降；开发模式自然「仅开发者可见」（技术隔离此前已由 `DEV_TOOLS` 排除集实现）。
+- 验证：dev_self_audit.py --strict → 全检查器 `ERROR 0 / WARN 0 / INFO 37`，无回归（doc ERROR 0 / WARN 0）。
+
 ## 1.25.3 打磨明细（fixtures 移出版本管理 + make_fixtures 升级为整套重建工具）
 
 ### 背景（用户决策 + 建议）

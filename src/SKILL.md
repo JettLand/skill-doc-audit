@@ -21,16 +21,16 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 
 这个技能是「机器扫描 + AI 语义复核」的组合，两者分工不同：
 
-**脚本能可靠判定的（低误报，通常就是偏差）** —— 由以下检查器产出，可按需启用：
+**脚本能可靠判定的（低误报，通常就是偏差）** —— 由以下检查器产出，可按需启用（模式机制 / 判定口径 / 误报抑制详见 `references/checkers.md`）：
 
-- `doc`（常驻默认开）：文档一致性——覆盖结构化漂移（死引用 `DEAD_PATH`、失效命令行参数 `DEAD_FLAG`、退出码不符、枚举/数量/能力声明与代码事实不符）。**自由散文的语义漂移**（描述含义是否仍准确）静态检查触及不到，由**独立的** `doc-llm` 检查器（与 `doc` 功能互补：doc 做结构化/静态文档一致性，doc-llm 做自由散文语义漂移；下方单列）以 agent 语义检测补足
-- `structure`：结构体检 + 元信息
-- `security`：安全红线静态子集
-- `runtime`：脚本可运行性
-- `deps`：依赖与平台声明
-- `deadcode`（运行前会询问精度模式）：死代码检测——未使用的函数/类定义、未使用的导入、不可达代码，以及 `scripts/` 与 `references/` 下从未被引用的孤立资源文件。运行前按 `--deadcode-mode` 选 `vulture`（高精度，需装 vulture，推荐）/`ast`（零依赖，易误报）/`skip`（本次跳过）；默认 `ask`：环境已装 vulture 则自动采用高精度（不询问），未装则交互询问，30 秒超时或无输入回退零依赖 `ast`；**显式 `--deadcode-mode vulture` 但环境缺库时，脚本先尝试自动 `pip install vulture`（安装成功即高精度，失败才回退 `ast` 并标注 `precision_degraded`），尊重用户的显式高精度意图；`ast`/`skip` 与 ask 模式的自动回退不做安装尝试****⚠️ Agent 执行重要约定**：`ask` 的交互询问依赖人类 TTY 的 `input()` 提示；当由 Agent 经管道调用（stdin 非 TTY）时，脚本无法真正触达用户，会**降级为 `ast`**，并在报告中发出 `precision_degraded` 警告（v1.19.0 起由脚本自愈提示，此前为完全静默）——这正是「Agent 跑全量检测时 deadcode 只跑 AST、跳过询问」的根因。故 Agent 绝不可依赖 `ask` 默认，必须**先探测 vulture、再主动向用户询问三选一、并以 `--deadcode-mode` 显式传入**（具体流程见下方「Agent 执行约定」），让精度选择始终显式可控；即便 Agent 漏问，v1.19.0 也会在报告里显著标注精度降级，避免无提示地以低精度结果蒙混过关。两种模式下函数/导入定义所在行或上一行写 `# keep` 均可作为白名单、跳过告警；vulture 模式由 vulture 负责导入/定义/类/方法检测（不重复报 AST 结果），并叠加 AST 独有的不可达代码与孤儿资源检测
-- `portability`（零依赖纯静态分析）：跨平台可移植性——硬编码绝对路径、启动目录依赖（`os.getcwd`）、平台专属 shell/命令、解释器/运行时锁、编码/路径分隔符假设、Agent 平台耦合。按 SKILL.md 的 `target_platform` 字段豁免对应平台项（`target_platform: windows` 仅抑制 Windows 专属项的误报，仍保留在 Windows 上真会崩的项；不写=跨平台，全检）；`agent_coupling`（Agent 平台耦合）另受同级 `target_agent` 字段门控：声明含 `workbuddy` 则抑制，声明 `claude-code`/`cross-agent` 等跨 Agent 目标且仍含 WorkBuddy 耦合时升为 WARN；全部 WARN/INFO，绝不 ERROR
-- `doc-llm`（**独立的第 8 个检查器**，v1.23.0 起纳入 `--all-checks` 全量集，v1.24.0 起由 **agent 直接接手**）：语义漂移检测——覆盖 `doc` 触及不到的自由散文语义漂移。**本检查器不再调用任何外部 LLM 端点**（不向外部服务付费；但 agent 接手时会占用 agent 自身推理 token，输入侧为主，输出极少）：语义比对改由 agent 使用自身能力完成。全量检测时会**显式问询**是否启用：交互终端弹菜单（`1) 默认模式`：纯脚本、零依赖、0 token / `2) 启用语义漂移检查（agent 介入，消耗额外 token）`：由 agent 直接接手比对，不依赖外部 LLM），**30 秒超时或无输入一律回退默认模式**。非交互环境无法询问则跳过：`--all-checks` 全量自带时记 INFO `doc_llm_skipped`（不污染「全量检测 WARN 0」不变量）。**agent 接手流程**：选 `agent`（或经 AskUserQuestion 选「启用语义漂移检查」）后，脚本把 SKILL.md 全文 + 代码事实清单写成 dossier 并打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 读取后自行完成语义比对、回报漂移。不想被询问可显式 `--doc-llm-mode off`
+- `doc`（常驻默认开）：文档一致性——死引用 `DEAD_PATH`、失效命令行参数 `DEAD_FLAG`、退出码不符、枚举/数量/能力声明与代码事实不符；自由散文语义漂移由 `doc-llm` 补足。
+- `structure`：结构体检 + 元信息（frontmatter / 标题 / 引用）。
+- `security`：安全红线静态子集（硬编码密钥、路径穿越、危险通配删除等）。
+- `runtime`：脚本可运行性（语法 / 引用缺失）。
+- `deps`：依赖与平台声明（未声明外部 CLI / 运行平台）。
+- `deadcode`（运行前按 `--deadcode-mode` 选精度）：未使用定义 / 导入、不可达代码、孤立资源文件（Agent 调用须显式传 `--deadcode-mode`，见下方「Agent 执行约定」）。
+- `portability`（零依赖纯静态）：跨平台可移植性——硬编码绝对路径、`os.getcwd` 依赖、平台专属 shell、解释器锁、编码假设、`agent_coupling`；按 `target_platform` / `target_agent` 豁免。
+- `doc-llm`（**独立的第 8 个检查器**，v1.24.0 起由 **agent 直接接手**，不再调外部 LLM）：自由散文语义漂移——由 agent 用自身能力比对；全量检测显式问询，非交互环境记 INFO `doc_llm_skipped`。
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
 
@@ -151,7 +151,7 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 - **Agent 调用（本技能的主场景）**：Agent 沙箱没有用户能键入的终端，CLI 的 stdin 菜单虽会打印却**收不到输入**（实测：打印后空等约 30s 超时回退默认）。因此 **Agent 必须改用其原生的 `AskUserQuestion` 工具把 doc-llm 选择权抛给用户**，再按选择显式传参——这是「通过 agent 调用也要弹出菜单让用户选择」的正确实现，也契合「绝不替用户决定」红线。
 - **管道/CI（stdin 非 tty）**：弹不出菜单，记 INFO `doc_llm_skipped`（不联网、不消耗 token，INFO 非 WARN，不影响「全量检测 WARN 0」）。
 
-> **v1.24.0 关键变更：语义漂移检测改由 agent 直接接手，不再依赖外部 LLM。** 旧版「增强模式」需用户自备 API Key、调用外部 LLM 端点、额外付费；新版移除全部外部 LLM 调用，由 agent 用自身能力完成语义比对（会占用 agent 自身推理 token，输入侧为主，但不向外部 LLM 服务付费）。v1.24.1 进一步移除「预览」选项——预览会把材料重复灌入上下文、徒增 token，无实质收益。脚本职责收窄为：准备材料（SKILL.md 全文 + 代码事实清单）→ 落盘 dossier → 打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵 → 由 agent 读取并自行判定。
+> **v1.24.0 关键变更**：语义漂移检测改由 agent 直接接手、不再依赖外部 LLM（会占用 agent 自身推理 token，但不向外部服务付费）；v1.24.1 进一步移除「预览」选项。脚本职责收窄为：准备材料 → 落盘 dossier → 打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵 → 由 agent 读取判定。完整机制见 `references/checkers.md`。
 
 **Agent 调用时的标准动作（必须执行，不得省略询问）：**
 1. 运行 `--all-checks`（或 `--check doc-llm`）**前**，先调用 `AskUserQuestion` 向用户呈现 doc 检查器的语义检测模式。**使用以下统一措辞模板**（经用户改进，问题与选项文本必须原样使用，便于理解）：
@@ -333,9 +333,7 @@ python scripts/audit_docs.py --skill src --all-checks
 | `doc_llm_agent_handoff` | 语义漂移检测已转交 agent 接手（dossier 已写入，agent 将自行比对） | INFO |
 | `doc_llm_skipped` | 全量检测中语义漂移检测跳过（非交互环境，未调用任何 LLM） | INFO |
 
-> **内容漂移（v1.21.0 起）**：`doc` 检查器在既有「令牌存在性」校验之上，新增「结构化声明 ↔ 代码事实」交叉校验——`DOC_ENUM_DRIFT`（文档枚举的集合与代码权威集合不符）、`DOC_COUNT_DRIFT`（文档数量声明与代码实际计数不符）、`DOC_CAPABILITY_DRIFT`（能力声明行内出现代码不存在的标识符）。三者均 `WARN` 不 `ERROR`，仅作线索。该机制可捕获枚举/数量/能力集合类漂移；**自由散文的语义漂移（描述含义是否仍准确）仍须 AI 读代码复核**，非静态检查能及。
->
-> **语义漂移（v1.22.0 引入、v1.23.0 纳入全量、v1.24.0 起由 agent 直接接手、v1.24.1 移除预览选项）——独立的 `doc-llm` 检查器**：为覆盖 `doc` 无法触及的自由散文语义漂移，提供语义检测 `doc-llm`，调用流程**刻意对齐 `deadcode` 检查器**（同构的 `(mode, degraded)` 元组 + 降级可见化）。**v1.23.0 起纳入 `--all-checks` 全量集**——全量检测会跑本检查器并**显式问询**是否启用（默认 `ask`，不再需要额外传 `--doc-llm-mode`）。交互终端呈现实选项——`1) 默认模式`（纯脚本，零依赖，0 token）/`2) 启用语义漂移检查（agent 介入，消耗额外 token）`（由 agent 用自身能力比对，会占用 agent 推理 token（输入侧为主），但不依赖外部 LLM、无需付费）；**30 秒超时或无输入一律回退默认模式**。非交互环境无法询问 → 跳过：**全量自带时记 INFO `doc_llm_skipped`（不污染「全量检测 WARN 0」不变量）**。**v1.24.0 起不再调用任何外部 LLM 端点**：选「agent 接手」时脚本把 SKILL.md 全文 + 代码事实清单写成 dossier 并打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 读取后自行完成语义比对、回报 `DOC_LLM_DRIFT` 线索（此过程会占用 agent 自身推理 token，输入侧为主，但不向外部 LLM 服务付费）；v1.24.1 进一步移除「预览」选项——预览会把材料重复灌入上下文、徒增 token，无实质收益。显式 `--doc-llm-mode off` 可完全不参加（不询问、不联网）。
+> 结构化声明 ↔ 代码事实交叉校验（`DOC_ENUM_DRIFT` / `DOC_COUNT_DRIFT` / `DOC_CAPABILITY_DRIFT`，均 `WARN` 仅作线索）自 v1.21.0 起；自由散文语义漂移由独立的 `doc-llm` 检查器覆盖（v1.24.0 起由 agent 直接接手、不再调外部 LLM）。完整机制见 `references/checkers.md`。
 
 ### structure（结构体检 + 元信息）
 
@@ -402,7 +400,7 @@ python scripts/audit_docs.py --skill src --all-checks
 
 ### portability（跨平台可移植性，按 target_platform 豁免）
 
-> **跨 Agent 格式归一化内核（Phase 5）**：审计引擎在执行检查前先用 `detect_format()` 按 frontmatter 特征推断技能格式——`workbuddy` / `agentskills` / `claude-code` / `cursor-mdc` / `generic`——并构建统一 `SkillModel`（name/description/fmt/platform/target_platform/target_agent/tools/license/version/extra），供各检查器与后续矩阵/转译消费。格式判定「按特征推断」而非硬锁枚举，以适配生态演进（同 v1.11.0 自由列表原则）。`analyze_skill` 的返回结果现含 `format` 与 `skill_model` 字段。
+> `portability` 先由 `detect_format()` 推断技能格式并构建统一 `SkillModel`，再按 `target_platform` / `target_agent` 豁免；跨格式矩阵 / 转译机制见 `references/checkers.md`。
 
 | category | 中文含义 | 默认级别 |
 |---|---|---|
@@ -414,10 +412,9 @@ python scripts/audit_docs.py --skill src --all-checks
 | `agent_coupling` | Agent 平台耦合（硬编码 `.workbuddy` / `allowed-tools` 约定，跨 Agent 分发需抽象） | INFO/WARN |
 | `lossy_port` | 跨格式可移植性损失（Phase 6：声明跨 Agent 目标却含目标端无对应/需转译的字段；`lost` 升 WARN，`degraded` 仅 INFO） | INFO/WARN |
 
-> **跨格式可移植性矩阵（Phase 6，核心价值）**：在 Phase 5 统一 `SkillModel` 之上，引擎以开放标准 `agentskills` 为枢纽构建字段级能力映射（`FMT_CAPS` / `EQUIV`），对任意技能生成「源格式 → 各目标格式」的 P（保留）/ D（降级需转译）/ L（丢失）矩阵，并可通过 `--report portability-matrix` 直接打印。`lossy_port` 发现即来自该矩阵：仅当技能**显式声明跨 Agent 目标**（如 `compatibility: [claude-code, cursor]`、`target_agent` 含非 workbuddy 项）时，对声明目标端会 `lost`/`degraded` 的字段发出 WARN/INFO；纯 workbuddy 或未声明目标的不发（其跨 Agent 咨询已由 `agent_coupling` 覆盖）。降级示例：`target_agent` ↔ `compatibility`、`slug`/`displayName` → `name`；丢失示例：workbuddy 的 `version`/`slug` 在 claude-code 无对应字段。
+> `--report portability-matrix` 生成「源格式 → 各目标格式」的 P/D/L 矩阵；跨格式转译（`--report translate`）与 `agentskills` 枢纽机制见 `references/checkers.md`。
 
-> **跨格式转译报告（Phase 7，只读预览）**：在 Phase 5/6 底座之上新增 `--report translate`，把「检测/矩阵」升级为「可预览的转译方案」——但**只出报告、不落盘**，守住本技能「只读扫描、绝不自动改写」的立身之本。它复用 `SkillModel` + `FMT_CAPS`/`EQUIV` + `build_portability_matrix`：对给定源技能与目标格式（`--target`，支持 `workbuddy`↔`agentskills`/`claude-code`/`cursor-plugin`/`generic` 双向），输出 **frontmatter 字段映射表**（保留/降级/丢失逐项标注）+ **目标 SKILL.md 脚手架预览**（仅 frontmatter + 标题骨架，正文散文不翻译、留人工）。`--verify` 在此之上做**内存往返保真**：emit→re-parse→比对，依 `build_portability_matrix` 给出每个字段的可逆性（保留/降级可往返、丢失不可逆）与整体保真结论（`RECOVERABLE` / `LOSSY` / `IRREVERSIBLE`），全程不写任何文件。JSON 模式下附 `translate` 字段供 CI 消费。`generic` 为**降级兜底**目标：仅保留 `name`/`description`，其余字段（version/license/allowed-tools/target_agent 等）全部丢失，仅作最简归档/人读兜底。决策约束：①仅报告不生成文件；②仅 frontmatter + 脚手架；③先支持 workbuddy↔agentskills/claude-code/cursor-plugin，v1.16.0 起追加 `generic` 降级兜底；④`--verify` 往返保真一并纳入。
-> **agentskills = 全生态通用枢纽（Phase 7 关键认知）**：`--target agentskills` 与 `--target cursor-plugin` 产出的 frontmatter 即 **Agent Skills 开放标准（agentskills.io，Anthropic 2025-12 开源）** 形态（`name`/`description`/`license`/`allowed-tools`/`compatibility`/`metadata` 能力集合）。该标准截至 2026 年已被 **40+ AI 工具**采纳为技能格式——Claude Code、Cursor、Gemini CLI、OpenAI Codex、GitHub Copilot、Windsurf、Kiro、OpenCode、Cline、Roo Code 等。即**一次转译到 `agentskills`，技能即可被上述 40+ 工具直接消费**；`claude-code` 仅在其上叠加 `model`/`context`/`agent`/`hooks`/`argument-hint` 等可选扩展键。因此「更多目标格式」的核心诉求已被现有目标以最小成本覆盖，`generic` 仅作压扁兜底。
+> `--report translate`（只读预览·不落盘）做跨格式转译方案；`agentskills` 为全生态通用枢纽（一次转译即被 40+ 工具消费）。完整机制见 `references/checkers.md`。
 
 > 豁免规则（核心）：每条发现的 `breaks_on` 是「它会在哪些 OS 上崩」。声明平台与 `breaks_on` **有交集才报**，无交集才抑制。例：`target_platform: windows` 会抑制 `powershell`/`C:\` 这类 Windows 专属项的误报，但**保留** `rm -rf`/`/Users/` 这种在 Windows 目标上真会崩的项。`target_platform` 不写 = 跨平台（全平台）→ 始终全检。`agent_coupling`（Agent 平台耦合）为 INFO/WARN 咨询项，受 `target_agent` 字段门控：声明跨 Agent 目标（不含 `workbuddy`，如 `claude-code`/`cross-agent`）但仍含 WorkBuddy 耦合时升为 WARN（跨 Agent 会失效）；其余（未声明 / 声明含 `workbuddy` / 推断 `workbuddy`）均按 INFO 提示——不再因 `workbuddy` 而抑制，因本 skill 自身亦开发跨 Agent 能力，耦合提示对所有技能均有价值。开放标准技能的 `compatibility` 字段视作 `target_agent`。
 

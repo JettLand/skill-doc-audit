@@ -12,6 +12,9 @@
 - `src/scripts/make_fixtures.py`、`src/scripts/self_validate.py`、`src/scripts/sync_deploy.py`、`src/scripts/dev_self_audit.py`：开发期维护工具（**dev-only，不进 `dist/` / 部署副本**）；`sync_deploy.py` 负责把 `src/` 的发布面同步到已安装的部署副本 `~/.workbuddy/skills/skill-doc-audit`；`dev_self_audit.py` 是开发模式自审计脚本（审计最新源码 + 开发文档漂移 + 部署副本同步校验）
 
 ## 本地开发 / 自测
+
+> 开发模式完整文档见 [DEVELOPMENT.md](./DEVELOPMENT.md)（仅维护者；dev-only 工具、自审计 / CI / 未发布改动流程；不进部署副本）。
+
 ```bash
 # 对技能源做全检查器自审计（应 0 ERROR，退出码 0）
 python src/scripts/audit_docs.py --skill src --all-checks
