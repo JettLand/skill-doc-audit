@@ -418,7 +418,7 @@ python scripts/audit_docs.py --skill src --all-checks
 | `interpreter_lock` | 解释器/运行时锁（裸 `python` 非 `python3`、Windows `py` 启动器） | WARN |
 | `encoding_sep` | 编码/路径分隔符假设（`open()` 未指定 `encoding`，Windows 文本模式默认编码非 UTF-8 易解码失败） | WARN |
 | `agent_coupling` | Agent 平台耦合（硬编码 `.workbuddy` / `allowed-tools` 约定，跨 Agent 分发需抽象） | INFO/WARN |
-| `lossy_port` | 跨格式可移植性损失（Phase 6：声明跨 Agent 目标却含目标端无对应/需转译的字段；`lost` 升 WARN，`degraded` 仅 INFO） | INFO/WARN |
+| `lossy_port` | 跨格式可移植性损失（声明跨 Agent 目标却含目标端无对应/需转译的字段；`lost` 升 WARN，`degraded` 仅 INFO） | INFO/WARN |
 
 > `--report portability-matrix` 生成「源格式 → 各目标格式」的 P/D/L 矩阵；跨格式转译（`--report translate`）与 `agentskills` 枢纽机制见 `references/checkers.md`。
 
