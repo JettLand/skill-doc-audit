@@ -71,7 +71,7 @@ def main():
     args = ap.parse_args()
 
     if not os.path.isdir(FIX):
-        fail('未找到 fixtures 目录：%s\n（self_validate 仅能在源码仓库环境运行）' % FIX)
+        fail('未找到 fixtures 目录：%s\n（self_validate 仅能在源码仓库环境运行；若 fixtures 丢失，可运行 `python src/scripts/make_fixtures.py` 重建）' % FIX)
     if not os.path.isfile(MANIFEST):
         fail('未找到 manifest：%s' % MANIFEST)
 
@@ -91,7 +91,7 @@ def main():
         fx_path = os.path.join(FIX, fx)
         golden_path = os.path.join(EXAMPLES, golden_rel)
         if not os.path.isdir(fx_path):
-            fail('fixture 不存在：%s' % fx_path)
+            fail('fixture 不存在：%s\n（可运行 `python src/scripts/make_fixtures.py` 重建 tests/fixtures/）' % fx_path)
 
         results = analyze_skill(fx_path, enabled=list(checkers), args=None)
         got = normalize(results)

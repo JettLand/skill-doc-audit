@@ -5,6 +5,23 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.25.1 打磨明细（fixtures 声明式 recipe 生成器，self_validate 技术兜底）
+
+### 背景（用户指令）
+用户指出：既然 fixtures 是手工创建的，应「参考手工创建过程构筑一个 fixtures 生成器」，为自校验工具做技术兜底——fixtures 丢失时仍能重新生成，而非只能依赖 git 恢复。
+
+### 改动
+- **新增 dev 工具 `make_fixtures.py`（声明式 recipe 生成器）**：把每个 fixture 的「手工创建过程」编码为 recipe（frontmatter + 文件内容），运行时精确复刻 `tests/fixtures/`；支持 `--check`（校验现有 fixtures 与 recipe 一致、不写盘）与 `--out DIR`（输出到指定目录），幂等可重跑。
+- **设计取舍（与弱方案区分）**：刻意采用「recipe 复刻原始 fixture 本身」而非「从 golden 快照反推」——前者无损、golden 仍只作断言基准，不削弱回归严格性；后者会循环且可能丢失原始覆盖面。recipe 内容取自已提交 fixtures 的精确副本，故重建字节一致（`make_fixtures.py --check` 验证 OK、`diff -r` 验证 DIFF_CLEAN）。
+- **`self_validate.py` 缺失提示增强**：fixtures 目录/单项缺失时，`fail()` 提示改为「可运行 `python src/scripts/make_fixtures.py` 重建」，引导使用兜底生成器。
+- **dev-only 约束不变**：`make_fixtures.py` 与 `self_validate.py` 均不进 `src/dist/skill-doc-audit.zip` / 部署副本。
+- **版本号升 1.25.1**：`src/SKILL.md` frontmatter 与 `sources.py` 的 `User-Agent` 串同步升至 `skill-doc-audit/1.25.1`。
+
+### 验证
+- `make_fixtures.py --check`：`check: OK`；临时重建后 `diff -r tests/fixtures <tmp>`：`DIFF_CLEAN`（字节一致）。
+- `self_validate.py` 从无关 CWD（`C:/`）运行：三例全部 `[PASS]`，exit 0。
+- 部署副本自审 `--all-checks --deadcode-mode vulture`：`ERROR 0 / WARN 0 / INFO 20`（与基线无回归）。
+
 ## 1.25.0 打磨明细（audit_docs.py 模块化拆分 + 内置自校验工具 self_validate.py）
 
 ### 背景（用户两项指令）

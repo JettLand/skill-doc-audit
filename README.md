@@ -19,6 +19,11 @@ python src/scripts/audit_docs.py --skill src --all-checks
 python src/scripts/audit_docs.py --source github --ref JettLand/skill-doc-audit --check structure
 # 多平台来源自测：经 skillhub CLI 拉取集市技能并审计
 python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check structure
+# 自校验（基于 tests/fixtures 跑确定性检查器，比对黄金快照；新环境 clone 后任意 CWD 可跑）
+python src/scripts/self_validate.py
+# fixtures 丢失时的声明式 recipe 重建（git 不可用时的技术兜底）
+python src/scripts/make_fixtures.py          # 重建 tests/fixtures/
+python src/scripts/make_fixtures.py --check  # 校验现有 fixtures 与 recipe 一致
 ```
 
 ## 打包与发布
@@ -30,6 +35,7 @@ python src/scripts/audit_docs.py --source skillhub --ref skill-doc-audit --check
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.25.1 | **fixtures 声明式 recipe 生成器（self_validate 技术兜底）**：新增 dev 工具 `make_fixtures.py`，将每个 fixture 的「手工创建过程」编码为 recipe（frontmatter + 文件内容），可字节级精确复刻 `tests/fixtures/`，支持 `--check` 校验与 `--out` 指定目录；`self_validate.py` 缺失 fixtures 时提示改用本生成器重建。与「从 golden 反推」的弱方案不同——recipe 复刻原始 fixture 本身（无损），golden 仍只作断言基准，不削弱回归严格性。dev-only（不进 dist/部署副本）。部署自审 `ERROR 0 / WARN 0 / INFO 20` |
 | 1.25.0 | **audit_docs.py 模块化拆分 + 内置自校验工具 self_validate.py**：将 2491 行单体 `audit_docs.py` 拆为薄入口 + `auditlib/` 包（core/model/report/sources/cli + checkers/ 八检查器自注册）；新增开发期自校验工具 `self_validate.py`——基于 `auditlib` 对 `tests/fixtures` 跑确定性检查器、掩去绝对路径后比对 `tests/examples/*.expected.json` 黄金快照，`--baseline` 可重建快照，纯 `__file__` 解析仓库根、新环境 clone 后任意 CWD 可跑。部署自审 `ERROR 0 / WARN 0 / INFO 20` |
 | 1.24.1 | **doc-llm 移除预览选项 + 全量校正 token 成本表述**：用户指出「agent 接手也会消耗 token（输入输出都消耗，输入为主），并非零额外成本」。据此删除 `preview` 模式（`DOCLLM_MODES` 由 `(off,agent,ask,preview)` 改为 `(off,agent,ask)`），删除 `_print_doc_llm_preview` 与 `--doc-llm-mode preview` 处理分支、AskUserQuestion 选项 3 及「前置步骤」流程；交互菜单精简为「1) 默认模式 / 2) 启用语义漂移检查（agent 介入，消耗额外 token）」；全量校正所有「零额外成本 / 不消耗用户 token」表述为「会占用 agent 自身推理 token（输入侧为主），但不向外部 LLM 服务付费」。部署自审 `ERROR 0 / WARN 0 / INFO 20` |
 | 1.24.0 | **doc-llm 语义检测改由 agent 直接接手，彻底移除外部 LLM 依赖**：用户指出「凡用到外部 LLM 的地方都应改由 agent 接手，否则只会提高用户使用成本」。据此删除 `_call_llm`/`_load_llm_config`/`_LLMUnavailable`/`_parse_llm_drift` 及 `--doc-llm-api-key`/`--doc-llm-model`/`--doc-llm-base-url` 三个外部 LLM 参数，`DOCLLM_MODES` 由 `(off,auto,ask,preview)` 改为 `(off,agent,ask,preview)`；新增 `--doc-llm-mode agent`：脚本把 SKILL.md 全文 + 代码事实清单写成 dossier 并打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 用自身能力完成语义比对（会占用 agent 自身推理 token，输入侧为主，但不向外部 LLM 服务付费）。同步修正 **Agent 调用流程**：选项 3（预览）改为「前置步骤」——先展示 agent 将比对的材料与规模，再二次 `AskUserQuestion` 只给 1（默认）/2（agent 接手）让用户做最终选择（超时默认 1）。全量改写所有「依赖外部 LLM / 消耗额外 token」描述为「agent 直接接手 / 零额外成本」。部署自审 `ERROR 0 / WARN 0 / INFO 21` |
