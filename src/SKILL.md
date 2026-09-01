@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.25.6"
+version: "1.25.7"
 license: MIT
 author: Jett
 agent_created: true
@@ -42,7 +42,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 
 | 你能指望脚本可靠判定的 | 脚本只能给线索、必须你/AI 复核的 | 脚本根本查不出的 |
 |---|---|---|
-| 死引用（`DEAD_PATH`/`DEAD_FLAG`/失效退出码）、frontmatter 缺字段、语法错误、未声明外部 CLI、硬编码密钥/路径穿越、`portability` 各项 OS 级破损、死代码 | 描述是否仍成立、提示是否误导、跨文件语义一致性、文档示例是否过时、某 `WARN` 是否为有意为之 | 业务正确性、用户体验、是否「应该」有这个功能、安全设计的合理性 |
+| 死引用（`DEAD_PATH`/`DEAD_FLAG`/失效退出码）、frontmatter 缺字段、语法错误、未声明外部 CLI、硬编码密钥/路径穿越、`portability` 各项 OS 级破损、死代码 | 描述是否仍成立、提示是否误导、跨文件语义一致性、文档示例是否过时、某 `WARN` 是否为有意为之 | 业务正确性、用户体验、是否「应该」有这个功能、安全设计的合理性（如：审计策略该用静态规则还是 LLM、密钥是否明文落盘） |
 | 报告给出 `category`（机器码）+ `category_cn`（中文标签）+ `suggestion`（修复建议），每条发现自解释 | `WARN`/`INFO` 通常需结合上下文，勿直接当错误处置 | — |
 
 > 铁律：**报告是线索，不是裁决。**（新手误区、避坑要点与常见问答见「常见问题与避坑」）
@@ -119,6 +119,8 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 
 默认 `--source local`：用 `--skill <目录>` 或 `--all`（扫 `~/.workbuddy/skills`）审计本机技能。
 新增 `--source` 可把**远程仓库 / 集市技能**拉到临时目录后照常审计，`analyze_skill` 核心逻辑零改动。
+
+> **本地审计完全离线、零外部依赖**：`--source local`（默认）与 `--all` 只读写本机目录，**不联网、不需要任何外部 CLI 或令牌**。仅 `--source github`（需 `git`）、`--source skillhub`（需 `skillhub` CLI）才要求对应命令在 PATH 中；而 `--source url` 用标准库 `urllib` 直抓，**同样零外部 CLI**（仅需 HTTPS 网络可达、对目标 OS 透明）。切勿因「远程审计」条目误以为本工具整体依赖联网——本地体检是纯离线脚本。
 
 > **审计远端技能优先用 `--source url`**（零外部 CLI、绕开 `git clone` 不通的网络限制；常见误区见「常见问题与避坑」·新手误区）。
 
@@ -262,6 +264,11 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 
 ## 常见问题与避坑
 
+### 本节导航（速查锚点）
+- [速答三问](#速答三问30-秒)：要装 vulture 吗 / 远程审计要装 git 吗 / WARN 要不要全改
+- [新手误区](#新手误区)：把线索当裁决 · 远程必用 github · 报漏洞就是真漏洞 · 已弃用即错 · 没装 vulture 用不了
+- [避坑要点](#避坑要点)：DEAD_PATH 是运行产物 · WARN/INFO 非错误 · 改文档五原则 · 缩小审计范围 · 默认零依赖 · doc-llm 语义检测
+
 > **铁律：报告是线索，不是裁决。** 任何改动前先读源码核对，尤其 `WARN`/`INFO` 与语义项。脚本只枚举差异、不判定对错；语义项（描述是否仍成立、提示是否误导、跨文件一致性）必须 AI 读代码判断。
 
 ### 速答三问（30 秒）
@@ -392,6 +399,8 @@ python scripts/audit_docs.py --skill src --all-checks
 |---|---|---|
 | `undeclared_cli` | 未声明外部 CLI 调用 | WARN |
 | `platform_undeclared` | 未声明运行平台（含 Windows 专属 API） | INFO |
+
+> **何时显式声明 `target_platform`（deps 指引）**：`deps` 仅发 `platform_undeclared` INFO（非阻断），但正确声明可消除误报、提升 `portability` 审计精度。判定：① 技能**只**能在某一 OS 上运行（依赖 `winreg`/`ctypes.windll` 等 Windows 专属 API）→ 显式 `target_platform: windows`（`linux`/`macos` 同理）；② 调用平台专属 shell/命令是设计内行为 → 同样声明豁免该项；③ 跨平台通用（目标 = 全平台）→ **不写** `target_platform`（默认即跨平台全检），切勿为消 WARN 而谎报平台。声明后 `portability` 仅抑制与 `breaks_on` **无交集**的 OS 项（详见下方「豁免规则」），不会掩盖真实跨平台破损。
 
 ### deadcode（死代码检测，运行前按 --deadcode-mode 选精度）
 
