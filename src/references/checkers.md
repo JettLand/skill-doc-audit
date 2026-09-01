@@ -16,7 +16,7 @@
 
 ## 检查项明细（权威错误码对照表）
 
-下表为全部检查项的权威对照。`category` 是**稳定机器标识符**，用于 `--json` 机读输出与跨版本比对，不应随意改名；`中文标签` 由 `audit_docs.py` 的 `CATEGORY_LABELS` 自动映射，用于人类可读报告（`category_cn` 字段），使每条发现自解释。新增检查项须在 `audit_docs.py` 的 `CATEGORY_LABELS` 与本文档同步登记。
+下表为全部检查项的权威对照。`category` 是**稳定机器标识符**，用于 `--json` 机读输出与跨版本比对，不应随意改名；`中文标签` 由 `auditlib/core.py` 的 `CATEGORY_LABELS` 自动映射，用于人类可读报告（`category_cn` 字段），使每条发现自解释。新增检查项须在 `auditlib/core.py` 的 `CATEGORY_LABELS` 与本文档同步登记。
 
 | 检查器 | 项（category） | 中文标签 | 说明 | 默认级别 |
 |---|---|---|---|---|
