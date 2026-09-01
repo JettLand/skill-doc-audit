@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: 开发模式自审计（CI 无部署副本，跳过同步校验）
-        # --strict: WARN 也计失败；--no-sync-check: CI 无 C:/Users/.../skill-doc-audit 副本
+        # --strict: WARN 也计失败；--no-sync-check: CI 无已部署的技能副本，跳过同步校验
         run: python src/scripts/dev_self_audit.py --strict --no-sync-check
 
   checker-regression:

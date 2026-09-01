@@ -7,11 +7,23 @@ excluded from `src/dist/skill-doc-audit.zip` and from the deployment copy itself
 
 Purpose
 -------
-Keep the live installed skill at
-    C:/Users/admin/.workbuddy/skills/skill-doc-audit
-byte-identical to the committed source in `src/`, so that every local commit
-automatically refreshes the deployed skill. It is wired as a git `post-commit`
-hook (see `hooks/post-commit` + `git config core.hooksPath ../hooks`).
+Keep the live installed skill byte-identical to the committed source in `src/`,
+so that every local commit automatically refreshes the deployed skill. It is
+wired as a git `post-commit` hook (see `hooks/post-commit` + `git config
+core.hooksPath <repo-abs-path>/hooks` —— 必须用绝对路径，相对 `../hooks` 会被 git
+解析到仓库外，钩子永不触发).
+
+Deployment directory resolution (cross-platform / cross-agent)
+--------------------------------------------------------------
+The target directory is **never hardcoded**. It is resolved by
+`_devcommon.resolve_deploy_dir()`, which tries, in order: `SKILL_DEPLOY_DIR`
+env var > `SKILLS_DIR`/`AGENT_SKILLS_HOME` > `WORKBUDDY_CONFIG_DIR`/
+`CODEBUDDY_CONFIG_DIR` + `/skills` > `~/<WORKBUDDY_DATA_FOLDER_NAME>/skills`
+> `~/.workbuddy/skills` > known third-party agent roots (Claude/Cursor/Codex/
+OpenCode/Aider) + platform roots; if nothing matches it falls back to the
+standard default and the caller skips gracefully. So a path like
+`~/.workbuddy/skills/skill-doc-audit` below is only ever an *example*, never an
+assumption baked into the code.
 
 What gets synced (the release surface)
 --------------------------------------

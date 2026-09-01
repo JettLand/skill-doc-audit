@@ -7,6 +7,17 @@
 
 ## 未发布改动（累计，发布时统一升版本号）
 
+### 开发套件解耦改造（dev-only，_devcommon.py / dev_market_bench.py / hooks / 文档）
+继技能本体解耦后，对 dev 工具做同等改造——dev 工具虽不进部署副本，却运行在环境差异最大的位置（git 钩子本机 vs CI、换机器/用户名/操作系统/宿主 agent）。
+- **解释器硬编码（P0）**：`dev_market_bench.py` 原写死 `PY = C:/Users/<user>/.workbuddy/binaries/python/versions/3.13.12/python.exe`，换机器/换用户名/换 OS 必失效。现由新增的 `_devcommon.resolve_python()` 解析：`SKILL_AUDIT_PYTHON` > `sys.executable` > `python3`。
+- **外部命令依赖（P1）**：下载原 `subprocess` 调 curl，Windows 精简环境 / Linux 最小容器常无 curl，整条基准链路会失效。改为 `_http_download()` 优先标准库 `urllib`，curl 仅作回退（并加 `-f` 使 HTTP 错误码返回非零）。
+- **下载成功判据修复（实测踩坑）**：原判据仅 `size>0`——实测 curl 对 404 仍返回 `rc=0` 并把服务端 17 字节错误页（`Vers...`）写入目标文件，被误判为下载成功、到 `zipfile` 才炸且信息失真。新增 `_looks_like_zip()` 校验 zip 魔数（前 2 字节 `PK`），两条路径下载后统一校验，魔数写进错误信息便于诊断。
+- **宿主路径写进提示指令（P2）**：`check-bump` 第 7 类 `[agent-todo]` 原写死 `~/.workbuddy/skills/skill-doc-audit`，现经 `resolve_deploy_dir()` 动态解析后打印（非标准安装/跨 agent 亦正确）。
+- **候选根重复实现（P3）**：`dev_market_bench.local_candidate_dirs()` 原自抄一份 `~/.workbuddy`/`~/.codebuddy` 候选表，与 `_devcommon` 重复、改一处漏一处。现复用新增的 `_devcommon.candidate_roots()` 单一真相源（本机可用源仍为 49 个，行为不变）。
+- **git 钩子（P4）**：`post-commit`/`pre-push` 原硬编码 `/c/Users/<user>/.../python.exe` 与 `/c/Python314/python.exe`，现一律以 `$HOME` + 系统标准路径（`/usr/bin/python3`、`/usr/local/bin/python3`、`/opt/homebrew/bin/python3`）表达，支持 `SKILL_AUDIT_PYTHON`（最高优先）/`SKILL_AUDIT_PYTHON_CANDIDATES`（空格分隔追加）覆盖。另修「静默跳过」隐患：`REPO_ROOT="$(git rev-parse ... || true)"` 补 `|| true`——脚本开了 `set -e`，git 不可用会让命令替换非 0 并 errexit 终止，连告警都打印不出来。
+- 文档：DEVELOPMENT.md 新增「开发套件的解耦约定（跨平台 / 跨 Agent）」节（5 维约定表 + 钩子 2 条 + 下载判据踩坑）；第 7 类 todo 与渲染样例改为动态解析路径；`core.hooksPath` 示例改为 `<repo>/hooks` 占位。CI 注释与 `sync_deploy` docstring 的宿主路径同步中立化。
+- 验证：`py_compile` 8 个 dev 脚本全通过；`resolve_python()` 默认取当前解释器、环境变量覆盖生效；`resolve_deploy_dir()` 解析正确且 check-bump 打印已动态化；下载正负向实测——不存在 slug 明确失败（`urllib 404;curl_failed(rc=22)`）、真实 slug 成功（3551 字节、zip 有效含 SKILL.md）；钩子正常环境同步 OK、环境变量覆盖生效；`dev_self_audit --strict` ERROR 0/WARN 0/INFO 33 零回归。
+
 ### 市场质量基准实测器：8 线程并发参数化 + 本地优先多源（dev-only，dev_market_bench.py）
 - **并发落地为显式参数**：原 `build_index` 内 `ThreadPoolExecutor(max_workers=8)` 为硬编码、不可调；现新增 `--workers`（默认 **8**，即用户确认的方案）与 `--delay`（默认 0.0，每个评测请求前额外等待秒数，用于按需进一步降低瞬时请求密度）。新增 `_quality_task(slug, delay)` 承载限速；`build_index`/`run_bench` 签名与 `index`/`run` 两个子命令均透传，日志打印实际并发数与等待时长。
 - **本地优先由「单一路径」升级为「多候选源」**：新增 `local_candidate_dirs()`，按优先级遍历——环境变量 `SKILL_MARKET_BENCH_LOCAL_DIRS`（`os.pathsep` 分隔，最高优先，便于 CI/异机复用）> 官方本地技能市场 `~/.workbuddy/skills-marketplace/skills`（find-skills Step 5）> `~/.workbuddy/skills`、`~/.codebuddy/skills`（find-skills Step 4）> IDE 市场插件缓存 `~/.workbuddy/plugins/marketplaces/*/plugins/*/skills`。**动机**：官方市场目录本机并不存在，旧实现短路从未生效；补入其他同语义本地副本后本机可用源从 0 增至 49 个。只读复制、**绝不改动或安装进实时技能目录**。

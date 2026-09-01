@@ -1,11 +1,13 @@
 #!/bin/sh
 # post-commit hook: keep the installed deployment copy in sync with committed source.
-# Installed via: git config core.hooksPath "D:/Agent Work/skill-doc-audit技能项目管理/hooks"
-#   （务必用绝对路径：相对 ../hooks 会被 git 解析到仓库外的 D:/Agent Work/hooks，钩子永不触发）
+# Installed via: git config core.hooksPath "<仓库绝对路径>/hooks"
+#   （务必用绝对路径：相对 ../hooks 会被 git 解析到仓库外，钩子永不触发）
 # The sync itself lives in src/scripts/sync_deploy.py (dev-only, not deployed).
 set -e 2>/dev/null || true
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+# `|| true` 不可省：本脚本开了 set -e，若 git 不可用（如 PATH 被破坏），命令替换返回
+# 非 0 会触发 errexit 直接终止，连下面的告警都打印不出来 —— 静默跳过正是要避免的失效模式。
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -z "$REPO_ROOT" ]; then
   echo "[post-commit] cannot resolve repo root; skip deploy sync"
   exit 0
@@ -14,13 +16,27 @@ fi
 # Locate a python interpreter. Git's hook subprocess does NOT inherit the
 # interactive shell's PATH, so bare `command -v python` can fail silently and
 # skip the deploy sync. Try absolute managed/system candidates first, then PATH.
+#
+# 解耦（跨平台 / 跨机器）：候选一律以 $HOME 或系统标准路径表达，绝不写死某个用户的
+# 绝对路径（如 /c/Users/<someone>/...）——换机器、换用户名、换操作系统即全部失效。
+#   · SKILL_AUDIT_PYTHON           最高优先，显式指定解释器（任意平台通用）
+#   · SKILL_AUDIT_PYTHON_CANDIDATES  追加异机候选（空格分隔，未加引号故会按词拆分）
+#   · 其后 $HOME 下的托管版本（Windows/macOS/Linux 同一份写法）、系统标准路径、PATH
 PY=""
-for cand in \
-  "/c/Users/admin/.workbuddy/binaries/python/versions/3.13.12/python.exe" \
-  "/c/Users/admin/.workbuddy/binaries/python/versions/3.13.12.old.8740/python.exe" \
-  "/c/Python314/python.exe" ; do
-  if [ -x "$cand" ]; then PY="$cand"; break; fi
-done
+if [ -n "$SKILL_AUDIT_PYTHON" ] && [ -x "$SKILL_AUDIT_PYTHON" ]; then
+  PY="$SKILL_AUDIT_PYTHON"
+else
+  for cand in \
+    $SKILL_AUDIT_PYTHON_CANDIDATES \
+    "$HOME/.workbuddy/binaries/python/versions/3.13.12/python.exe" \
+    "$HOME/.workbuddy/binaries/python/versions/3.13.12/python" \
+    "$HOME/.workbuddy/binaries/python/versions/3.13.12.old.8740/python.exe" \
+    "/usr/bin/python3" \
+    "/usr/local/bin/python3" \
+    "/opt/homebrew/bin/python3" ; do
+    if [ -n "$cand" ] && [ -x "$cand" ]; then PY="$cand"; break; fi
+  done
+fi
 if [ -z "$PY" ]; then
   if command -v python3 >/dev/null 2>&1; then
     PY="python3"

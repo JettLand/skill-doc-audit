@@ -72,6 +72,10 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))            # <root>/src/scripts
 ROOT = os.path.dirname(os.path.dirname(HERE))                # <root>
 SRC = os.path.join(ROOT, "src")
+# 复用 dev 公共层的解耦能力：跨 agent/跨平台候选根 + 解释器解析（避免本工具另抄一份）
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+from _devcommon import candidate_roots, resolve_deploy_dir, resolve_python  # noqa: E402
 CACHE = os.path.join(ROOT, "bench", "market_bench")          # 运行时缓存（gitignore：不进版本库）
 INDEX_JSON = os.path.join(CACHE, "quality_index.json")
 HISTORY_JSON = os.path.join(CACHE, "sampled_history.json")
@@ -84,7 +88,8 @@ LOCAL_DIRS_ENV = "SKILL_MARKET_BENCH_LOCAL_DIRS"
 RESULTS_JSON = os.path.join(CACHE, "results.json")
 REPORT_MD = os.path.join(CACHE, "report.md")
 
-PY = r"C:/Users/admin/.workbuddy/binaries/python/versions/3.13.12/python.exe"
+# 审计子进程用的解释器：绝不硬编码机器专属绝对路径（换机器/换用户名/换 OS 即失效），
+# 默认取当前解释器，需指定别的版本时用 SKILL_AUDIT_PYTHON 覆盖（见 _devcommon.resolve_python）。
 CLI = os.path.join(SRC, "scripts", "auditlib", "cli.py")
 AUDIT_FLAGS = ["--all-checks", "--deadcode-mode", "vulture",
                "--doc-llm-mode", "agent", "--json"]
@@ -307,17 +312,18 @@ def local_candidate_dirs():
     故再纳入同语义的其他本地副本根目录，提高本地命中率：
       ① 环境变量 SKILL_MARKET_BENCH_LOCAL_DIRS（os.pathsep 分隔，最高优先，便于覆盖）
       ② 官方本地技能市场 ~/.workbuddy/skills-marketplace/skills
-      ③ 已安装技能目录 ~/.workbuddy/skills、~/.codebuddy/skills（find-skills Step 4）
+      ③ dev 公共层的跨 agent / 跨平台候选根（_devcommon.candidate_roots()，
+         覆盖 WorkBuddy/CodeBuddy/Claude/Cursor/Codex/OpenCode/Aider 与平台专属根）
       ④ IDE 市场插件缓存 ~/.workbuddy/plugins/marketplaces/*/plugins/*/skills
-    只读这些目录、不写不删；复制到 bench 缓存后再审计，绝不改动原副本。
+    只读取这些目录、不写不删；复制到 bench 缓存后再审计，绝不改动原副本。
+
+    解耦考量：③ 刻意复用 _devcommon.candidate_roots() 而非在此另列一份 ~/.workbuddy、
+    ~/.claude 等候选表——重复实现会导致新增 agent 支持时改一处漏一处（跨 agent 漂移）。
     """
     env = os.environ.get(LOCAL_DIRS_ENV, "")
     roots = [p for p in env.split(os.pathsep) if p.strip()]
-    roots += [
-        LOCAL_MARKETPLACE,
-        os.path.join(os.path.expanduser("~"), ".workbuddy", "skills"),
-        os.path.join(os.path.expanduser("~"), ".codebuddy", "skills"),
-    ]
+    roots += [LOCAL_MARKETPLACE]
+    roots += candidate_roots()          # 跨 agent / 跨平台候选根（单一真相源）
     mkt = os.path.join(os.path.expanduser("~"), ".workbuddy", "plugins",
                        "marketplaces", "*", "plugins", "*", "skills")
     roots += sorted(glob.glob(mkt))
@@ -328,6 +334,63 @@ def local_candidate_dirs():
             seen.add(r)
             out.append(r)
     return out
+
+
+def _http_download(url, dest_path, timeout=40):
+    """下载文件：优先纯 Python urllib（零外部命令、跨平台），失败回退 curl。
+
+    解耦考量：早期实现直接 subprocess 调 curl——Windows 精简环境 / Linux 最小化容器
+    常无 curl，会让整条基准链路在异机失效。故改为 urllib 优先（Python 标准库必有），
+    仅当 urllib 失败（代理、重定向、TLS 环境差异）时才回退 curl，两条路径任一成功即可。
+    返回 (True, None) 或 (False, error_str)。
+
+    ⚠ 成功判据必须是「zip 魔数校验」而非「非空」：实测踩过坑——curl 默认对 404/5xx
+    仍返回 rc=0，并把服务端错误页（17 字节的 `Version: ...` 文本）写进目标文件。
+    若仅以 size>0 判成功，会把错误页当成下载成功，后续 zipfile 才炸、且错误信息失真。
+    故两条路径下载后统一校验前 2 字节为 zip 魔数 `PK`，并把实际魔数写进错误信息便于诊断。
+    """
+    err = None
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit-dev-bench"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp, open(dest_path, "wb") as fp:
+            shutil.copyfileobj(resp, fp)
+        ok, why = _looks_like_zip(dest_path)
+        if ok:
+            return True, None
+        err = "urllib_not_zip(%s)" % why
+    except Exception as e:  # noqa: BLE001
+        err = "urllib_failed:%r" % e
+    # 回退：curl（部分网络环境对代理/重定向处理更好）；-f 使 HTTP 4xx/5xx 返回非零
+    try:
+        rc = subprocess.run(["curl", "-sLf", "--max-time", str(timeout), "-o", dest_path, url],
+                            capture_output=True, text=True)
+        if rc.returncode == 0:
+            ok, why = _looks_like_zip(dest_path)
+            if ok:
+                return True, None
+            return False, "%s;curl_not_zip(%s)" % (err, why)
+        return False, "%s;curl_failed(rc=%s)" % (err, rc.returncode)
+    except FileNotFoundError:
+        return False, err + ";curl_missing"
+    except Exception as e2:  # noqa: BLE001
+        return False, "%s;curl_error:%r" % (err, e2)
+
+
+def _looks_like_zip(path):
+    """校验下载产物确为 zip（前 2 字节魔数 PK）；返回 (bool, 诊断串)。"""
+    if not os.path.isfile(path):
+        return False, "missing"
+    size = os.path.getsize(path)
+    if size == 0:
+        return False, "empty"
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(4)
+    except OSError as e:
+        return False, "unreadable:%r" % e
+    if magic[:2] != b"PK":
+        return False, "magic=%r size=%d" % (magic[:4], size)
+    return True, ""
 
 
 def download_and_extract(slug, stats=None):
@@ -359,14 +422,13 @@ def download_and_extract(slug, stats=None):
             except Exception as e:  # noqa: BLE001
                 return None, "local_copy_failed:%r" % e
 
-    # ② 否则走官方下载端点
+    # ② 否则走官方下载端点（纯 Python 优先，curl 仅作回退 —— 不依赖单一外部命令）
     zip_path = os.path.join(SKILLS_DIR, slug + ".zip")
     url = "https://lightmake.site/api/v1/download?slug=" + slug
     try:
-        rc = subprocess.run(["curl", "-sL", "--max-time", "40", "-o", zip_path, url],
-                            capture_output=True, text=True)
-        if rc.returncode != 0 or not os.path.isfile(zip_path) or os.path.getsize(zip_path) == 0:
-            return None, "download_failed(rc=%s)" % rc.returncode
+        ok, derr = _http_download(url, zip_path)
+        if not ok:
+            return None, derr
         try:
             with zipfile.ZipFile(zip_path) as z:
                 z.extractall(dest)
@@ -411,7 +473,7 @@ def run_audit(skill_dir):
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(SRC, "scripts")
     try:
-        rc = subprocess.run([PY, CLI, "--skill", skill_dir, *AUDIT_FLAGS],
+        rc = subprocess.run([resolve_python(), CLI, "--skill", skill_dir, *AUDIT_FLAGS],
                             capture_output=True, text=True, cwd=ROOT, env=env,
                             timeout=PER_AUDIT_TIMEOUT)
     except subprocess.TimeoutExpired:
@@ -685,7 +747,10 @@ def check_bump():
         print("")
         print("  [agent-todo][必须] 次/主版本变更须执行 doc + doc-llm 文档自审计（开发者模式）")
         print("  doc 检查死链接/文档漂移，doc-llm 产出语义漂移 dossier 需 agent 接手判读")
-        print("  → python src/scripts/audit_docs.py --skill ~/.workbuddy/skills/skill-doc-audit --check doc --check doc-llm --doc-llm-mode agent")
+        # 部署副本路径经 resolve_deploy_dir() 解析（不写死 ~/.workbuddy，非标准安装/跨 agent 亦正确）
+        _dep, _how = resolve_deploy_dir()
+        print("  → python src/scripts/audit_docs.py --skill %s --check doc --check doc-llm --doc-llm-mode agent"
+              % _dep)
         print("")
         print("  [agent-todo][必须] 次/主版本变更须执行开发者模式全量自审计（维护整体质量）")
         print("  全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移")

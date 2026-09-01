@@ -7,7 +7,9 @@
 # 与 post-commit 同目录；由 core.hooksPath 绝对路径安装，git 推 main 时自动触发。
 set -e 2>/dev/null || true
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+# `|| true` 不可省（同 post-commit）：开了 set -e 时，git 不可用会让命令替换非 0 并
+# errexit 终止，导致告警都打印不出来 —— 静默跳过是要避免的失效模式。
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -z "$REPO_ROOT" ]; then
   echo "[pre-push] 无法解析仓库根，跳过门禁"
   exit 0
@@ -33,13 +35,23 @@ if ! git diff --quiet HEAD -- src/ README.md CHANGELOG.md DEVELOPMENT.md 2>/dev/
 fi
 
 # python 候选（同 post-commit：git 子进程不继承交互 PATH，须绝对路径优先）
+# 解耦（跨平台 / 跨机器）：以 $HOME 与系统标准路径表达，绝不写死某用户绝对路径。
+#   SKILL_AUDIT_PYTHON（最高优先）/ SKILL_AUDIT_PYTHON_CANDIDATES（空格分隔追加）
 PY=""
-for cand in \
-  "/c/Users/admin/.workbuddy/binaries/python/versions/3.13.12/python.exe" \
-  "/c/Users/admin/.workbuddy/binaries/python/versions/3.13.12.old.8740/python.exe" \
-  "/c/Python314/python.exe" ; do
-  if [ -x "$cand" ]; then PY="$cand"; break; fi
-done
+if [ -n "$SKILL_AUDIT_PYTHON" ] && [ -x "$SKILL_AUDIT_PYTHON" ]; then
+  PY="$SKILL_AUDIT_PYTHON"
+else
+  for cand in \
+    $SKILL_AUDIT_PYTHON_CANDIDATES \
+    "$HOME/.workbuddy/binaries/python/versions/3.13.12/python.exe" \
+    "$HOME/.workbuddy/binaries/python/versions/3.13.12/python" \
+    "$HOME/.workbuddy/binaries/python/versions/3.13.12.old.8740/python.exe" \
+    "/usr/bin/python3" \
+    "/usr/local/bin/python3" \
+    "/opt/homebrew/bin/python3" ; do
+    if [ -n "$cand" ] && [ -x "$cand" ]; then PY="$cand"; break; fi
+  done
+fi
 if [ -z "$PY" ]; then
   if command -v python3 >/dev/null 2>&1; then PY="python3"
   elif command -v python >/dev/null 2>&1; then PY="python"

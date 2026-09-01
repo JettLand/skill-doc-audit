@@ -123,6 +123,32 @@ def resolve_deploy_dir(explicit=None):
     return p, "default(fallback)"
 
 
+def candidate_roots():
+    """公开入口：跨 agent / 跨平台的「技能根目录」候选列表（去重保序）。
+
+    供各 dev 工具复用，避免每个工具各自再抄一份 ~/.workbuddy / ~/.claude / 平台根
+    之类的候选表——那种重复实现正是跨 agent 适配漂移的温床（改一处漏一处）。
+    新增 agent 支持时只需改 _candidate_roots() 一处，所有 dev 工具同步受益。
+    """
+    return _candidate_roots()
+
+
+def resolve_python():
+    """解析 dev 工具跑子进程所用的 Python 解释器（跨机器 / 跨平台安全）。
+
+    优先级：环境变量 SKILL_AUDIT_PYTHON > 当前解释器 sys.executable > python3。
+
+    解耦原则：绝不硬编码任何机器专属绝对路径（如 C:/Users/<user>/.workbuddy/.../
+    python.exe）。这类路径在换机器、换用户名、换操作系统时会直接失效，而 git 钩子
+    场景又尤其容易埋下它（钩子子进程不继承交互 PATH，早期为"能用"而写死）。
+    默认取当前解释器即可——dev 工具本身即由它启动；需指定别的版本时用环境变量覆盖。
+    """
+    env = os.environ.get("SKILL_AUDIT_PYTHON", "").strip()
+    if env:
+        return os.path.expanduser(env)
+    return sys.executable or "python3"
+
+
 def fail(msg, code=2, tag="dev"):
     sys.stderr.write("[%s] ERROR: %s\n" % (tag, msg))
     sys.exit(code)

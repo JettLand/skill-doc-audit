@@ -53,6 +53,24 @@ python src/scripts/dev_market_bench.py check-bump       # 版本监测（由 dev
 
 退出码：`0` 正常；`2` 参数/路径错误；`run` 下被审技能出现 ERROR 属被测现象、不升退出码（与旧 `run_market_audit` 一致）。
 
+## 开发套件的解耦约定（跨平台 / 跨 Agent）
+
+技能本体的解耦原则（SKILL.md「设计原则（核心约束）」）**同样适用于 dev 工具**。dev 工具虽不进部署副本，却恰恰运行在环境差异最大的位置——git 钩子（本机 vs CI）、换机器、换用户名、换操作系统、换宿主 agent。因此以下为硬约定：
+
+| 维度 | 约定 | 落地方式 |
+| --- | --- | --- |
+| 仓库路径 | 一律经 `__file__` 推导，绝不依赖 CWD / 绝对仓库路径 | `_devcommon.ROOT/SRC/HERE`；各 dev 脚本 `sys.path.insert(0, HERE)` 后复用 |
+| 部署副本路径 | 绝不写死 `~/.workbuddy/skills/<name>` | `_devcommon.resolve_deploy_dir()`（含 `SKILL_DEPLOY_DIR` 显式覆盖 + 多 agent 候选探测） |
+| 解释器 | 绝不写死 `C:/Users/<user>/.../python.exe` | `_devcommon.resolve_python()`：`SKILL_AUDIT_PYTHON` > `sys.executable` > `python3` |
+| 外部命令 | 不依赖单一外部命令（curl 等） | 优先标准库（`urllib`），外部命令仅作回退 |
+| 候选根列表 | 不在各工具里各抄一份 `~/.workbuddy` / `~/.claude` 等候选 | `_devcommon.candidate_roots()` 单一真相源，新增 agent 支持只改一处 |
+
+**git 钩子（`hooks/post-commit`、`hooks/pre-push`）额外遵守**：
+- python 候选一律以 `$HOME` 或系统标准路径表达（`/usr/bin/python3`、`/usr/local/bin/python3`、`/opt/homebrew/bin/python3`），**不出现任何具体用户名**；可用 `SKILL_AUDIT_PYTHON`（最高优先）或 `SKILL_AUDIT_PYTHON_CANDIDATES`（空格分隔追加）覆盖。
+- `REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"` 的 `|| true` **不可省**：脚本开了 `set -e`，git 不可用会让命令替换返回非 0 并 errexit 终止，**连告警都打印不出来**——静默跳过正是要避免的失效模式。
+
+**下载判据（实测踩过的坑）**：`dev_market_bench` 下载技能 zip 时，成功判据必须是 **zip 魔数校验**（`_looks_like_zip()` 校验前 2 字节为 `PK`）而非「文件非空」。实测 curl 默认对 404/5xx 仍返回 `rc=0`，会把服务端 17 字节错误页写进目标文件；若仅以 `size>0` 判成功，错误页会被当成下载成功、到 `zipfile` 阶段才炸且信息失真。两条路径（urllib / curl）下载后统一魔数校验，curl 另加 `-f` 使 HTTP 错误码返回非零。
+
 ## 开发模式自审计（dev_self_audit.py）
 
 `src/scripts/dev_self_audit.py` 把以下约定固化为可重复命令，规避长期项目的记忆漂移 / 幻觉 / 漏操作：
@@ -172,7 +190,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | 4 | `[agent-todo][INFO]`（兜底守卫） | 同步钩子未跑导致 `dist/skill-doc-audit.zip` 缺失 / 早于发布面源码 | `手动重建：python src/scripts/build_dist.py`；并确认 `hooks/post-commit` 已运行（`git config core.hooksPath`） | 否 |
 | 5 | `[agent-todo][INFO]` | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py`；或仓库根/`src` 下存在 `*.bak`/`*.bak.*` 过时备份 | `及时清理 temp/ 测试残留与 `*.bak` 备份（默认保留最近 3 个、更早的删除）；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` | 否 |
 | 6 | `[agent-todo][建议]` | 次/主版本（x.y.z 中 x 或 y）变动 | `建议运行「市场质量基准实测器」验证规模化行为是否稳定：python src/scripts/dev_market_bench.py run`（不自动跑，由 Agent 评估后决定） | 否 |
-| 7 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行 doc + doc-llm 文档自审计（开发者模式）：python src/scripts/audit_docs.py --skill ~/.workbuddy/skills/skill-doc-audit --check doc --check doc-llm --doc-llm-mode agent`（doc-llm 产出语义漂移 dossier，需 agent 接手判读；也可执行 dev_self_audit.py --dev-docs 一并扫 README/CHANGELOG） | **是** |
+| 7 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行 doc + doc-llm 文档自审计（开发者模式）：python src/scripts/audit_docs.py --skill <部署副本路径> --check doc --check doc-llm --doc-llm-mode agent`。`<部署副本路径>` 由 `resolve_deploy_dir()` 动态解析后打印（非标准安装/跨 agent 亦正确，通常是 `~/.workbuddy/skills/skill-doc-audit`）；doc-llm 产出语义漂移 dossier，需 agent 接手判读；也可执行 `dev_self_audit.py --dev-docs` 一并扫 README/CHANGELOG | **是** |
 | 8 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行开发者模式全量自审计（维护整体质量）：python src/scripts/dev_self_audit.py --dev-docs --strict`（全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移） | **是** |
 
 **提示块的实际打印格式**（来自 `dev_self_audit.py:153-165`，以「版本不一致」为例的真实渲染）：
@@ -202,7 +220,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
   [agent-todo][必须] 次/主版本变更须执行 doc + doc-llm 文档自审计（开发者模式）
     doc 检查死链接/文档漂移，doc-llm 产出语义漂移 dossier 需 agent 接手判读
-    → python src/scripts/audit_docs.py --skill ~/.workbuddy/skills/skill-doc-audit --check doc --check doc-llm --doc-llm-mode agent
+    → python src/scripts/audit_docs.py --skill <resolve_deploy_dir() 解析出的路径> --check doc --check doc-llm --doc-llm-mode agent
 
   [agent-todo][必须] 次/主版本变更须执行开发者模式全量自审计（维护整体质量）
     全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移
@@ -260,7 +278,7 @@ python src/scripts/make_fixtures.py --baseline   # 仅人工显式触发
 ## 部署副本同步（sync_deploy.py + 提交即同步钩子）
 
 - `sync_deploy.py`（dev-only）：把 `src/` 发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md / dist/skill-doc-audit.zip）字节级同步到部署副本 `~/.workbuddy/skills/skill-doc-audit`，清理 `__pycache__`，末段校验一致性；**刻意排除** dev 工具与 `tests/`。当前同步前先 `build_dist.ensure_fresh()` **按需重建发布制品 zip**（zip 不入库、视为生成产物），保证部署副本与 SkillHub 发布永远基于最新 `src`。
-- `hooks/post-commit`（`git config core.hooksPath` 须为绝对路径 `D:/Agent Work/skill-doc-audit技能项目管理/hooks`）：每次 `git commit` 后自动运行 `sync_deploy.py`，**提交即同步**。⚠ 钩子必须在能找到 `python` 的环境运行，且 `core.hooksPath` 必须为绝对路径——相对 `../hooks` 会被 git 解析到仓库外导致钩子永不触发；提交后务必 `diff` 核验副本一致，不能只看 commit 成功。
+- `hooks/post-commit`（`git config core.hooksPath` 须为**本仓库的绝对路径** `<repo>/hooks`，勿照抄他人路径）：每次 `git commit` 后自动运行 `sync_deploy.py`，**提交即同步**。⚠ 钩子必须在能找到 `python` 的环境运行，且 `core.hooksPath` 必须为绝对路径——相对 `../hooks` 会被 git 解析到仓库外导致钩子永不触发；提交后务必 `diff` 核验副本一致，不能只看 commit 成功。
 
 部署目录解析（与用户名/平台/设备/宿主 agent 解耦，**非标准安装、非 WorkBuddy agent 下真正定位、不降级**）：`sync_deploy.py` 与 `dev_self_audit.py` 均通过 `_devcommon.resolve_deploy_dir()` 解析，返回 `(path, how)`（how 打印在同步日志，便于排查）。优先级：
 1. `SKILL_DEPLOY_DIR`（显式按机覆盖，最高，绕过一切自动探测——任意平台 / 任意 agent 通用）
