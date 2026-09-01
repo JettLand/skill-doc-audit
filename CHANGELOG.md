@@ -69,7 +69,7 @@
 
 ### 背景（用户两项指令）
 1. 用户指出 `audit_docs.py` 已达约 2490 行，单体文件难以维护，要求拆分为多个源码文件。
-2. 用户确认 Vector 3「示例归一化方案」不具备泛用性（仅能校验 skill-doc-audit 项目自身），决定将其落地为技能**内置的可选自校验工具** `self_validate.py`，而非插件式检查器；并要求该工具在新环境 clone 仓库源码后仍可正常调用。
+2. 用户确认「示例归一化方案」不具备泛用性（仅能校验 skill-doc-audit 项目自身），决定将其落地为技能**内置的可选自校验工具** `self_validate.py`，而非插件式检查器；并要求该工具在新环境 clone 仓库源码后仍可正常调用。
 
 ### 改动（代码 + 文档同步）
 - **模块化拆分**：原 2491 行单体 `src/scripts/audit_docs.py` 拆为薄入口（仅 `from auditlib import cli; cli.main()`）+ `src/scripts/auditlib/` 包：`core.py`（常量/公共辅助/`CHECKERS` 注册表）、`model.py`（`analyze_skill`）、`report.py`（`build_json` 等）、`sources.py`（来源层级）、`cli.py`（argparse 入口，含 `import auditlib.checkers  # keep` 触发自注册）；`checkers/` 子包含 doc/structure/security/runtime/deps/deadcode/portability/doc_llm 八检查器，各自 `CHECKERS["name"]=fn` 自注册。
@@ -92,7 +92,7 @@
 - **删除 preview 模式**：`DOCLLM_MODES` 由 `("off","agent","ask","preview")` 改为 `("off","agent","ask")`；`_resolve_doc_llm_mode` 移除 `preview` 分支；`--doc-llm-mode` 帮助与 argparse choices 同步去除 preview；`check_doc_llm` 移除 `if mode == "preview": _print_doc_llm_preview(...)`。
 - **删除 `_print_doc_llm_preview`**：原函数整体删除，仅留两行注释说明 v1.24.1 移除缘由（预览重复占用上下文 token、徒增成本）。
 - **AskUserQuestion 模板精简**：选项由「1) 默认 / 2) agent 接手 / 3) 预览（前置步骤）」改为「1) 默认模式 / 2) 启用语义漂移检查（agent 介入，消耗额外 token）」，删除选项 3 及「前置步骤」二次询问流程，后续红线 / CI 步骤顺延编号。
-- **token 成本表述全量校正**：所有「零额外成本 / 不消耗用户 token」改为「会占用 agent 自身推理 token（输入侧为主），但不向外部 LLM 服务付费」。覆盖 SKILL.md（能力清单、doc-llm 避坑要点、Vector 2 引用块）、`audit_docs.py` 多处 docstring / 运行时提示 / `--check` `--doc-llm-mode` 帮助、README.md 版本摘要。
+- **token 成本表述全量校正**：所有「零额外成本 / 不消耗用户 token」改为「会占用 agent 自身推理 token（输入侧为主），但不向外部 LLM 服务付费」。覆盖 SKILL.md（能力清单、doc-llm 避坑要点、语义漂移引用块）、`audit_docs.py` 多处 docstring / 运行时提示 / `--check` `--doc-llm-mode` 帮助、README.md 版本摘要。
 - **顺手修复版本漂移**：`--source url` 的 `User-Agent` 串仍为 `skill-doc-audit/1.23.0`（v1.24.0 漏升），本次一并升为 `skill-doc-audit/1.24.1`。
 
 ### 验证
@@ -113,7 +113,7 @@
 - **agent 接手机制**：新增 `_write_doc_llm_dossier(ctx)`——把 SKILL.md 全文 + 代码事实清单写成 dossier 文件（系统临时目录），`check_doc_llm` 在 `agent` 模式下打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵并发 `INFO doc_llm_agent_handoff`，由 agent 读取后自行完成语义比对、回报 `DOC_LLM_DRIFT`。
 - **预览改写**：`_print_doc_llm_preview` 改为「agent 将接手、零额外成本、不依赖外部 LLM」口径，展示 agent 将比对的材料规模（不再提「消耗 token」）。
 - **Agent 调用流程修正**（SKILL.md「Agent 调用标准动作」）：选项 3 明确为「前置步骤」——先跑 `--doc-llm-mode preview` 展示材料，再二次 `AskUserQuestion` 只给 1（默认）/2（agent 接手）让用户做最终选择（超时默认 1）。
-- **描述全量改写**：所有「依赖外部 LLM 服务 / 消耗额外 token / 配置 SKILLDOC_LLM_*」表述，统一改为「由 agent 直接接手 / 零额外成本 / 不依赖外部 LLM」。涉及 SKILL.md（能力清单、doc-llm 段落、Agent 约定、错误码表、Vector 2 引用块）、`references/checkers.md`（错误码表）、`README.md`（版本摘要）、argparse 帮助。
+- **描述全量改写**：所有「依赖外部 LLM 服务 / 消耗额外 token / 配置 SKILLDOC_LLM_*」表述，统一改为「由 agent 直接接手 / 零额外成本 / 不依赖外部 LLM」。涉及 SKILL.md（能力清单、doc-llm 段落、Agent 约定、错误码表、语义漂移引用块）、`references/checkers.md`（错误码表）、`README.md`（版本摘要）、argparse 帮助。
 - **错误码调整**：移除 `doc_llm_unavailable` / `doc_llm_ran`（随外部 LLM 调用移除），新增 `doc_llm_agent_handoff`（INFO）。
 
 ### 验证
@@ -146,7 +146,7 @@ v1.23.5/v1.23.6 的 Agent 约定 step 2 把预览模式映射为 `--doc-llm-mode
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
 
 ### 背景（用户反馈）
-用户截图反馈 v1.23.5 的 AskUserQuestion 模板「非常不好理解」——question 用了「doc-llm 语义漂移检测（Vector 2）」等技术术语，选项 label 太简（仅「默认模式/增强模式/预览代价」），代价与能力信息藏在 desc 里，不直观。建议改为面向用户的措辞，把 doc 检查器与代价/能力信息直接写进 question 与选项 label。
+用户截图反馈 v1.23.5 的 AskUserQuestion 模板「非常不好理解」——question 用了「doc-llm 语义漂移检测」等技术术语，选项 label 太简（仅「默认模式/增强模式/预览代价」），代价与能力信息藏在 desc 里，不直观。建议改为面向用户的措辞，把 doc 检查器与代价/能力信息直接写进 question 与选项 label。
 
 ### 改动（纯文档，frontmatter 1.23.5→1.23.6）
 - SKILL.md「Agent 调用标准动作」第 1 步：把三选项措辞固化为**强制模板**（agent 必须原样使用）：
@@ -219,7 +219,7 @@ v1.23.5/v1.23.6 的 Agent 约定 step 2 把预览模式映射为 `--doc-llm-mode
 
 | 打磨项 | 改动 | 验证（均通过） |
 |---|---|---|
-| doc 项补 doc-llm 引导描述 | 在 `SKILL.md`「能力边界（务必先读）」检查器清单的 `doc` 项补一句引导性描述：`doc` 覆盖 Vector 1 结构化漂移（死引用/失效参数/退出码不符/枚举·数量·能力声明与代码事实不符），自由散文语义漂移由同族 `doc-llm` 检查器（Vector 2，下方单列）以 LLM 语义检测补足；使读者在文档开头即建立「doc 与 doc-llm 分工」认知，无需翻到错误码表才知二者关系 | 部署副本自审 `[doc] ERROR 0 / WARN 0`；frontmatter 升 1.23.2；README/CHANGELOG 版本摘要补 1.23.2 |
+| doc 项补 doc-llm 引导描述 | 在 `SKILL.md`「能力边界（务必先读）」检查器清单的 `doc` 项补一句引导性描述：`doc` 覆盖结构化漂移（死引用/失效参数/退出码不符/枚举·数量·能力声明与代码事实不符），自由散文语义漂移由独立的 `doc-llm` 检查器（与 `doc` 功能互补，下方单列）以 agent 语义检测补足；使读者在文档开头即建立「doc 与 doc-llm 分工」认知，无需翻到错误码表才知二者关系 | 部署副本自审 `[doc] ERROR 0 / WARN 0`；frontmatter 升 1.23.2；README/CHANGELOG 版本摘要补 1.23.2 |
 
 ## 1.23.1 打磨明细（确立核心设计原则）
 
@@ -237,7 +237,7 @@ v1.23.5/v1.23.6 的 Agent 约定 step 2 把预览模式映射为 `--doc-llm-mode
 |---|---|---|
 | `--check doc-llm` 默认弹菜单 | `--doc-llm-mode` 默认由 `off` 改为 `ask`（`None` 即解析为 `ask`）；`--check doc-llm` 不传 mode 即进入询问流程，30s 超时/无输入回退默认模式，绝不替用户决定 | 交互选增强/预览/超时默认均解析正确；`py_compile` 通过 |
 | doc-llm 纳入 `--all-checks` 全量集 | `ALL_CHECKERS` 追加 `doc-llm`；`check_doc_llm` 按「是否显式传入 `--doc-llm-mode`」区分可见级别——显式传入却未运行 → WARN `doc_llm_unavailable`；`--all-checks` 全量自带、非交互无法询问 → INFO `doc_llm_skipped`（不污染全量 WARN 0 不变量）；新增 `doc_llm_skipped` INFO 类别 | `--all-checks` 非交互 → INFO `doc_llm_skipped`、WARN 1（仅 deadcode 已知）；`--all-checks --doc-llm-mode ask` 非交互 → WARN `doc_llm_unavailable`；`--doc-llm-mode off` 全静默 |
-| 文档同步 | `SKILL.md`（检查器清单补 doc-llm、避坑条目改写、错误码表补 `doc_llm_skipped`、Vector 2 块改写、Agent 执行约定扩至 doc-llm）、`references/checkers.md`（补 `doc_llm_skipped` 行）、README/CHANGELOG 版本摘要；frontmatter 与两处 UA `1.22.1` → `1.23.0`；部署副本同步 | 部署副本自审 `[doc] ERROR 0 / WARN 0`；全文检索 `1.22.1` 残留仅历史说明 |
+| 文档同步 | `SKILL.md`（检查器清单补 doc-llm、避坑条目改写、错误码表补 `doc_llm_skipped`、语义漂移块改写、Agent 执行约定扩至 doc-llm）、`references/checkers.md`（补 `doc_llm_skipped` 行）、README/CHANGELOG 版本摘要；frontmatter 与两处 UA `1.22.1` → `1.23.0`；部署副本同步 | 部署副本自审 `[doc] ERROR 0 / WARN 0`；全文检索 `1.22.1` 残留仅历史说明 |
 
 ## 1.22.1 打磨明细（doc-llm `ask` 显式三选项交互 · 绝不替用户决定）
 
@@ -246,30 +246,30 @@ v1.23.5/v1.23.6 的 Agent 约定 step 2 把预览模式映射为 `--doc-llm-mode
 | 打磨项 | 改动 | 验证（均通过） |
 |---|---|---|
 | doc-llm `ask` 改为显式三选项交互 | 重写 `_resolve_doc_llm_mode` 的 ask 分支，调用新增 `_prompt_doc_llm_mode()`：交互终端向用户呈现实选项——`1) 默认模式`（纯脚本，零依赖，0 token）/`2) 增强模式`（启用 LLM 语义检测，依赖外部 LLM 服务、消耗额外 token）/`3) 预览代价`（仅展示将发送给 LLM 的内容与预估 token，不实际调用）；新增 `_print_doc_llm_preview(ctx)`；**30 秒超时或无输入一律回退默认模式**（`off`）。非交互（自动化）环境无法询问 → 不再自动复用环境变量配置静默联网，改为回退默认并显著告警（`doc_llm_unavailable`，degraded=True），与 deadcode 非 TTY 行为一致 | 超时（daemon 线程读 stdin，`th.join(30)`）落点 `off`；非 TTY → `auto,True`（触发 `doc_llm_unavailable` WARN）；preview → 打印规模/token 预估后不联网；`py_compile` 通过 |
-| 离线不变量与文档同步 | 离线不变量（默认 `off`、不进 `--all-checks`、绝不自动联网）不变；argparse `--doc-llm-mode` 帮助文改为描述三选项与 30s 超时回退；`SKILL.md` Vector 2 引用块重写（v1.22.1 起，说明三选项/30s 超时/非交互回退）；`references/checkers.md` doc-llm 三行版本标 v1.22.1 并补菜单说明；README/CHANGELOG 版本摘要补 1.22.1 行；frontmatter 与两处 UA 版本串 `1.22.0` → `1.22.1` | 全文检索确认 `1.22.0` 残留仅剩历史说明性引用；部署副本同步后自审 ERROR 0 / WARN 0 / INFO 20 |
+| 离线不变量与文档同步 | 离线不变量（默认 `off`、不进 `--all-checks`、绝不自动联网）不变；argparse `--doc-llm-mode` 帮助文改为描述三选项与 30s 超时回退；`SKILL.md` 语义漂移引用块重写（v1.22.1 起，说明三选项/30s 超时/非交互回退）；`references/checkers.md` doc-llm 三行版本标 v1.22.1 并补菜单说明；README/CHANGELOG 版本摘要补 1.22.1 行；frontmatter 与两处 UA 版本串 `1.22.0` → `1.22.1` | 全文检索确认 `1.22.0` 残留仅剩历史说明性引用；部署副本同步后自审 ERROR 0 / WARN 0 / INFO 20 |
 
 > TRACE 评测对照：待 SkillHub 上架后由平台重跑（目标——验证 doc-llm 交互改动对评测口径无回归，仍保持 ERROR 0 / WARN 0 不变量）。
 
-## 1.22.0 打磨明细（doc-llm 选装 LLM 语义漂移检测 · Vector 2）
+## 1.22.0 打磨明细（doc-llm 选装 LLM 语义漂移检测）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
 
 | 打磨项 | 改动 | 验证（均通过） |
 |---|---|---|
-| doc-llm 选装 LLM 语义漂移检测（Vector 2） | 对齐用户「调取流程参考 deadcode 检查器」要求，将 deadcode 的「`(mode, degraded)` 元组 + 降级显著告警 + argparse `choices` 单一真相源」范式复刻到 doc 检查器。新增 `DOCLLM_MODES = ("off","auto","ask")` 模块常量（紧邻 `DEADCODE_MODES`，供 argparse 与 doc 校验共用）；`CATEGORY_LABELS` doc 段登记 `DOC_LLM_DRIFT`（文档/代码语义漂移 LLM 判定）、`doc_llm_unavailable`（LLM 语义检测不可用已跳过）、`doc_llm_ran`（已运行无漂移）三项；新增完整 doc-llm 实现区块——`_LLMUnavailable` 异常类、`_load_llm_config`（优先级 argparse > 环境变量 `SKILLDOC_LLM_API_KEY`/`SKILLDOC_LLM_MODEL`/`SKILLDOC_LLM_BASE_URL`）、`_call_llm`（标准库 `urllib` POST OpenAI 兼容 `/chat/completions`，UA `skill-doc-audit/1.22.0`）、`_code_fact_sheet`、`_LLM_DRIFT_RE`、`_parse_llm_drift`（`- 文件:行 \| 描述`，上限 30 条）、`_resolve_doc_llm_mode`（同构 deadcode，返回 `(mode, degraded, reason)`，off/auto/ask 三分支，ask+非TTY 或 ask+无配置→`degraded`）、`check_doc_llm`（off/skip 直接返回；degraded→发 `doc_llm_unavailable` WARN；否则调 LLM 解析 `DOC_LLM_DRIFT`；`_LLMUnavailable` 捕获转告警；"无漂移"→`doc_llm_ran` INFO）；`CHECKERS` 注册 `"doc-llm": check_doc_llm` | 自审：`--skill src --all-checks` 绝对路径调用 ERROR 0 / WARN 0 / INFO 20（doc-llm 默认 off 不触发联网、零误报）；off 默认零发现；auto 无配置→`doc_llm_unavailable` WARN；ask 非TTY 无配置→`doc_llm_unavailable` WARN；monkeypatch `_call_llm` 返回固定漂移文本验证 `check_doc_llm` 正确产出 2 条 `DOC_LLM_DRIFT`（文件/行号解析正确） |
+| doc-llm 选装 LLM 语义漂移检测 | 对齐用户「调取流程参考 deadcode 检查器」要求，将 deadcode 的「`(mode, degraded)` 元组 + 降级显著告警 + argparse `choices` 单一真相源」范式复刻到 doc 检查器。新增 `DOCLLM_MODES = ("off","auto","ask")` 模块常量（紧邻 `DEADCODE_MODES`，供 argparse 与 doc 校验共用）；`CATEGORY_LABELS` doc 段登记 `DOC_LLM_DRIFT`（文档/代码语义漂移 LLM 判定）、`doc_llm_unavailable`（LLM 语义检测不可用已跳过）、`doc_llm_ran`（已运行无漂移）三项；新增完整 doc-llm 实现区块——`_LLMUnavailable` 异常类、`_load_llm_config`（优先级 argparse > 环境变量 `SKILLDOC_LLM_API_KEY`/`SKILLDOC_LLM_MODEL`/`SKILLDOC_LLM_BASE_URL`）、`_call_llm`（标准库 `urllib` POST OpenAI 兼容 `/chat/completions`，UA `skill-doc-audit/1.22.0`）、`_code_fact_sheet`、`_LLM_DRIFT_RE`、`_parse_llm_drift`（`- 文件:行 \| 描述`，上限 30 条）、`_resolve_doc_llm_mode`（同构 deadcode，返回 `(mode, degraded, reason)`，off/auto/ask 三分支，ask+非TTY 或 ask+无配置→`degraded`）、`check_doc_llm`（off/skip 直接返回；degraded→发 `doc_llm_unavailable` WARN；否则调 LLM 解析 `DOC_LLM_DRIFT`；`_LLMUnavailable` 捕获转告警；"无漂移"→`doc_llm_ran` INFO）；`CHECKERS` 注册 `"doc-llm": check_doc_llm` | 自审：`--skill src --all-checks` 绝对路径调用 ERROR 0 / WARN 0 / INFO 20（doc-llm 默认 off 不触发联网、零误报）；off 默认零发现；auto 无配置→`doc_llm_unavailable` WARN；ask 非TTY 无配置→`doc_llm_unavailable` WARN；monkeypatch `_call_llm` 返回固定漂移文本验证 `check_doc_llm` 正确产出 2 条 `DOC_LLM_DRIFT`（文件/行号解析正确） |
 | argparse 接入 doc-llm | 新增 `--doc-llm-mode`（choices=`DOCLLM_MODES`，默认 `off`）、`--doc-llm-base-url`、`--doc-llm-api-key`、`--doc-llm-model`；`--check` 帮助文本补 `doc-llm`；`--all-checks` 帮助注明 doc-llm 默认 off、不触发联网 | 离线不变量确认：`--all-checks` 不调用 `_call_llm`、不发任何网络请求（沙箱屏蔽 localhost，真实联网路径以 monkeypatch 验证逻辑层）；`py_compile` 通过 |
 | 版本号晋升 1.21.0 → 1.22.0 | frontmatter `version` 升 1.22.0；`audit_docs.py` 两处 User-Agent 版本串 `skill-doc-audit/1.21.0` → `skill-doc-audit/1.22.0` 同步（`_call_llm` 内与 `_fetch` 源码抓取处）；默认 LLM base URL 拆为 `"https://" "api.openai.com/v1"` 字面值拼接、argparse help 文本不出现完整 URL，规避 security 检查器 `hardcoded_endpoint` 误报 | grep 确认代码内仅两处版本串、与 frontmatter 一致；重跑 `--all-checks` 自审 WARN 由潜在 2 处端点告警归零至 0 |
-| 文档同步 | `SKILL.md` 错误码对照表新增 `DOC_LLM_DRIFT`/`doc_llm_unavailable`/`doc_llm_ran` 三行；doc 章节新增 Vector 2 引用块（doc-llm 选装、对齐 deadcode 调用流程、离线不变量、调用配置）；避坑要点新增「doc-llm 默认不运行（离线不变量）」条；`references/checkers.md` 新增三行（标注 Vector 2, v1.22.0）；`src/dist/skill-doc-audit.zip` 重打包（3 条目：SKILL.md/audit_docs.py/checkers.md） | 全文检索确认无残留旧表述；部署副本 `C:/Users/admin/.workbuddy/skills/skill-doc-audit/` 已同步（version 1.22.0，自审 ERROR 0 / WARN 0 / INFO 20） |
+| 文档同步 | `SKILL.md` 错误码对照表新增 `DOC_LLM_DRIFT`/`doc_llm_unavailable`/`doc_llm_ran` 三行；doc 章节新增语义漂移引用块（doc-llm 选装、对齐 deadcode 调用流程、离线不变量、调用配置）；避坑要点新增「doc-llm 默认不运行（离线不变量）」条；`references/checkers.md` 新增三行（标注 v1.22.0）；`src/dist/skill-doc-audit.zip` 重打包（3 条目：SKILL.md/audit_docs.py/checkers.md） | 全文检索确认无残留旧表述；部署副本 `C:/Users/admin/.workbuddy/skills/skill-doc-audit/` 已同步（version 1.22.0，自审 ERROR 0 / WARN 0 / INFO 20） |
 
 > TRACE 评测对照：待 SkillHub 上架后由平台重跑（目标——验证 doc-llm 选装项对评测口径无回归，仍保持 ERROR 0 / WARN 0 不变量）。
 
-## 1.21.0 打磨明细（doc 检查器内容漂移检测 · Vector 1）
+## 1.21.0 打磨明细（doc 检查器内容漂移检测）
 
 > 发布：2026-08-31 本地提交；SkillHub 上架与 TRACE 复评待用户授权后执行。
 
 | 打磨项 | 改动 | 验证（均通过） |
 |---|---|---|
-| doc 内容漂移检测（Vector 1） | `check_doc` 在既有「令牌存在性」校验（DEAD_PATH / DEAD_FLAG / EXIT_* / UNKNOWN_IDENT / VERSION_MISSING）之上，新增三类「结构化声明 ↔ 代码事实」交叉校验：`DOC_ENUM_DRIFT`（文档枚举的 deadcode 模式集合 `{ask,vulture,ast,skip}` / `ask/vulture/ast/skip` 与新增权威常量 `DEADCODE_MODES` 比对）、`DOC_COUNT_DRIFT`（文档「N 个检查器」与 `len(ALL_CHECKERS)` 比对）、`DOC_CAPABILITY_DRIFT`（能力声明动词行内的反引号标识符在代码与声明中均不存在时提示能力可能已移除）。三者均 WARN 不 ERROR；新增 `DEADCODE_MODES` 模块常量并接入 `--deadcode-mode` 的 argparse `choices`，成为 argparse 与 doc 校验共用的单一真相源；`CATEGORY_LABELS` 登记三项新标签 | 自审：`python audit_docs.py --skill src --all-checks` 中 doc ERROR 0 / WARN 0，三新类别在准确文档上零误报；构造漂移夹具（注入「共 6 个检查器」、删 `skip`、`自动支持 `nonexistent_cap``）运行确认 `DOC_COUNT_DRIFT` / `DOC_ENUM_DRIFT` / `DOC_CAPABILITY_DRIFT` 三项均触发（真阳性），验证后清理夹具 |
+| doc 内容漂移检测 | `check_doc` 在既有「令牌存在性」校验（DEAD_PATH / DEAD_FLAG / EXIT_* / UNKNOWN_IDENT / VERSION_MISSING）之上，新增三类「结构化声明 ↔ 代码事实」交叉校验：`DOC_ENUM_DRIFT`（文档枚举的 deadcode 模式集合 `{ask,vulture,ast,skip}` / `ask/vulture/ast/skip` 与新增权威常量 `DEADCODE_MODES` 比对）、`DOC_COUNT_DRIFT`（文档「N 个检查器」与 `len(ALL_CHECKERS)` 比对）、`DOC_CAPABILITY_DRIFT`（能力声明动词行内的反引号标识符在代码与声明中均不存在时提示能力可能已移除）。三者均 WARN 不 ERROR；新增 `DEADCODE_MODES` 模块常量并接入 `--deadcode-mode` 的 argparse `choices`，成为 argparse 与 doc 校验共用的单一真相源；`CATEGORY_LABELS` 登记三项新标签 | 自审：`python audit_docs.py --skill src --all-checks` 中 doc ERROR 0 / WARN 0，三新类别在准确文档上零误报；构造漂移夹具（注入「共 6 个检查器」、删 `skip`、`自动支持 `nonexistent_cap``）运行确认 `DOC_COUNT_DRIFT` / `DOC_ENUM_DRIFT` / `DOC_CAPABILITY_DRIFT` 三项均触发（真阳性），验证后清理夹具 |
 
 ## 1.20.0 打磨明细（FAQ / 新手误区 / 避坑聚合为单一「常见问题与避坑」专章）
 
