@@ -64,7 +64,6 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 本技能不假设自己只跑在 WorkBuddy 上、只装在某个固定用户名 / 盘符的目录。该原则统领路径解析与跨 Agent 分发：
 
 - **路径零宿主硬编码**：一律经 `os.path.expanduser("~")` / 环境变量解析，禁止写死随账号或盘符变化的用户主目录绝对路径（例如 Windows 用户目录下「用户名」起手的写法）；换机器 / 换用户名 / 自定义数据目录都不应破。
-- **开发期工具跨 agent 定位**：`sync_deploy` / `dev_self_audit` 经 `_devcommon.resolve_deploy_dir()` 定位「已部署副本」——`SKILL_DEPLOY_DIR` 显式覆盖最高优先（任意平台 / 任意 agent 通用），其次探测多 agent 候选根（WorkBuddy / Claude / Cursor / Codex / OpenCode 等）+ 跨平台主目录；找不到才优雅回落默认，绝不静默降级为「跳过」。
 - **用户侧审计本就 agent 无关**：`--skill <目录>` 收任意路径、`--all` 扫宿主 skills 根、`--source` 支持 github / skillhub / url；跨 Agent 分发以 `target_agent` 字段声明，portability 据此豁免耦合项（`agent_coupling`）。
 
 ## 快速开始
@@ -290,7 +289,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 
 ## 完整运行示例（真实输出 + 解读）
 
-对技能源码目录运行全套体检（下方输出取自对本技能项目目录 `src/` 的审计；因目录名 `src` ≠ 技能名 `skill-doc-audit`，额外出现 1 个 `name_mismatch` WARN，审计正常部署的技能则无此项）：
+对某个技能目录运行全套体检时（下方输出取自对本技能自身的审计；当审计目标目录名与技能名不一致时，会额外出现 1 个 `name_mismatch` WARN，审计正常部署的技能则无此项）：
 
 ```sh
 python scripts/audit_docs.py --skill src --all-checks

@@ -18,6 +18,10 @@
 - 改写后 SKILL.md 仍准确枚举 8 个检查器（doc / structure / security / runtime / deps / deadcode / portability / doc-llm），与 `auditlib/checkers/__init__.py` 自注册的 8 个检查器一致；未改动检查器数量声明，故 `DOC_COUNT_DRIFT` 不会误报。
 - 保留项修正（2026-09-01 后续）：**前述「保留 `Phase 6` 等内部开发阶段标签」的判断已被用户推翻**——用户指出内部开发阶段标签 / 方案代号依然属于给开发者看的内容，同样应排除出 SKILL.md。故 `portability` 错误码表的 `lossy_port` 行已移除 `Phase 6：` 来源注记，仅留纯行为描述（「声明跨 Agent 目标却含目标端无对应/需转译的字段」）；frontmatter 强制 `version:` 字段不受影响。
 
+### SKILL.md 终校：移除开发者视角内容泄漏（用户文档再瘦身）
+- 用户要求终校 SKILL.md 是否残留「普通用户无需关注」的内容。宽口径扫描确认：版本号（7 处，前轮已清）、内部开发阶段标签（Phase 6，前轮已清）；本轮清出 2 处开发者视角泄漏：①「设计原则·跨 Agent 适配」节原用 `sync_deploy`/`dev_self_audit`/`_devcommon.resolve_deploy_dir()` 等**开发期脚本名**+「已部署副本」内部概念解释原则——普通用户跑 `audit_docs.py` 永不接触这些脚本，已删除该子弹（原则由「路径零宿主硬编码」+「用户侧审计本就 agent 无关」两子弹完整表达）；②运行示例原写「对本技能项目目录 `src/` 的审计；因目录名 `src` ≠ 技能名 `skill-doc-audit`」，`src/` 与 `skill-doc-audit` 为项目内部标识符，已改写为通用表述、保留「目录名≠技能名会多一个良性 name_mismatch」的讲解。
+- 保留项核查：第 128/226 行 `src/` 指「被审计仓库内 SKILL.md 可嵌套在 `src/` 子目录」这一**通用能力说明**（适用于任意技能仓库），非本项目内部泄漏，保留；frontmatter 强制 `name/slug/version` 字段为 WorkBuddy 技能强制字段，非泄漏。
+
 ## 1.25.4 打磨明细（文档三分式重构 + 内联版本号收敛 + 开发链路固化）
 
 ### 部署副本同步纳入提交流程
