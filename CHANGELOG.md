@@ -41,6 +41,17 @@
 - 开发者模式默认 agent 接手（用户拍板）：`dev_self_audit.py` 的 `doc_llm_mode` 由 `None`（非交互静默跳过）改为 `"agent"`——非交互也写出语义漂移 dossier（含 SKILL.md + `references/*.md` + 全部 dev .md）并打印 `AGENT_TAKEOVER`，语义比对材料落到磁盘供 agent 接手；CI 下仅多写一个临时 dossier、不影响退出码。开发者模式「扫全部描述性文档」至此真正贯通 `doc`（A1 裸文件名 `EXTERNAL_REF`）+ `doc-llm`（语义 dossier）两层。
 - 零回归验证：`dev_self_audit --no-sync-check` 全检查器 ERROR 0 / WARN 0 / INFO 47（doc-llm INFO 1 为 agent handoff，无新增 ERROR/WARN）；`cli.py --all-checks --doc-llm-mode agent` 对部署副本 ERROR 0 / WARN 0；`self_validate.py` 确定性检查器黄金快照全 PASS（exit 0）；`py_compile` 全过；`--check doc-llm` 不再报「未知检查器」。
 
+### 检查器执行回执（身份代号 + OK/FAILED/UNKNOWN 状态，根治「静默落空却显通过」）
+- 用户洞察（2026-09-01）：不能总依赖 agent 兜底——上一轮 doc-llm 静默休眠 bug 证明「agent 看到 `[doc-llm] ✓` 空行就以为跑过了」并不可靠。故要求：任一检查器成功调用时返回可识别身份的参数，失败时返回 `Failed`/`Unknown`，让 agent 或使用者确证「这个检查器到底有没有真跑过」。
+- 身份代号选**数字**（而非缩写名）：doc-llm 事故根因正是「注册键连字符/下划线拼写与 `ALL_CHECKERS` 不一致 → `CHECKERS.get` 恒为 None → 静默落空」。数字代号集中在 `core.py` 的 `CHECKER_CODES` 单一真相源一处登记、engine 与 CLI 共享，绝不会与注册键拼写漂移，从根上免疫该类 bug。回执/JSON 同时打印 `#编号 名称` 兼顾机读与人读（doc=#01 … doc-llm=#08）。
+- 落地：`analyze_skill` 的 dispatch 循环（此前 `if fn: findings.extend(fn(ctx))` 静默吞掉 `fn is None`）改为逐检查器记录 `checker_runs` 回执，三态：
+  - **OK**——检查器成功执行（返回其 `#身份代号`，即成功回执）；
+  - **FAILED**——检查器执行中抛异常（已被 `try/except` 捕获、未中断其余检查器，异常转成 `CHECKER_ERROR` ERROR 发现，使运行退出码真实反映「没跑全」）；
+  - **UNKNOWN**——`CHECKERS.get(name)` 为 `None`（未注册 / 名称拼写不一致），**绝不静默跳过**，转成 `CHECKER_UNKNOWN` ERROR 发现。
+- 消费层：①`report.print_human` 每个检查器头部加 `[#NN 名称]` 与 `✓ 已执行 / ✗ 执行失败 / ✗ 未注册(UNKNOWN)` 状态徽标，并在每个技能尾部打印一行执行回执（`检查器执行回执: ✓doc … ✓doc-llm  [8/8 已执行 OK]`，有失败时显式列出 `✗doc-llm=FAILED`）；②`build_json` 在记录中加入 `checker_runs`（机读）；③`dev_self_audit.py` 复用同一回执（`checker_receipt_runs`）+ 头部 `#代号`；④`cli.py --preview` 启用检查器列表显示 `#NN 名称`；⑤新增 `CATEGORY_LABELS` 条目 `CHECKER_UNKNOWN` / `CHECKER_ERROR`。
+- 设计要点：回执落在 dispatch 层而非改每个检查器返回签名——保留已发布的 findings 契约（零风险）、且 UNKNOWN/FAILED 统一捕获；失败不只在打印里标注，还转成 ERROR 发现，**杜绝「没跑」被误判为「通过」**。
+- 零回归验证：`dev_self_audit --no-sync-check` ERROR 0 / WARN 0 / INFO 48（回执 `[8/8 已执行 OK]`）；`cli.py --all-checks --doc-llm-mode agent` 部署副本 ERROR 0 / WARN 0 / INFO 21；`self_validate.py` 黄金快照全 PASS（exit 0，`checker_runs` 为新增键、`diff_results` 不比对未知键故快照不受影响）；`py_compile` 全过；负向单测确认 doc=OK(#01) / 抛异常检查器=FAILED / 未注册名=UNKNOWN，且后两者均产出 ERROR 发现。
+
 ## 1.25.4 打磨明细（文档三分式重构 + 内联版本号收敛 + 开发链路固化）
 
 ### 部署副本同步纳入提交流程

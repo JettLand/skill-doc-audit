@@ -200,6 +200,9 @@ CATEGORY_LABELS = {
     "interpreter_lock": "解释器/运行时锁",
     "encoding_sep": "编码/路径分隔符假设",
     "agent_coupling": "Agent 平台耦合",
+    # 检查器执行回执（v1.25.5）：身份 / 执行状态自检
+    "CHECKER_UNKNOWN": "检查器未注册（从未被真正执行）",
+    "CHECKER_ERROR": "检查器执行异常（已被捕获，未中断其余检查器）",
 }
 
 
@@ -417,4 +420,20 @@ CHECKERS = {}
 DEFAULT_CHECKERS = ["doc"]
 ALL_CHECKERS = ["doc", "structure", "security", "runtime", "deps",
                 "deadcode", "portability", "doc-llm"]
+
+# 检查器身份代号（单一真相源，v1.25.5 新增）：供执行回执 / --json / 机读稳定标识。
+# 选用「数字代号」而非缩写名作权威身份：doc-llm 事故根因正是「注册键连字符/下划线拼写
+# 与 ALL_CHECKERS 不一致 → CHECKERS.get 恒为 None → 检查器从未执行且静默通过」。数字代号
+# 集中在此一处登记、engine 与 CLI 共享，绝不会与注册键拼写漂移，从根上免疫该类 bug。
+# 收据/JSON 同时打印 #编号 与名称，兼顾机读与人读。
+CHECKER_CODES = {
+    "doc": 1,
+    "structure": 2,
+    "security": 3,
+    "runtime": 4,
+    "deps": 5,
+    "deadcode": 6,
+    "portability": 7,
+    "doc-llm": 8,
+}
 

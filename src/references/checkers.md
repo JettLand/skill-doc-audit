@@ -15,6 +15,16 @@
 - `portability`（零依赖纯静态分析，全部 WARN/INFO 不报 ERROR）：跨平台可移植性——硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合 / 跨格式可移植性损失（`lossy_port`，Phase 6）。按 SKILL.md 的 `target_platform` 字段豁免对应平台项；`--report portability-matrix` 可打印「源格式 → 各目标格式」的 P/D/L 损失矩阵
 - `doc-llm`（**独立检查器**，v1.23.0 起纳入 `--all-checks` 全量集，v1.24.0 起由 agent 直接接手）：语义漂移增强检测——覆盖 `doc` 触及不到的自由散文语义漂移，由 agent 用自身能力判定（不再调用外部 LLM）；默认 `ask` 问询、非交互记 INFO `doc_llm_skipped`。错误码见下方明细 `DOC_LLM_DRIFT` / `doc_llm_agent_handoff` / `doc_llm_skipped`
 
+### 检查器执行回执（身份代号 + 调用结果，v1.25.5）
+任一检查器被调用时，引擎（`auditlib/model.py` 的 dispatch 循环）都会为它生成一条**执行回执**，明确告知 agent / 使用者「这个检查器到底有没有真跑过」——杜绝 doc-llm 类「静默落空却显示通过」的隐患。
+
+- **身份代号（数字，单一真相源 `CHECKER_CODES`）**：doc=#01、structure=#02、security=#03、runtime=#04、deps=#05、deadcode=#06、portability=#07、doc-llm=#08。选用数字而非缩写名作权威身份：注册键拼写漂移（连字符/下划线不一致）是 doc-llm 静默休眠的根因，数字代号集中登记、绝不会与注册键拼写漂移。回执同时打印 `#编号 名称` 兼顾机读与人读。
+- **三态状态**：每条回执携带 `status`：
+  - `OK`——检查器成功执行（返回其 `#身份代号`，即成功回执）；
+  - `FAILED`——检查器执行中抛异常（已被捕获、未中断其余检查器，异常转成 `CHECKER_ERROR` ERROR 发现，退出码真实反映）；
+  - `UNKNOWN`——`CHECKERS` 中无此键（未注册 / 名称拼写不一致），**绝不静默跳过**，转成 `CHECKER_UNKNOWN` ERROR 发现。
+- **消费层**：`print_human` 每检查器头部标 `[#NN 名称]` + `✓ 已执行 / ✗ 执行失败 / ✗ 未注册(UNKNOWN)`，每个技能尾部打印一行回执（`检查器执行回执: ✓doc … ✓doc-llm  [8/8 已执行 OK]`）；`--json` 在记录中给出 `checker_runs`；`dev_self_audit` 与 `cli.py --preview` 同样展示 `#代号`。
+
 ## 检查项明细（权威错误码对照表）
 
 下表为全部检查项的权威对照。`category` 是**稳定机器标识符**，用于 `--json` 机读输出与跨版本比对，不应随意改名；`中文标签` 由 `auditlib/core.py` 的 `CATEGORY_LABELS` 自动映射，用于人类可读报告（`category_cn` 字段），使每条发现自解释。新增检查项须在 `auditlib/core.py` 的 `CATEGORY_LABELS` 与本文档同步登记。

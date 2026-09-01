@@ -81,8 +81,8 @@ def main():
     # ---- 2) 导入审计器（触发检查器自注册）----
     try:
         from auditlib.model import analyze_skill
-        from auditlib.core import ALL_CHECKERS
-        from auditlib.report import summarize
+        from auditlib.core import ALL_CHECKERS, CHECKER_CODES
+        from auditlib.report import summarize, checker_receipt_runs
         from auditlib.checkers.deadcode import _vulture_module
     except Exception as e:
         fail("无法导入 auditlib 包：%s" % e)
@@ -125,11 +125,18 @@ def main():
     by = {}
     for f in findings:
         by.setdefault(f["checker"], []).append(f)
+    runs = {c["name"]: c for c in result.get("checker_runs", [])}
     for chk in ALL_CHECKERS:
         fs = by.get(chk, [])
         cs = summarize(fs)
+        run = runs.get(chk)
+        code = run["code"] if run else CHECKER_CODES.get(chk)
+        status = run["status"] if run else "OK"
         flag = "✓" if cs["error"] == 0 and (args.strict or cs["warn"] == 0) else "✗"
-        print("  [%s] %s ERROR %d / WARN %d / INFO %d" % (chk, flag, cs["error"], cs["warn"], cs["info"]))
+        run_badge = "" if status == "OK" else "  [%s]" % status
+        print("  %s[%s] %s ERROR %d / WARN %d / INFO %d%s"
+              % (("[#%02d] " % code) if code is not None else "", chk, flag,
+                 cs["error"], cs["warn"], cs["info"], run_badge))
         for f in fs:
             if f["severity"] in ("ERROR", "WARN"):
                 loc = f.get("file") or ""
@@ -140,6 +147,9 @@ def main():
                     ("（%s）" % loc) if loc else "",
                     "：%s" % f["message"] if f["severity"] == "WARN" else ""))
 
+    rec = checker_receipt_runs(result)
+    if rec:
+        print("  " + rec)
     print("\n汇总：ERROR %d / WARN %d / INFO %d" % (s["error"], s["warn"], s["info"]))
     if not sync_ok:
         print("⚠ 同步校验未通过（部署副本与源码不一致），发布前请先解决。")

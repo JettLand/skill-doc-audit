@@ -99,7 +99,7 @@ def main():
             d = os.path.join(t, "SKILL.md")
             code, _skipped = collect_code(t)
             print("预览：%s" % t)
-            print("  启用检查器: %s" % ", ".join(enabled))
+            print("  启用检查器: %s" % ", ".join("#%02d %s" % (CHECKER_CODES.get(c, 0), c) for c in enabled))
             if "deadcode" in enabled:
                 print("  deadcode 精度模式: %s（ask=已装vulture则自动高精度,否则交互询问30s→ast/非TTY回退ast并提示精度降级）" % args.deadcode_mode)
             print("  文档: %s" % ("SKILL.md" if os.path.isfile(d) else "（无）"))

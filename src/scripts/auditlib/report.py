@@ -9,6 +9,31 @@ def summarize(findings):
     return {"error": e, "warn": w, "info": i, "pass": e == 0}
 
 
+def checker_receipt_runs(r):
+    """返回检查器执行回执单行字符串（供 human/agent 直接读取执行结果）。
+
+    每个检查器成功返回其 #身份代号；失败标注 FAILED/UNKNOWN。无回执（旧调用方）返回空串。
+    格式示例：
+      ✓doc ✓structure ✓security ✓runtime ✓deps ✓deadcode ✓portability ✓doc-llm  [8/8 已执行 OK]
+      ✓doc ✗doc-llm  ⚠ 未正常执行: doc-llm=FAILED  [7/8 已执行]
+    """
+    runs = r.get("checker_runs") or []
+    if not runs:
+        return ""
+    parts = []
+    for c in runs:
+        mark = "✓" if c["status"] == "OK" else "✗"
+        parts.append("%s%s" % (mark, c["name"]))
+    ok = sum(1 for c in runs if c["status"] == "OK")
+    n = len(runs)
+    if ok == n:
+        tail = "  [%d/%d 已执行 OK]" % (ok, n)
+    else:
+        bad = ", ".join("%s=%s" % (c["name"], c["status"]) for c in runs if c["status"] != "OK")
+        tail = "  ⚠ 未正常执行: %s  [%d/%d 已执行]" % (bad, ok, n)
+    return "检查器执行回执: %s%s" % (" ".join(parts), tail)
+
+
 def print_human(results):
     for r in results:
         print("=" * 72)
@@ -26,10 +51,25 @@ def print_human(results):
         by = {}
         for f in r["findings"]:
             by.setdefault(f["checker"], []).append(f)
+        runs = {c["name"]: c for c in r.get("checker_runs", [])}
         for chk in r["checkers"]:
             fs = by.get(chk, [])
             s = summarize(fs)
-            print("\n  [%s]  ERROR %d / WARN %d / INFO %d" % (chk, s["error"], s["warn"], s["info"]))
+            run = runs.get(chk)
+            # 无回执（旧调用方）向后兼容：默认视为 OK、代号取真相源
+            code = run["code"] if run else CHECKER_CODES.get(chk)
+            status = run["status"] if run else "OK"
+            if status == "OK":
+                badge = "✓ 已执行"
+            elif status == "FAILED":
+                badge = "✗ 执行失败"
+            else:
+                badge = "✗ 未注册(UNKNOWN)"
+            code_tag = ("[#%02d] " % code) if code is not None else ""
+            print("\n  %s[%s] %s   ERROR %d / WARN %d / INFO %d" % (
+                code_tag, chk, badge, s["error"], s["warn"], s["info"]))
+            if status != "OK" and run and run.get("error"):
+                print("      ↳ %s" % run["error"])
             for f in fs:
                 loc = ""
                 if f.get("file"):
@@ -46,6 +86,9 @@ def print_human(results):
         print("\n  本技能汇总：ERROR %d / WARN %d / INFO %d    %s" % (
             tot["error"], tot["warn"], tot["info"],
             "通过" if tot["pass"] else "存在问题"))
+        receipt = checker_receipt_runs(r)
+        if receipt:
+            print("  " + receipt)
         print("-" * 72)
 
 
@@ -61,6 +104,7 @@ def build_json(results):
             "doc_lines": r.get("doc_lines"),
             "code_files": r.get("code_files"),
             "checkers": r.get("checkers"),
+            "checker_runs": r.get("checker_runs", []),
             "backup": r.get("backup"),
             "summary": summarize(r["findings"]),
             "findings": [

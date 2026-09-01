@@ -309,10 +309,44 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         "dev_audit": dev_audit,
     }
     findings = []
+    # 检查器执行回执（v1.25.5）：每个检查器调用结果显式记录身份(#代号) + 状态(OK/FAILED/UNKNOWN)，
+    # 直接回答「这个检查器到底有没有真跑过」——杜绝 doc-llm 类「静默落空却显示通过」的隐患。
+    #   OK      检查器成功执行（返回其身份代号，作为成功回执）
+    #   FAILED  检查器执行中抛异常（已被捕获，未中断其余检查器；异常转成 ERROR 发现，使退出码真实反映）
+    #   UNKNOWN 检查器未注册（CHECKERS 中无此键，名称拼写/连字符不一致）——从不静默跳过，转成 ERROR 发现
+    checker_runs = []
     for name in enabled:
+        ccode = CHECKER_CODES.get(name)
         fn = CHECKERS.get(name)
-        if fn:
-            findings.extend(fn(ctx))
+        if fn is None:
+            # 检查器未注册：显式记为 UNKNOWN，绝不静默跳过（这正是 doc-llm 误注册键 bug 的表征）
+            checker_runs.append({
+                "name": name, "code": ccode, "status": "UNKNOWN",
+                "findings": 0,
+                "error": "检查器未注册：CHECKERS 中无此键（可能名称/连字符不一致），其检查从未执行",
+            })
+            findings.append(finding(
+                name, SEVERITY_ERROR, "CHECKER_UNKNOWN",
+                "检查器 %s 未注册（CHECKERS 中无对应键），其检查从未执行，不能视为通过" % name,
+                suggestion="检查 auditlib/checkers/__init__.py 的自注册键与 ALL_CHECKERS 是否一致（连字符/下划线拼写）"))
+            continue
+        try:
+            res = fn(ctx) or []
+            findings.extend(res)
+            checker_runs.append({
+                "name": name, "code": ccode, "status": "OK",
+                "findings": len(res), "error": None,
+            })
+        except Exception as e:  # noqa: BLE001
+            # 检查器执行抛异常：显式记为 FAILED，且把异常转成 ERROR 发现，确保运行退出码反映「没跑全」
+            checker_runs.append({
+                "name": name, "code": ccode, "status": "FAILED",
+                "findings": 0, "error": repr(e),
+            })
+            findings.append(finding(
+                name, SEVERITY_ERROR, "CHECKER_ERROR",
+                "检查器 %s 执行异常（已被捕获，未中断其余检查器）：%s" % (name, e),
+                suggestion="查看完整追踪栈定位异常；该检查器的发现可能不完整"))
 
     # 稳定性：超大文件防护（避免卡死/拖慢）
     doc_size = os.path.getsize(doc_path)
@@ -335,6 +369,7 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         "backup": backup_path,
         "checkers": enabled,
         "findings": findings,
+        "checker_runs": checker_runs,
         "format": fmt,
         "skill_model": sm,
     }
