@@ -13,6 +13,11 @@
 - 新增 `tests/test_resolve_deploy.py`：T1 显式覆盖 / T2 通用覆盖 / T3 宿主配置目录 / T4 跨 agent 扁平 / T5 跨 agent 嵌套 / T6 全未命中回落默认，全 PASS 证明跨平台+跨 agent 定位可靠。
 - 落地依据：原检测机制（仅 WorkBuddy 候选根）在非 WorkBuddy agent 装本技能时无法自动定位副本；现 `SKILL_DEPLOY_DIR` 通用覆盖 + 多 agent 候选根使机制真正跨 agent，不再依赖「用户手动设路径」才能工作。
 
+### SKILL.md 去版本号标注（聚焦「是什么 / 怎么用」，版本变更归 CHANGELOG）
+- 用户决策（2026-09-01）：SKILL.md 是面向用户的文档，应聚焦「这是什么、怎么用」；带版本号的版本变动描述属开发者视角的变更史，统一收口到 CHANGELOG.md（开发者 / QA 留档，不进部署副本）。故移除全文 7 处 `v1.x` 版本标注——`doc-llm` 能力项、doc-llm 语义检测小节标题与「关键变更」块、`security` 误报自纠错能力扩展说明、`hardcoded_path` 上下文感知过滤、`--all-checks` 跑 doc-llm、`DOC_*` 结构化交叉校验引入——改写为「当前能力陈述」而非「自某版本起」，保留行为解释（如「由 agent 直接接手、不再调外部 LLM」），仅删版本号与「X 起」里程碑措辞。
+- 改写后 SKILL.md 仍准确枚举 8 个检查器（doc / structure / security / runtime / deps / deadcode / portability / doc-llm），与 `auditlib/checkers/__init__.py` 自注册的 8 个检查器一致；未改动检查器数量声明，故 `DOC_COUNT_DRIFT` 不会误报。
+- 保留项：`Phase 6` 等内部开发阶段标签非发布版本号（属能力 design origin 说明），予以保留；frontmatter 强制 `version:` 字段不受影响。
+
 ## 1.25.4 打磨明细（文档三分式重构 + 内联版本号收敛 + 开发链路固化）
 
 ### 部署副本同步纳入提交流程

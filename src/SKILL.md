@@ -30,7 +30,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `deps`：依赖与平台声明（未声明外部 CLI / 运行平台）。
 - `deadcode`（运行前按 `--deadcode-mode` 选精度）：未使用定义 / 导入、不可达代码、孤立资源文件（Agent 调用须显式传 `--deadcode-mode`，见下方「Agent 执行约定」）。
 - `portability`（零依赖纯静态）：跨平台可移植性——硬编码绝对路径、`os.getcwd` 依赖、平台专属 shell、解释器锁、编码假设、`agent_coupling`；按 `target_platform` / `target_agent` 豁免。
-- `doc-llm`（**独立的第 8 个检查器**，v1.24.0 起由 **agent 直接接手**，不再调外部 LLM）：自由散文语义漂移——由 agent 用自身能力比对；全量检测显式问询，非交互环境记 INFO `doc_llm_skipped`。
+- `doc-llm`：自由散文语义漂移检测（由 agent 直接接手、无需外部 LLM）——由 agent 用自身能力比对 SKILL.md 与代码事实；全量检测显式问询，非交互环境记 INFO `doc_llm_skipped`。
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
 
@@ -151,7 +151,7 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
    - 「直接零依赖 AST 跑（精度略低）」：`--deadcode-mode ast`；
    - 「本次跳过 deadcode」：`--deadcode-mode skip`。
 
-### doc-llm 语义检测同理（v1.23.0 起已纳入全量集，v1.24.0 起由 agent 直接接手）
+### doc-llm 语义检测同理（由 agent 直接接手，无需外部 LLM）
 
 `--all-checks` 已包含 `doc-llm`，默认按 `ask` 处理。但**「ask」的载体因调用方式而异，且 Agent 场景必须用原生交互**：
 
@@ -159,7 +159,7 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 - **Agent 调用（本技能的主场景）**：Agent 沙箱没有用户能键入的终端，CLI 的 stdin 菜单虽会打印却**收不到输入**（实测：打印后空等约 30s 超时回退默认）。因此 **Agent 必须改用其原生的 `AskUserQuestion` 工具把 doc-llm 选择权抛给用户**，再按选择显式传参——这是「通过 agent 调用也要弹出菜单让用户选择」的正确实现，也契合「绝不替用户决定」红线。
 - **管道/CI（stdin 非 tty）**：弹不出菜单，记 INFO `doc_llm_skipped`（不联网、不消耗 token，INFO 非 WARN，不影响「全量检测 WARN 0」）。
 
-> **v1.24.0 关键变更**：语义漂移检测改由 agent 直接接手、不再依赖外部 LLM（会占用 agent 自身推理 token，但不向外部服务付费）；v1.24.1 进一步移除「预览」选项。脚本职责收窄为：准备材料 → 落盘 dossier → 打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵 → 由 agent 读取判定。完整机制见 `references/checkers.md`。
+> 语义漂移检测由 agent 直接接手、不再依赖外部 LLM（会占用 agent 自身推理 token，但不向外部服务付费）；「预览」选项已移除。脚本职责收窄为：准备材料 → 落盘 dossier → 打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵 → 由 agent 读取判定。完整机制见 `references/checkers.md`。
 
 **Agent 调用时的标准动作（必须执行，不得省略询问）：**
 1. 运行 `--all-checks`（或 `--check doc-llm`）**前**，先调用 `AskUserQuestion` 向用户呈现 doc 检查器的语义检测模式。**使用以下统一措辞模板**（经用户改进，问题与选项文本必须原样使用，便于理解）：
@@ -259,7 +259,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 
 > 触发判据：用户意图围绕「文档与代码一致性 / 结构 / 安全红线 / 可运行性 / 依赖平台」的静态审计时使用；纯运行期、动态行为或部署类诉求不在范围内。
 
-**误报自纠错能力**：`security` 检查器对所有正则统一采用上下文感知过滤，自动排除注释、文档 URL、自引用资源上溯，避免上下文盲误报；**v1.18.0 起该能力扩展到 `structure`/`portability`**——`hardcoded_path` 已跳过表格/引用块/示例性描述行，`encoding_sep` 已排除 `urlopen`/`io.open` 等非文件 `open`（如 `--source url` 的 `urllib.request.urlopen` 不再误报），`hardcoded_endpoint` 已对 `raw.githubusercontent.com` 等 url 源规范主机白名单放行。完整机制见 `references/checkers.md`。
+**误报自纠错能力**：`security` 检查器对所有正则统一采用上下文感知过滤，自动排除注释、文档 URL、自引用资源上溯，避免上下文盲误报；**该能力同样覆盖 `structure`/`portability`**——`hardcoded_path` 已跳过表格/引用块/示例性描述行，`encoding_sep` 已排除 `urlopen`/`io.open` 等非文件 `open`（如 `--source url` 的 `urllib.request.urlopen` 不再误报），`hardcoded_endpoint` 已对 `raw.githubusercontent.com` 等 url 源规范主机白名单放行。完整机制见 `references/checkers.md`。
 
 ## 常见问题与避坑
 
@@ -273,7 +273,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 
 ### 新手误区
 
-- **误区一：把线索当裁决。** 只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是「这里可能有问题，请你/AI 读源码确认」的提示。例如 `agent_coupling` 的 INFO 是跨 Agent 咨询、非缺陷；`hardcoded_path` 的 WARN 若出现在表格/引用块里多半是示例误报（v1.18.0 已做上下文感知过滤）。**先读源码，再决定改不改。**
+- **误区一：把线索当裁决。** 只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是「这里可能有问题，请你/AI 读源码确认」的提示。例如 `agent_coupling` 的 INFO 是跨 Agent 咨询、非缺陷；`hardcoded_path` 的 WARN 若出现在表格/引用块里多半是示例误报（已做上下文感知过滤）。**先读源码，再决定改不改。**
 - **误区二：以为远程审计必须 `--source github`。** 其实优先用 `--source url --ref <SKILL.md 的 https 地址>` 即可——标准库直抓、零外部 CLI、绕开 `git clone`，绝大多数远端技能都能审计。仅在需要完整克隆仓库（含嵌套子目录/多技能）时才用 `--source github` / `--source skillhub`。
 - **误区三：报了路径穿越 / 硬编码密钥就是真漏洞。** 多半是上下文盲误报。`security` 检查器对所有正则统一做上下文感知过滤，自动排除注释行、含 `://` 的文档 URL、含 `__file__`/`dirname`/`.asar` 的合法资源上溯；真实漏洞（外部可控字符串拼入落盘路径、文档里真写死密钥）才会保留。
 - **误区四：文档列了退出码但代码从不返回，就是文档错了。** 未必。若标注「已弃用」，那是刻意的向后兼容说明，保留不要删。
@@ -286,7 +286,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 - **修改文档的五条原则**：① 只改文档，不改代码（代码问题整理出来交用户决策）；② 保留「已弃用」标注（不因「代码从不返回」就删）；③ 存疑时标注「待确认」而非臆断；④ 先读源码复核再决定；⑤ 版本号按语义化递增（修正文档表述属补丁级，修复功能缺陷属小版本级）。
 - **缩小审计范围**：用 `--check` 按需启用（如 `--check security`），或 `--all-checks` 全开；`--strict` 让 `WARN` 也计入退出码，适合 CI 门禁。
 - **设计原则：默认零依赖，绝不替用户决定**：本技能所有可选 / 增强能力默认纯脚本、不联网、零 token；涉及是否启用外部依赖能力的取舍必须显式交还用户（菜单含代价、超时回退默认），自动化环境宁可显著标注跳过也不静默代决。这条原则统领 doc-llm 与 deadcode。
-- **`doc-llm` 已纳入全量集，语义检测由 agent 直接接手（会占用 agent 推理 token，但不向外部 LLM 付费）**：v1.23.0 起 `--all-checks` 会跑 `doc-llm` 并**显式问询**是否启用语义检测（全量检测理应包含语义漂移问询）。默认按 `ask`：交互终端弹菜单、30 秒超时默认不启用；非交互环境无法询问则跳过并记 INFO `doc_llm_skipped`。**不依赖任何外部 LLM 端点**——选「agent 接手」时脚本把 SKILL.md 全文 + 代码事实清单写成 dossier 并打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 读取后用自身能力完成语义比对；此过程会占用 agent 自身推理 token（输入侧为主、输出极少），但不向任何外部 LLM 服务付费。完全不想参加可显式 `--doc-llm-mode off`。调用流程刻意对齐 `deadcode` 检查器（`--doc-llm-mode` 与 `--deadcode-mode` 同构）。
+- **`doc-llm` 已纳入全量集，语义检测由 agent 直接接手（会占用 agent 推理 token，但不向外部 LLM 付费）**：`--all-checks` 会跑 `doc-llm` 并**显式问询**是否启用语义检测（全量检测理应包含语义漂移问询）。默认按 `ask`：交互终端弹菜单、30 秒超时默认不启用；非交互环境无法询问则跳过并记 INFO `doc_llm_skipped`。**不依赖任何外部 LLM 端点**——选「agent 接手」时脚本把 SKILL.md 全文 + 代码事实清单写成 dossier 并打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 读取后用自身能力完成语义比对；此过程会占用 agent 自身推理 token（输入侧为主、输出极少），但不向任何外部 LLM 服务付费。完全不想参加可显式 `--doc-llm-mode off`。调用流程刻意对齐 `deadcode` 检查器（`--doc-llm-mode` 与 `--deadcode-mode` 同构）。
 
 ## 完整运行示例（真实输出 + 解读）
 
@@ -341,7 +341,7 @@ python scripts/audit_docs.py --skill src --all-checks
 | `doc_llm_agent_handoff` | 语义漂移检测已转交 agent 接手（dossier 已写入，agent 将自行比对） | INFO |
 | `doc_llm_skipped` | 全量检测中语义漂移检测跳过（非交互环境，未调用任何 LLM） | INFO |
 
-> 结构化声明 ↔ 代码事实交叉校验（`DOC_ENUM_DRIFT` / `DOC_COUNT_DRIFT` / `DOC_CAPABILITY_DRIFT`，均 `WARN` 仅作线索）自 v1.21.0 起；自由散文语义漂移由独立的 `doc-llm` 检查器覆盖（v1.24.0 起由 agent 直接接手、不再调外部 LLM）。完整机制见 `references/checkers.md`。
+> 结构化声明 ↔ 代码事实交叉校验（`DOC_ENUM_DRIFT` / `DOC_COUNT_DRIFT` / `DOC_CAPABILITY_DRIFT`，均 `WARN` 仅作线索）；自由散文语义漂移由独立的 `doc-llm` 检查器覆盖（由 agent 直接接手、不再调外部 LLM）。完整机制见 `references/checkers.md`。
 
 ### structure（结构体检 + 元信息）
 
