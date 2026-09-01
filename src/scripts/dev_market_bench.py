@@ -568,11 +568,15 @@ def check_bump():
             pass
         return 0
     if is_minor_or_major_bump(last, cur):
-        print("[agent-todo][建议] 检测到%s版本变动 v%s → v%s"
-              % ("主" if _ver_tuple(cur)[0] != _ver_tuple(last)[0] else "次", last, cur))
-        print("  建议运行「市场质量基准实测器」验证规模化行为是否稳定：")
+        kind = "主" if _ver_tuple(cur)[0] != _ver_tuple(last)[0] else "次"
+        print("[agent-todo][建议] 检测到%s版本变动 v%s → v%s" % (kind, last, cur))
+        print("  ① 建议运行「市场质量基准实测器」验证规模化行为是否稳定：")
         print("    python src/scripts/dev_market_bench.py run")
         print("  （基准实测不自动执行，由 Agent 评估后决定是否运行；仅人工要求或本建议触发时启用）")
+        print("")
+        print("  [agent-todo][建议] 次/主版本变更常含能力或文档结构变动，建议运行 doc + doc-llm 检查器做文档自审计：")
+        print("    python src/scripts/audit_docs.py --skill ~/.workbuddy/skills/skill-doc-audit --check doc --check doc-llm --doc-llm-mode agent")
+        print("  （doc 查死链接/文档漂移；doc-llm 产出语义漂移 dossier，需 agent 接手判读；也可执行 dev_self_audit.py --dev-docs 一并扫 README/CHANGELOG）")
     try:
         os.makedirs(CACHE, exist_ok=True)
         open(LAST_VERSION, "w", encoding="utf-8").write(cur)

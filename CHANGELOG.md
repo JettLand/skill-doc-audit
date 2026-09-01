@@ -19,6 +19,12 @@
 - 配套文档：DEVELOPMENT.md「本地 CI 发出什么」节补第 6 类 `[agent-todo]`（check-bump 版本变动基准建议）真实渲染样例与「仅次/主版本触发、补丁号不触发」说明；release_check 表补 README 版本表行、由「共 4 类」更正为「共 5 类」。
 - 验证：模拟次版本 1.24.0→1.25.7 确打印 `[agent-todo][建议]`；当前无次/主变动时 `dev_self_audit --strict` 零误报（ERROR 0/WARN 0/INFO 33、rc 0）。
 
+### 新增第 7 类 `[agent-todo]`：次/主版本变动提示 doc + doc-llm 文档自审计（dev-only，dev_market_bench.py + DEVELOPMENT.md）
+- `dev_market_bench.py check-bump` 次/主版本变动分支新增第 2 条 `[agent-todo][建议]`：提示 agent 调用 doc + doc-llm 检查器做文档自审计（次/主版本变更常含能力或文档结构变动）。指令：`python src/scripts/audit_docs.py --skill ~/.workbuddy/skills/skill-doc-audit --check doc --check doc-llm --doc-llm-mode agent`（doc-llm 产出语义漂移 dossier 需 agent 接手判读；也可 `dev_self_audit.py --dev-docs` 一并扫 README/CHANGELOG）。
+- DEVELOPMENT.md「本地 CI（`pre-push`）发出什么」节重构为统一的 **`[agent-todo]` 指令清单**（1 表 7 行，含触发条件/指令/严重度/是否阻断），将原先散落的 release_check 5 类表格 + check-bump 第 6 类脚注合并为一份完整清单，并补第 7 类；渲染样例同步更新为双 `[agent-todo]` 块。
+- 触发语义与第 6 类一致：仅次/主版本（x.y）变动触发，补丁号（x.y.z）按设计不触发；非阻断、不自动跑。
+- 验证：模拟次版本 1.24.0→1.25.7 确打印两条 `[agent-todo][建议]`（基准实测 + 文档自审计）；`dev_self_audit --strict` ERROR 0/WARN 0/INFO 33 零回归。
+
 ## 1.25.7 打磨明细（TRACE 评测整改 + 市场质量基准实测器固化收口）
 
 ### TRACE 评测整改（部署副本自评 4.7/优秀，补强 <5.0 子项，文档级）
