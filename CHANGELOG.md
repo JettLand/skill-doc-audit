@@ -5,6 +5,17 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 未发布改动（流程 / 工具，未 bump 版本号）
+
+### 部署副本同步纳入提交流程
+- 新增 `src/scripts/sync_deploy.py`（dev-only）：把 `src/` 发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md / dist/skill-doc-audit.zip）字节级同步到部署副本 `~/.workbuddy/skills/skill-doc-audit`，清理 `__pycache__`，末段校验一致性；**刻意排除** dev 工具（make_fixtures.py / self_validate.py）与 `tests/`，绝不把开发期脚本带进线上技能。
+- 新增 `hooks/post-commit` 并设 `git config core.hooksPath ../hooks`：每次 `git commit` 后自动运行 `sync_deploy.py`，**提交即同步**，不再依赖人工记这一步。钩子找不到 python 时仅提示、不阻塞提交。
+- 文档：README「仓库布局」移除已删的 `backups/` 引用、改列 dev 工具；「打包与发布」后新增「部署副本同步（已纳入提交流程）」专节。
+- 配套清理：删除测试报告 `SELF_VALIDATE_TEST_REPORT.md` 与过时本地快照 `backups/`（gitignored 产物，不可逆删除，对应版本源码仍存 git 历史）。
+
+### make_fixtures.py 路径分隔符瑕疵修复（前批遗留未提交，本批一并提交）
+- `check()` 的 MISSING / MISMATCH 提示路径统一 `p.replace(os.sep, "/")`（跨平台正斜杠）；仅输出风格，不影响判定逻辑与退出码。
+
 ## 1.25.3 打磨明细（fixtures 移出版本管理 + make_fixtures 升级为整套重建工具）
 
 ### 背景（用户决策 + 建议）

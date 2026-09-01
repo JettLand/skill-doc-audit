@@ -50,10 +50,10 @@ def check(out_dir):
         for rel, content in spec["files"].items():
             p = os.path.join(d, rel)
             if not os.path.isfile(p):
-                print("MISSING: %s" % p); ok = False; continue
+                print("MISSING: %s" % p.replace(os.sep, "/")); ok = False; continue
             cur = open(p, encoding="utf-8", newline="").read()
             if cur != content:
-                print("MISMATCH: %s" % p); ok = False
+                print("MISMATCH: %s" % p.replace(os.sep, "/")); ok = False
     print("check: %s" % ("OK" if ok else "MISMATCH"))
     return ok
 

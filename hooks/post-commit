@@ -1,0 +1,30 @@
+#!/bin/sh
+# post-commit hook: keep the installed deployment copy in sync with committed source.
+# Installed via: git config core.hooksPath ../hooks  (relative to .git -> repo/hooks)
+# The sync itself lives in src/scripts/sync_deploy.py (dev-only, not deployed).
+set -e 2>/dev/null || true
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ]; then
+  echo "[post-commit] cannot resolve repo root; skip deploy sync"
+  exit 0
+fi
+
+# Locate a python interpreter (prefer python3, fall back to python)
+PY=""
+if command -v python3 >/dev/null 2>&1; then
+  PY="python3"
+elif command -v python >/dev/null 2>&1; then
+  PY="python"
+fi
+
+if [ -z "$PY" ]; then
+  echo "[post-commit] python not found on PATH; skipping deploy sync."
+  echo "[post-commit] To sync manually: python src/scripts/sync_deploy.py"
+  exit 0
+fi
+
+"$PY" "$REPO_ROOT/src/scripts/sync_deploy.py" \
+  || echo "[post-commit] deploy sync reported issues (non-fatal; commit already succeeded)"
+
+exit 0
