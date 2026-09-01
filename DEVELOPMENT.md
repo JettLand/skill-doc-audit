@@ -86,52 +86,6 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 - **同步校验开关是本地与远程的唯一实质差异**：本机有部署副本故 `pre-push` 保留校验；GitHub 机器无副本，`dev-qa` 加 `--no-sync-check`。两套门禁的检查内容（`dev_self_audit --strict` + `self_validate`）完全一致。
 - **`[agent-todo]` 在远程 CI 仅日志噪音、但门禁（退出码）仍生效**：GitHub 上无 agent 消费提示文本，而 `release_check` 阻断项会升 `dev_self_audit` 退出码 → `dev-qa` 的 `publish-gate` job 失败 → PR 标红，是本地钩子未拦住时的远程兜底。
 
-### `[agent-todo]` 提示具体长什么样（由 `release_check.py` 产出、`dev_self_audit.py:153-165` 渲染）
-
-执行 `dev_self_audit.py --strict` 时，若命中下列任一检查项，会打印一个提示块，**每项都给出发指令级的可照做动作**。共 4 类检查：
-
-| 检查项 | 严重度 | 是否阻断 | 触发条件 | 发出的 `todo` 指令（原文） |
-|---|---|---|---|---|
-| 版本号一致性 | `ERROR` | **是** | `SKILL.md version` ≠ `sources.py` 第144行 `User-Agent` | `将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/<SKILL版本>` |
-| CHANGELOG 收口 | `WARN` | **是** | `SKILL.md version` 高于 `CHANGELOG.md` 最高版本节 | `将 CHANGELOG.md 的「未发布改动」节提升为 '<SKILL版本> 打磨明细' 节后再提交` |
-| dist 制品过期 | `INFO` | 否 | `dist/skill-doc-audit.zip` 早于发布面源码 mtime | `发布 SkillHub 前重打包：python src/scripts/build_dist.py` |
-| temp 残留 | `INFO` | 否 | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py` | `及时清理 temp/ 测试残留；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` |
-
-**提示块的实际打印格式**（来自 `dev_self_audit.py:153-165`，以「版本不一致」为例的真实渲染）：
-
-```
-========================================================================
-发布前待办（Agent 提示 · 由 pre-push 钩子与 dev-qa 工作流发出）
-========================================================================
-  [agent-todo][ERROR] 版本号不一致：SKILL.md 与 sources.py User-Agent 不同步
-      SKILL.md version=1.25.4，但 sources.py 的 HTTP User-Agent=skill-doc-audit/1.25.3
-      → 将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/1.25.4
-
-⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。
-```
-
-> 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·dist·temp」，绝不因此阻断门禁。
-
-### 远程 CI（`dev-qa.yml`）发出什么
-
-`dev-qa.yml` 有两个 job，调用命令与本地 `pre-push` **完全相同**（仅 `dev_self_audit` 多一个 `--no-sync-check`）。因此它发出的提示 **与本地 CI 同源、内容一致**：
-
-- **`[agent-todo]` 块**：来自 `publish-gate` job → `dev_self_audit.py --strict --no-sync-check`，4 类提示的文案、渲染格式同上「`[agent-todo]` 提示具体长什么样」节，**逐字一致**。唯一差别是少了「`[sync] ⚠ 不一致`」那行（CI 机器无部署副本，`_verify` 被跳过）。
-- **`[PASS]` / `[FAIL]` / `[SKIP]` 行**：来自 `checker-regression` job → `self_validate.py`，**逐 fixture** 比对黄金快照，真实打印形如：
-
-```
-[PASS] dirty-skill  (summary: error=13 warn=3 info=0 pass=0)
-[FAIL] tricky-clean
-       - summary.error: expected=0 got=1
-       - 额外发现(+1): ('security', 'HARDCODED_SECRET', 'ERROR', 'scripts/main.py', '...')
-[SKIP] ts-skill: 黄金快照缺失（先跑 --baseline）
-```
-
-  - 全部 fixture 通过则 `exit 0`；任一 `[FAIL]` 或 `[SKIP]` → `exit 1` → 该 job 标红。
-  - fixtures 缺失时先自动调 `make_fixtures.build()` 重建并打印 `[self_validate] fixtures 缺失，已用 make_fixtures 自动重建于 <path>`；`--baseline` 时打印 `[BASELINE] <name> -> <golden>`（正常流程不触发）。
-
-> GitHub Actions 上没有 agent 消费 `[agent-todo]` 文本——那几行只是 CI 日志噪音；但 `release_check` 的**阻断项会让 `dev_self_audit` 退出码升为 1** → `publish-gate` job 失败 → **PR 标红**，是本地 `pre-push` 没拦住（或换机器直推）时的远程兜底。**所以远程 CI 的价值在「门禁退出码」而非「提示文本」。**
-
 ### 同步钩子（`post-commit` → `sync_deploy.py`）具体执行什么
 
 `post-commit` 钩子（`hooks/post-commit`）**只调用 `sync_deploy.py` 一个命令**——职责单一：把 `src/` 发布面字节级同步到部署副本。**它不发任何 `[agent-todo]`、不做质量门禁、不跑检查器**，只打印同步状态行。具体执行顺序（来自 `sync_deploy.py`）：
@@ -160,6 +114,52 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 ```
 
 > 若部署目录不存在（非标准安装且未设 `SKILL_DEPLOY_DIR`）：打印 `deploy dir not found ... skip (set SKILL_DEPLOY_DIR to override)` 并 `exit 0`（**不阻塞 commit**）——这是「优雅回落」而非「降级报错」，因为确实未安装该技能。
+
+### 本地 CI（`pre-push` 钩子）发出什么
+
+`pre-push` 钩子（`hooks/pre-push`）在 `git push origin main` 前调用 `dev_self_audit.py --strict` + `self_validate.py`。其中 `dev_self_audit` 在汇总后调用 `release_check.run_release_checks()`，由它产出 `[agent-todo]` 提示块——**本地 CI 是这些提示仅有的两个发出方之一（另一个是远程 `dev-qa`；`post-commit` 同步钩子不发提示）**。执行 `dev_self_audit.py --strict` 时，若命中下列任一检查项，会打印一个提示块，**每项都给出发指令级的可照做动作**。共 4 类检查：
+
+| 检查项 | 严重度 | 是否阻断 | 触发条件 | 发出的 `todo` 指令（原文） |
+|---|---|---|---|---|
+| 版本号一致性 | `ERROR` | **是** | `SKILL.md version` ≠ `sources.py` 第144行 `User-Agent` | `将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/<SKILL版本>` |
+| CHANGELOG 收口 | `WARN` | **是** | `SKILL.md version` 高于 `CHANGELOG.md` 最高版本节 | `将 CHANGELOG.md 的「未发布改动」节提升为 '<SKILL版本> 打磨明细' 节后再提交` |
+| dist 制品过期 | `INFO` | 否 | `dist/skill-doc-audit.zip` 早于发布面源码 mtime | `发布 SkillHub 前重打包：python src/scripts/build_dist.py` |
+| temp 残留 | `INFO` | 否 | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py` | `及时清理 temp/ 测试残留；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` |
+
+**提示块的实际打印格式**（来自 `dev_self_audit.py:153-165`，以「版本不一致」为例的真实渲染）：
+
+```
+========================================================================
+发布前待办（Agent 提示 · 由 pre-push 钩子与 dev-qa 工作流发出）
+========================================================================
+  [agent-todo][ERROR] 版本号不一致：SKILL.md 与 sources.py User-Agent 不同步
+      SKILL.md version=1.25.4，但 sources.py 的 HTTP User-Agent=skill-doc-audit/1.25.3
+      → 将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/1.25.4
+
+⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。
+```
+
+> 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·dist·temp」，绝不因此阻断门禁。
+
+### 远程 CI（`dev-qa.yml`）发出什么
+
+`dev-qa.yml` 有两个 job，调用命令与本地 `pre-push` **完全相同**（仅 `dev_self_audit` 多一个 `--no-sync-check`）。因此它发出的提示 **与本地 CI 同源、内容一致**：
+
+- **`[agent-todo]` 块**：来自 `publish-gate` job → `dev_self_audit.py --strict --no-sync-check`，4 类提示的文案、渲染格式同上「本地 CI（`pre-push` 钩子）发出什么」节，**逐字一致**。唯一差别是少了「`[sync] ⚠ 不一致`」那行（CI 机器无部署副本，`_verify` 被跳过）。
+- **`[PASS]` / `[FAIL]` / `[SKIP]` 行**：来自 `checker-regression` job → `self_validate.py`，**逐 fixture** 比对黄金快照，真实打印形如：
+
+```
+[PASS] dirty-skill  (summary: error=13 warn=3 info=0 pass=0)
+[FAIL] tricky-clean
+       - summary.error: expected=0 got=1
+       - 额外发现(+1): ('security', 'HARDCODED_SECRET', 'ERROR', 'scripts/main.py', '...')
+[SKIP] ts-skill: 黄金快照缺失（先跑 --baseline）
+```
+
+  - 全部 fixture 通过则 `exit 0`；任一 `[FAIL]` 或 `[SKIP]` → `exit 1` → 该 job 标红。
+  - fixtures 缺失时先自动调 `make_fixtures.build()` 重建并打印 `[self_validate] fixtures 缺失，已用 make_fixtures 自动重建于 <path>`；`--baseline` 时打印 `[BASELINE] <name> -> <golden>`（正常流程不触发）。
+
+> GitHub Actions 上没有 agent 消费 `[agent-todo]` 文本——那几行只是 CI 日志噪音；但 `release_check` 的**阻断项会让 `dev_self_audit` 退出码升为 1** → `publish-gate` job 失败 → **PR 标红**，是本地 `pre-push` 没拦住（或换机器直推）时的远程兜底。**所以远程 CI 的价值在「门禁退出码」而非「提示文本」。**
 
 ## 自校验（self_validate.py）与 fixture 生成器（make_fixtures.py）
 
