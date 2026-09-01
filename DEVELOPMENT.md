@@ -52,6 +52,24 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 - **dev 自审计内部三参不可 flag 调**：`dev_audit` / `dev_docs` / `exclude` 为硬编码常量，`dev_self_audit.py` 无 `--dev-audit` 之类开关；脚本可调 flag 仅 `--strict` / `--no-sync-check` / `--deadcode-mode`（调严度，不切换模式）。
 - **禁止反向加自动检测**：不要为「是否进入开发模式」引入运行时 if 判定（如 `if os.path.basename(cwd) == "src": dev_audit=True`），那会破坏上述结构保证、引入隐式切换与回归风险；判定一律由入口显式决定。
 
+## 触发条件（何时运行各 dev 工具）
+
+消除「不知何时跑某 dev 工具」的困惑——下面是精确触发表。核心原则：**`dev_self_audit` 守发布质量、`self_validate` 守检查器行为，两条流水线刻意不串**（前者全量含 vulture/doc-llm、随环境可变；后者只用 `DETERMINISTIC=[doc,structure,security,runtime,deps]` 确定性子集、保证可复现）。
+
+| 你改动了什么 | 该跑 | 不该跑 | 说明 |
+|---|---|---|---|
+| `src/` 任意发布面文件（SKILL.md / scripts/audit_docs.py / scripts/auditlib/ / references/checkers.md / dist） | `dev_self_audit.py`（建议 `--strict`） | — | 发布质量门禁：审计最新源码 + 验证「部署副本 ↔ src」一致 + 开发文档漂移 |
+| `README.md` / `CHANGELOG.md` | `dev_self_audit.py --dev-docs`（或 `--strict --dev-docs`） | — | 把开发文档纳入漂移扫描 |
+| `src/scripts/auditlib/checkers/{doc,structure,security,runtime,deps}.py` 或公共层 `model` / `report` / `core` | `self_validate.py` | — | 检查器行为回归护栏：对 fixtures 跑确定性检查器、比对 `tests/examples/*.expected.json` 黄金快照 |
+| `src/scripts/auditlib/checkers/{deadcode,doc_llm,portability}.py` 或 fixtures / 文档自身 | `dev_self_audit.py`（视情况） | `self_validate.py` | deadcode/doc_llm/portability 不在 `DETERMINISTIC` 子集，跑 `self_validate` 无回归捕捉价值、反引入噪音 |
+| dev 工具自身（sync_deploy / self_validate / make_fixtures / dev_self_audit / `_devcommon`） | 仅 `dev_self_audit.py` 复查 | `self_validate.py` | dev 工具不进发布面，`self_validate` 审计的是用户技能行为、与 dev 工具改动无关 |
+| 发布前（统一动作） | `dev_self_audit.py --strict` **+** `self_validate.py` | — | 一键全量：先质量门禁、再检查器回归（也可靠 CI 钩子自动覆盖） |
+| 准备 `git commit` | （`post-commit` 钩子自动 `sync_deploy`） | 手动 | 提交即同步部署副本 |
+| `git push origin main` | （`pre-push` 钩子自动跑 `dev_self_audit --strict` + `self_validate`） | 手动 | 本地发布门禁，失败拦截 push |
+| 推到 GitHub / 开 PR 到 `main` | （GitHub Actions `dev-qa.yml` 自动跑 `dev_self_audit --strict --no-sync-check` + `self_validate`） | 手动 | 远程兜底，防绕过 |
+
+> 记忆锚点：`self_validate` 只在「动了检查器代码」时有意义；`dev_self_audit` 在「动了发布面 / 文档」或「发布前」跑。两者均不进部署副本，终端用户拿不到。
+
 ## 自校验（self_validate.py）与 fixture 生成器（make_fixtures.py）
 
 - `self_validate.py`：基于 `auditlib` 对 `tests/fixtures/` 跑确定性检查器，掩去绝对路径后比对 `tests/examples/*.expected.json` 黄金快照。新环境 clone 后任意 CWD 可跑（`tests/fixtures/` 已由 `.gitignore` 排除，缺失时自动调 `make_fixtures.build()` 重建）。
