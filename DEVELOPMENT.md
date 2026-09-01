@@ -8,10 +8,47 @@
 |---|---|---|
 | 文档 | `src/SKILL.md` + `src/references/checkers.md` | 本文件 |
 | 受众 | 任何安装并使用本技能审计自己技能的人 | 本技能的开发者 / 贡献者 |
-| 工具 | `scripts/audit_docs.py`（随技能发布） | `dev_self_audit.py` / `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `_devcommon.py`（dev-only 共享样板；均已被 `sync_deploy.py` 排除在部署副本外，`_devcommon.py` 亦在 `dev_self_audit.py` 的 `DEV_TOOLS` 排除集内避免 orphan_asset 误报） |
+| 工具 | `scripts/audit_docs.py`（随技能发布） | `dev_self_audit.py` / `dev_market_bench.py`（两套辅助开发工具）/ `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `build_dist.py` / `_devcommon.py`（dev-only 共享样板；均已被 `sync_deploy.py` 排除在部署副本外，且列入 `dev_self_audit.py` 的 `DEV_TOOLS` 排除集避免 orphan_asset 误报） |
 | 关键动作 | 跑 `--all-checks` 审计目标技能 | 审计最新源码 `src/`、自校验 fixtures、把 `src/` 同步到部署副本、走「未发布改动」累积发布 |
 
 **设计边界**：技术隔离已存在——dev 工具根本不进部署副本，终端用户拿不到。本文件是把「哪些是给用户、哪些是给维护者」的叙事显式二分，避免读者混淆；并明确 dev-only CLI 旗标仅在本仓库内有效。
+
+## 辅助开发套件（两套 dev 工具）
+
+本仓库的辅助开发工具共**两套**，均 dev-only（不进部署副本、终端用户拿不到），定位互补：
+
+| 正式名称 | 脚本 | 职责 | 触发方式 |
+|---|---|---|---|
+| 源码自审计器 | `src/scripts/dev_self_audit.py` | 守**发布质量**：同步校验（副本↔src）+ 审计最新源码发布面 + dev 文档漂移 + 发布就绪检查（`[agent-todo]`） | 每次 `git commit`（post-commit 仅同步、不跑它）/ `git push`（pre-push 门禁）/ 推 PR（dev-qa CI）；也手动跑 |
+| 市场质量基准实测器 | `src/scripts/dev_market_bench.py` | 守**「规模化真实世界」**：按 TRACE 质量分抽样、批量跑全量检查，验证检查器在长尾技能上的稳定性与 doc-llm 真实执行 | **不进自动调度**：仅人工要求时启用；或 `dev_self_audit` 监测到次/主版本变动时打印 `[agent-todo]` 建议、由 agent 评估后决定是否运行 |
+
+> 其余 `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `build_dist.py` / `_devcommon.py` 为检查器回归护栏、fixture 生成、副本同步、发布就绪检查、共享样板等基础设施，不属于「两套辅助开发工具」本身，但支撑前述两套工具运转。
+
+### 源码自审计器（dev_self_audit.py）
+
+…（职责与判定逻辑见下方「开发模式自审计」节，此处不重复；本表仅定位两套工具）
+
+### 市场质量基准实测器（dev_market_bench.py）
+
+把「批量实测 skill-doc-audit 在规模化真实世界的稳定性」固化成可重复命令。关键设计（用户 2026-09-01 要求，取代旧 `bench/market-audit/run_market_audit.py`）：
+
+1. **取样指标改为质量分（非热度）**：旧脚本按市场 `score`（热度）升序取最低 50（实测全 `score=0` 长尾）；新工具按 **TRACE 官方质量评测分**（`overall`，5.0 分制）取样——取值方法与 trace-selfcheck 的 `benchmark_official.py` 同源：`fetch_evaluation(slug)` → `parse_eval` → overall。
+2. **取样规则**：从候选池（全市场**随机页偏移**抽样 `pool` 个 slug，默认 3000，避免热度偏差）→ 逐个 `fetch_evaluation` 取质量分 → 升序取**质量最低 1000** → 随机抽 50 做审计。默认不固定种子（每次天然不同）+ 维护采样历史（`sampled_history.json`）排除近 3 次已采 slug，进一步避免重复样本。
+3. **规模约束与近似（已在代码中实测确认）**：市场技能 13.3 万；列表接口仅支持 `score/downloads/stars/updatedAt` 排序、**不返回质量分字段**；全量爬评测（13 万次请求）不可行。故「质量最低 1000」是候选池内的工程化近似，非字面全局最低 1000（已在报告头部显式标注，避免误读）。
+4. **不进自动调度**：实际跑基准（`run`）只在人工要求或 agent 评估重大版本变动后建议时执行；`check-bump` 子命令供 `dev_self_audit` 在次/主版本变动时打印建议（best-effort、不失败 CI、绝不触发 `run`）。
+
+子命令：
+
+```bash
+python src/scripts/dev_market_bench.py index            # 构建/刷新质量索引（随机候选池 + 逐个取质量分，默认 3000 次评测请求，约数分钟）
+python src/scripts/dev_market_bench.py run              # 采样最低质量 1000 中 50 → 下载 → 全量审计 → 报告（缺索引时自动 index）
+python src/scripts/dev_market_bench.py run --sample 50 --seed 7   # 可复现抽样
+python src/scripts/dev_market_bench.py check-bump       # 版本监测（由 dev_self_audit 自动调用）
+```
+
+缓存（均 `bench/`，已 gitignore，不进版本库）：`quality_index.json`（质量索引）/ `sampled_history.json`（采样历史）/ `last_bench_version.txt`（版本监测基线）/ `skills/`（下载的技能源码）/ `results.json` / `report.md`（逐次结果）。
+
+退出码：`0` 正常；`2` 参数/路径错误；`run` 下被审技能出现 ERROR 属被测现象、不升退出码（与旧 `run_market_audit` 一致）。
 
 ## 开发模式自审计（dev_self_audit.py）
 
@@ -39,7 +76,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 **`dev_audit=True` 与 `exclude=DEV_TOOLS` 不进主 CLI——属本仓库专属 hack，禁止提成开关。** 理由：
 
 - `dev_audit=True`：`structure.py:21` 用 `not ctx.get("dev_audit")` 跳过 `name_mismatch`，唯一目的是本仓库源码根目录叫 `src/` 而非技能名（`dev_self_audit.py:115` 硬编码）。而用户用本技能审计**自己**的技能时，目录即技能目录，`name_mismatch` 是正确告警；把它暴露给用户等于教用户「可关掉名称一致性检查」。
-- `exclude=DEV_TOOLS`：`dev_self_audit.py:40/:114` 排除 `sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py` 这 4 个本仓库 dev 工具；其他技能根本没有这些文件，暴露出去是死参数。
+- `exclude=DEV_TOOLS`：`dev_self_audit.py:44` 排除 `sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `release_check.py` / `build_dist.py` 本仓库 dev 工具；其他技能根本没有这些文件，暴露出去是死参数。
 
 **硬性边界**：`dev_audit` / `exclude` 的打开点只存在于 `dev_self_audit.py`（`src/scripts/` 内，已被 `sync_deploy.py` 排除在部署副本外）。若日后有人想把 `--dev-audit` 加到 `cli.py`（它是部署副本一部分），**等于把维护者专属逻辑塞回用户技能、直接回退三分式隔离**，应拒绝。引擎默认 `dev_audit=False`（`model.py:152`）即用户模式，符合「默认零依赖、绝不替用户决定」。
 
@@ -65,6 +102,8 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | dev 工具自身（sync_deploy / self_validate / make_fixtures / dev_self_audit / `_devcommon`） | 仅 `dev_self_audit.py` 复查 | `self_validate.py` | dev 工具不进发布面，`self_validate` 审计的是用户技能行为、与 dev 工具改动无关 |
 | 发布前（统一动作） | `dev_self_audit.py --strict` **+** `self_validate.py` | — | 一键全量：先质量门禁、再检查器回归（也可靠 CI 钩子自动覆盖） |
 | 版本迭代 / 发布前收尾 | （`dev_self_audit.py` 内置 `release_check` 自动提示） | 手动记忆 | 版本号一致性(SKILL.md↔sources.py) / CHANGELOG 收口 / dist 重打包 / temp 清理——改为门禁输出 `[agent-todo]`，不再依赖记忆 |
+| 次版本/主版本变动（x.y / X.y） | （`dev_self_audit.py` 末尾 best-effort 调 `dev_market_bench.py check-bump` 自动提示） | 手动记忆 | 是否运行「市场质量基准实测器」`run` 由 agent 评估决定——仅打印 `[agent-todo]` 建议，**不自动跑基准**（基准实测只在人工要求或该建议触发时启用） |
+| 想验证检查器在规模化真实世界的稳定性 / 长尾技能质量分布 | `dev_market_bench.py run` | 自动调度 | 人工要求或前述版本变动建议触发；非日常改动必跑项 |
 | 准备 `git commit` | （`post-commit` 钩子自动 `sync_deploy`） | 手动 | 提交即同步部署副本 |
 | `git push origin main` | （`pre-push` 钩子自动跑 `dev_self_audit --strict` + `self_validate`） | 手动 | 本地发布门禁，失败拦截 push |
 | 推到 GitHub / 开 PR 到 `main` | （GitHub Actions `dev-qa.yml` 自动跑 `dev_self_audit --strict --no-sync-check` + `self_validate`） | 手动 | 远程兜底，防绕过 |
@@ -103,7 +142,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 **刻意排除、不进副本的内容**（dev-only，避免污染用户技能）：
 
-- dev 工具：`make_fixtures.py` / `self_validate.py` / `dev_self_audit.py` / `_devcommon.py` / `sync_deploy.py` / `release_check.py` / `build_dist.py`
+- dev 工具：`make_fixtures.py` / `self_validate.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `sync_deploy.py` / `release_check.py` / `build_dist.py`
 - `src/tests/`（fixtures + 黄金快照）、`__pycache__` / `*.pyc`
 
 **真实打印样例**（本机一次提交后）：

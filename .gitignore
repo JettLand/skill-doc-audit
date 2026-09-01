@@ -16,3 +16,6 @@ __pycache__/
 # （git checkout 后由 self_validate.py 自动重建，或手动 `python src/scripts/make_fixtures.py`）
 tests/fixtures/
 # 注：tests/examples/ 的黄金快照(*.expected.json)与 manifest.json 必须纳入版本管理（断言基线，不可自动重建以免削弱回归护栏）
+
+# 市场质量基准实测器运行时缓存（质量索引 / 采样历史 / 下载的技能 zip / 报告），不进版本库
+bench/

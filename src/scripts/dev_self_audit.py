@@ -27,6 +27,7 @@ dev_self_audit.py —— skill-doc-audit 开发模式自审计（脚本化，不
 import os
 import sys
 import argparse
+import subprocess
 from types import SimpleNamespace
 
 # 仓库根经 __file__ 解析（不依赖 CWD）；dev 脚本共享样板见 _devcommon
@@ -42,7 +43,8 @@ DEP, _DEP_HOW = resolve_deploy_dir()   # 自动探测：优先 WORKBUDDY_CONFIG_
 # release_check.py / build_dist.py 为本轮新增的 dev-only 发布就绪检查与制品构建脚本，
 # 同样不进部署副本、不属发布面，列入排除避免 orphan_asset / 源码噪音误报。
 DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
-             "dev_self_audit.py", "_devcommon.py", "release_check.py", "build_dist.py"}
+             "dev_self_audit.py", "_devcommon.py", "release_check.py", "build_dist.py",
+             "dev_market_bench.py"}
 
 
 def fail(msg, code=2):
@@ -178,6 +180,20 @@ def main():
             print("      → %s" % r["todo"])
         if rel_block:
             print("\n⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。")
+    # ---- 6) 市场质量基准实测建议（次版本/大版本变动时提示 agent）----
+    # 仅打印建议，绝不动触发基准实测（run 只在人工要求或 agent 评估后执行）。
+    # best-effort：脚本缺失 / 无网络 / 缓存目录不可写均静默跳过，不影响门禁退出码。
+    try:
+        mb = os.path.join(HERE, "dev_market_bench.py")
+        if os.path.isfile(mb):
+            out = subprocess.run([sys.executable, mb, "check-bump"],
+                                 capture_output=True, text=True, timeout=30)
+            for line in (out.stdout + out.stderr).splitlines():
+                if line.strip():
+                    print(line)
+    except Exception:  # noqa: BLE001
+        pass
+
     # 阻断项并入失败判定（版本不一致 / CHANGELOG 未收口）
     failed = (s["error"] > 0) or (args.strict and s["warn"] > 0) or bool(rel_block)
     sys.exit(0 if not failed else 1)

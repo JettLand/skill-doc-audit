@@ -5,6 +5,17 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 未发布改动（累计，发布时统一升版本号）
+
+### 批量实测工具固化：市场质量基准实测器（取代旧 bench/market-audit/run_market_audit.py）
+- 取样指标由市场 `score`（热度）改为 **TRACE 官方质量评测分**（`overall`，5.0 分制），取值方法与 trace-selfcheck 的 `benchmark_official.py` 同源（`fetch_evaluation(slug)` → `parse_eval` → overall）。
+- 取样规则：全市场随机页偏移抽样候选池（默认 3000，避免热度偏差）→ 逐个取质量分 → 升序取质量最低 1000 → 随机抽 50；默认不固定种子（每次天然不同）+ 采样历史去重近 3 次，避免重复样本。
+- 规模约束近似（实测确认）：市场技能 13.3 万、列表接口仅支持 score/downloads/stars/updatedAt 排序且不返回质量分字段、全量爬评测不可行；故「质量最低 1000」为候选池内工程化近似，已在报告头部显式标注，避免误读为字面全局最低。
+- 不进自动调度：实际 `run` 仅人工要求或 agent 评估重大版本变动后建议时执行；`check-bump` 子命令供 `dev_self_audit` 在次/主版本变动时打印 `[agent-todo]` 建议（best-effort、不失败 CI、绝不触发 `run`）。
+- 新脚本 `src/scripts/dev_market_bench.py`（dev-only，已入 `DEV_TOOLS` 排除集）；`dev_self_audit.py` 末尾 best-effort 调其 `check-bump`；旧 `bench/market-audit/` 删除、`bench/` 加入 `.gitignore`。
+- 验证：小池冒烟测试全链路通过（候选池抽样→取质量分→最低区间抽样→下载→全量审计→报告；doc-llm 真执行 3/3）。
+
+
 ## 1.25.6 打磨明细（跨平台黄金快照修复 + CI Node 20 警告消除 + 工程化行尾统一）
 
 ### 跨平台黄金快照比对修复（CI 在 ubuntu 上 self_validate 失败）
