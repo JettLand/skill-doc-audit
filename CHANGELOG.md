@@ -5,7 +5,7 @@
 > 排序：版本号降序（最新在前）。
 
 
-## 未发布改动（流程 / 工具，未 bump 版本号）
+## 1.25.4 打磨明细（文档三分式重构 + 内联版本号收敛 + 开发链路固化）
 
 ### 部署副本同步纳入提交流程
 - 新增 `src/scripts/sync_deploy.py`（dev-only）：把 `src/` 发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md / dist/skill-doc-audit.zip）字节级同步到部署副本 `~/.workbuddy/skills/skill-doc-audit`，清理 `__pycache__`，末段校验一致性；**刻意排除** dev 工具（make_fixtures.py / self_validate.py）与 `tests/`，绝不把开发期脚本带进线上技能。
@@ -34,6 +34,7 @@
 - 新增 `DEVELOPMENT.md`；README「本地开发 / 自测」加指向该文件的链接（项目根、不进部署副本，无死链）。`SKILL.md` 不反向链接 `DEVELOPMENT.md`，使部署副本零死链。
 - 价值：终端用户（本身就是技能开发者）不被 dev 内容干扰；详细规格归单一真相源（checkers.md），漂移风险与 Agent 上下文负载同步下降；开发模式自然「仅开发者可见」（技术隔离此前已由 `DEV_TOOLS` 排除集实现）。
 - 验证：dev_self_audit.py --strict → 全检查器 `ERROR 0 / WARN 0 / INFO 37`，无回归（doc ERROR 0 / WARN 0）。
+- 版本串升 1.25.4（`src/SKILL.md` frontmatter + `sources.py` `User-Agent`）。
 
 ## 1.25.3 打磨明细（fixtures 移出版本管理 + make_fixtures 升级为整套重建工具）
 
