@@ -1,0 +1,41 @@
+# skill-doc-audit 开发质量 CI（远程兜底）
+#
+# 触发：代码推到 GitHub（push main）或开 PR 到 main 后，GitHub 自动跑。
+# 与本地 hooks/pre-push 跑相同的两套检查，只差「同步校验」开关：
+#   - 本地钩子：保留部署副本同步校验（本机有副本）
+#   - 本工作流：加 --no-sync-check（CI 机器无部署副本，_verify 无意义）
+#
+# 两 job 各自独立失败即标红 PR / 拦下 push。
+name: dev-qa
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  publish-gate:
+    name: 发布质量门禁 (dev_self_audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: 开发模式自审计（CI 无部署副本，跳过同步校验）
+        # --strict: WARN 也计失败；--no-sync-check: CI 无 C:/Users/.../skill-doc-audit 副本
+        run: python src/scripts/dev_self_audit.py --strict --no-sync-check
+
+  checker-regression:
+    name: 检查器行为回归 (self_validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: 示例回归自校验（确定性 + 快，每次都跑）
+        # self_validate 跑确定性检查器（doc/structure/security/runtime/deps）审计
+        # 人造 fixtures 并比对黄金快照；fixtures 缺失时由 make_fixtures 自动重建。
+        run: python src/scripts/self_validate.py

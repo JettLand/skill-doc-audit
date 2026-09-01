@@ -1,0 +1,63 @@
+#!/bin/sh
+# pre-push hook: 发布前本地门禁。
+#   推送到 main 前，自动跑：
+#     ① dev_self_audit.py --strict        （发布质量 + 部署副本同步门禁）
+#     ② self_validate.py                  （检查器行为回归）
+#   任一失败 → 拦截本次 push，逼你在发布前修复。
+# 与 post-commit 同目录；由 core.hooksPath 绝对路径安装，git 推 main 时自动触发。
+set -e 2>/dev/null || true
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ]; then
+  echo "[pre-push] 无法解析仓库根，跳过门禁"
+  exit 0
+fi
+
+# 仅对推送到 main 分支执行门禁（其他分支推送不拦截）
+RUN=0
+while read -r lref lsha rref rsha; do
+  case "$rref" in
+    refs/heads/main) RUN=1 ;;
+  esac
+done
+if [ "$RUN" -eq 0 ]; then
+  exit 0
+fi
+
+# 守卫：src/ 或文档有未提交改动 → 先 commit 再 push。
+# 既避免推送不完整，也间接保证部署副本与源码同步（提交即被 post-commit 钩子同步）。
+if ! git diff --quiet HEAD -- src/ README.md CHANGELOG.md DEVELOPMENT.md 2>/dev/null; then
+  echo "[pre-push] 发现 src/ 或文档有未提交改动，请先 commit 再 push："
+  git status --short -- src/ README.md CHANGELOG.md DEVELOPMENT.md
+  exit 1
+fi
+
+# python 候选（同 post-commit：git 子进程不继承交互 PATH，须绝对路径优先）
+PY=""
+for cand in \
+  "/c/Users/admin/.workbuddy/binaries/python/versions/3.13.12/python.exe" \
+  "/c/Users/admin/.workbuddy/binaries/python/versions/3.13.12.old.8740/python.exe" \
+  "/c/Python314/python.exe" ; do
+  if [ -x "$cand" ]; then PY="$cand"; break; fi
+done
+if [ -z "$PY" ]; then
+  if command -v python3 >/dev/null 2>&1; then PY="python3"
+  elif command -v python >/dev/null 2>&1; then PY="python"
+  fi
+fi
+if [ -z "$PY" ]; then
+  echo "[pre-push] 未找到 python（绝对候选 + PATH），跳过门禁。"
+  echo "[pre-push] 请手动跑：dev_self_audit.py --strict 与 self_validate.py"
+  exit 0
+fi
+
+echo "[pre-push] ① 开发模式自审计（发布质量 + 同步门禁）"
+"$PY" "$REPO_ROOT/src/scripts/dev_self_audit.py" --strict \
+  || { echo "[pre-push] ✗ 自审计未通过，已拦截 push。修复后重试。"; exit 1; }
+
+echo "[pre-push] ② 示例回归自校验（检查器行为）"
+"$PY" "$REPO_ROOT/src/scripts/self_validate.py" \
+  || { echo "[pre-push] ✗ 自校验未通过，已拦截 push。若检查器有意变更，先跑 self_validate.py --baseline 再提交。"; exit 1; }
+
+echo "[pre-push] ✓ 门禁全部通过，继续 push。"
+exit 0
