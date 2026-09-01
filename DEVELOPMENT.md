@@ -112,6 +112,55 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 > 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·dist·temp」，绝不因此阻断门禁。
 
+### 远程 CI（`dev-qa.yml`）发出什么
+
+`dev-qa.yml` 有两个 job，调用命令与本地 `pre-push` **完全相同**（仅 `dev_self_audit` 多一个 `--no-sync-check`）。因此它发出的提示 **与本地 CI 同源、内容一致**：
+
+- **`[agent-todo]` 块**：来自 `publish-gate` job → `dev_self_audit.py --strict --no-sync-check`，4 类提示的文案、渲染格式同上「`[agent-todo]` 提示具体长什么样」节，**逐字一致**。唯一差别是少了「`[sync] ⚠ 不一致`」那行（CI 机器无部署副本，`_verify` 被跳过）。
+- **`[PASS]` / `[FAIL]` / `[SKIP]` 行**：来自 `checker-regression` job → `self_validate.py`，**逐 fixture** 比对黄金快照，真实打印形如：
+
+```
+[PASS] dirty-skill  (summary: error=13 warn=3 info=0 pass=0)
+[FAIL] tricky-clean
+       - summary.error: expected=0 got=1
+       - 额外发现(+1): ('security', 'HARDCODED_SECRET', 'ERROR', 'scripts/main.py', '...')
+[SKIP] ts-skill: 黄金快照缺失（先跑 --baseline）
+```
+
+  - 全部 fixture 通过则 `exit 0`；任一 `[FAIL]` 或 `[SKIP]` → `exit 1` → 该 job 标红。
+  - fixtures 缺失时先自动调 `make_fixtures.build()` 重建并打印 `[self_validate] fixtures 缺失，已用 make_fixtures 自动重建于 <path>`；`--baseline` 时打印 `[BASELINE] <name> -> <golden>`（正常流程不触发）。
+
+> GitHub Actions 上没有 agent 消费 `[agent-todo]` 文本——那几行只是 CI 日志噪音；但 `release_check` 的**阻断项会让 `dev_self_audit` 退出码升为 1** → `publish-gate` job 失败 → **PR 标红**，是本地 `pre-push` 没拦住（或换机器直推）时的远程兜底。**所以远程 CI 的价值在「门禁退出码」而非「提示文本」。**
+
+### 同步钩子（`post-commit` → `sync_deploy.py`）具体执行什么
+
+`post-commit` 钩子（`hooks/post-commit`）**只调用 `sync_deploy.py` 一个命令**——职责单一：把 `src/` 发布面字节级同步到部署副本。**它不发任何 `[agent-todo]`、不做质量门禁、不跑检查器**，只打印同步状态行。具体执行顺序（来自 `sync_deploy.py`）：
+
+1. **解析部署目录**：`_devcommon.resolve_deploy_dir()` → `(path, how)`，打印 `deploy dir: <path> (resolved via <how>)`（`how` 如 `candidate_root:C:\Users\admin\.workbuddy\skills`，便于排查非标准安装）。
+2. **复制发布面文件**（仅当目标缺失或字节不一致才复制）：
+   - `src/SKILL.md` → `<deploy>/SKILL.md`
+   - `src/scripts/audit_docs.py` → `<deploy>/scripts/audit_docs.py`
+   - `src/references/checkers.md` → `<deploy>/references/checkers.md`
+   - `src/dist/skill-doc-audit.zip` → `<deploy>/dist/skill-doc-audit.zip`
+3. **递归复制发布面目录**：`src/scripts/auditlib/**` → `<deploy>/scripts/auditlib/**`（跳过 `__pycache__` 与 `*.pyc`）。
+4. **清理副本内 `__pycache__`**：`shutil.rmtree(<deploy>/scripts/__pycache__)` 等。
+5. **字节一致性校验**：`_verify()` 用 `filecmp` + `sha256` 逐文件核对发布面 ↔ 副本。
+6. **打印结果行**：`synced N file(s); verify: OK`（或 `already up-to-date; verify: OK`；不一致则 `verify: MISMATCH` 且 `exit 1`）。
+
+**刻意排除、不进副本的内容**（dev-only，避免污染用户技能）：
+
+- dev 工具：`make_fixtures.py` / `self_validate.py` / `dev_self_audit.py` / `_devcommon.py` / `sync_deploy.py` / `release_check.py` / `build_dist.py`
+- `src/tests/`（fixtures + 黄金快照）、`__pycache__` / `*.pyc`
+
+**真实打印样例**（本机一次提交后）：
+
+```
+[sync_deploy] deploy dir: C:\Users\admin\.workbuddy\skills\skill-doc-audit (resolved via candidate_root:C:\Users\admin\.workbuddy\skills)
+[sync_deploy] synced 1 file(s); verify: OK
+```
+
+> 若部署目录不存在（非标准安装且未设 `SKILL_DEPLOY_DIR`）：打印 `deploy dir not found ... skip (set SKILL_DEPLOY_DIR to override)` 并 `exit 0`（**不阻塞 commit**）——这是「优雅回落」而非「降级报错」，因为确实未安装该技能。
+
 ## 自校验（self_validate.py）与 fixture 生成器（make_fixtures.py）
 
 - `self_validate.py`：基于 `auditlib` 对 `tests/fixtures/` 跑确定性检查器，掩去绝对路径后比对 `tests/examples/*.expected.json` 黄金快照。新环境 clone 后任意 CWD 可跑（`tests/fixtures/` 已由 `.gitignore` 排除，缺失时自动调 `make_fixtures.build()` 重建）。
