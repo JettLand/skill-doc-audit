@@ -10,16 +10,26 @@ if [ -z "$REPO_ROOT" ]; then
   exit 0
 fi
 
-# Locate a python interpreter (prefer python3, fall back to python)
+# Locate a python interpreter. Git's hook subprocess does NOT inherit the
+# interactive shell's PATH, so bare `command -v python` can fail silently and
+# skip the deploy sync. Try absolute managed/system candidates first, then PATH.
 PY=""
-if command -v python3 >/dev/null 2>&1; then
-  PY="python3"
-elif command -v python >/dev/null 2>&1; then
-  PY="python"
+for cand in \
+  "/c/Users/admin/.workbuddy/binaries/python/versions/3.13.12/python.exe" \
+  "/c/Users/admin/.workbuddy/binaries/python/versions/3.13.12.old.8740/python.exe" \
+  "/c/Python314/python.exe" ; do
+  if [ -x "$cand" ]; then PY="$cand"; break; fi
+done
+if [ -z "$PY" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PY="python3"
+  elif command -v python >/dev/null 2>&1; then
+    PY="python"
+  fi
 fi
 
 if [ -z "$PY" ]; then
-  echo "[post-commit] python not found on PATH; skipping deploy sync."
+  echo "[post-commit] python not found (absolute candidates + PATH); skipping deploy sync."
   echo "[post-commit] To sync manually: python src/scripts/sync_deploy.py"
   exit 0
 fi
