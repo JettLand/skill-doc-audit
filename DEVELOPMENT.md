@@ -32,6 +32,17 @@ python src/scripts/dev_self_audit.py --no-sync-check  # 跳过同步校验（仅
 
 dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运行本仓库的 `dev_self_audit.py` 时有效；对终端用户审计任意技能无意义，若被误用会在非本仓库上下文打印提示并忽略。
 
+### 约定：哪些 dev 旗标进主 CLI、哪些不进（避免回退三分式）
+
+**`--dev-docs` 进主 CLI（`cli.py:44`）——合理，且性质不同于另两项。** 它是通用能力：任意技能的维护者都能把自己的 `README.md` / `CHANGELOG.md` 纳入漂移扫描，不是「关掉正确性检查」。所以它在用户模式 CLI 中可见是对的。
+
+**`dev_audit=True` 与 `exclude=DEV_TOOLS` 不进主 CLI——属本仓库专属 hack，禁止提成开关。** 理由：
+
+- `dev_audit=True`：`structure.py:21` 用 `not ctx.get("dev_audit")` 跳过 `name_mismatch`，唯一目的是本仓库源码根目录叫 `src/` 而非技能名（`dev_self_audit.py:115` 硬编码）。而用户用本技能审计**自己**的技能时，目录即技能目录，`name_mismatch` 是正确告警；把它暴露给用户等于教用户「可关掉名称一致性检查」。
+- `exclude=DEV_TOOLS`：`dev_self_audit.py:40/:114` 排除 `sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py` 这 4 个本仓库 dev 工具；其他技能根本没有这些文件，暴露出去是死参数。
+
+**硬性边界**：`dev_audit` / `exclude` 的打开点只存在于 `dev_self_audit.py`（`src/scripts/` 内，已被 `sync_deploy.py` 排除在部署副本外）。若日后有人想把 `--dev-audit` 加到 `cli.py`（它是部署副本一部分），**等于把维护者专属逻辑塞回用户技能、直接回退三分式隔离**，应拒绝。引擎默认 `dev_audit=False`（`model.py:152`）即用户模式，符合「默认零依赖、绝不替用户决定」。
+
 ## 自校验（self_validate.py）与 fixture 生成器（make_fixtures.py）
 
 - `self_validate.py`：基于 `auditlib` 对 `tests/fixtures/` 跑确定性检查器，掩去绝对路径后比对 `tests/examples/*.expected.json` 黄金快照。新环境 clone 后任意 CWD 可跑（`tests/fixtures/` 已由 `.gitignore` 排除，缺失时自动调 `make_fixtures.build()` 重建）。
