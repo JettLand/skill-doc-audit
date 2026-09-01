@@ -62,6 +62,43 @@ def check_version_consistency():
     return None
 
 
+def check_readme_version():
+    """README.md「版本摘要」表的最新版本行必须等于 SKILL.md 版本号。
+
+    与 check_version_consistency 同属「版本四处一致性」家族：SKILL.md / sources.py
+    User-Agent / README 版本摘要表 / CHANGELOG 最高版本节。前三者机器强制相等，
+    CHANGELOG 仅校验「已收口为版本节」（见 check_changelog_promotion）。本检查把
+    README 纳入机器强制，避免某次改了 SKILL.md 却漏更新 README 版本表、带旧版本号上架。
+    """
+    skill_md = os.path.join(SRC, "SKILL.md")
+    readme = os.path.join(ROOT, "README.md")
+    try:
+        with open(skill_md, encoding="utf-8") as f:
+            m = VERSION_RE.search(f.read())
+            skill_ver = m.group(1) if m else None
+    except OSError:
+        return None
+    if not skill_ver:
+        return None
+    try:
+        with open(readme, encoding="utf-8") as f:
+            rows = re.findall(r"^\|\s*(\d+\.\d+\.\d+)\s*\|", f.read(), re.M)
+    except OSError:
+        return None
+    if not rows:
+        return None  # 解析不到版本表行时不误拦（格式异常由人工兜底）
+    max_ver = max(rows, key=_ver_tuple)
+    if max_ver != skill_ver:
+        return {
+            "blocking": True,
+            "severity": "ERROR",
+            "title": "版本号不一致：README.md 版本摘要表与 SKILL.md 不同步",
+            "detail": "SKILL.md version=%s，但 README.md「版本摘要」表最新版本行为 %s" % (skill_ver, max_ver),
+            "todo": "在 README.md「版本摘要」表顶部补一行 '| %s | （本次改动说明） |'，或修正已有行版本号" % skill_ver,
+        }
+    return None
+
+
 def check_changelog_promotion():
     """SKILL.md 版本高于 CHANGELOG 最高版本节时，须先把「未发布改动」收口为版本节。"""
     skill_md = os.path.join(SRC, "SKILL.md")
@@ -157,7 +194,8 @@ def check_temp_residue():
     }
 
 
-CHECKS = [check_version_consistency, check_changelog_promotion,
+CHECKS = [check_version_consistency, check_readme_version,
+          check_changelog_promotion,
           check_dist_staleness, check_temp_residue]
 
 

@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 未发布改动（累计，发布时统一升版本号）
+
+### 本地 CI 版本一致性门禁加固（dev-only，release_check.py）
+- `release_check.py` 新增 `check_readme_version()`：校验 `README.md`「版本摘要」表最新版本行 == `SKILL.md` `version`（阻断级 ERROR）。至此「版本四处一致性」中 SKILL.md / sources.py User-Agent / README 版本表三处机器强制相等，CHANGELOG 仍仅校验「已收口为版本节」（`check_changelog_promotion`）。
+- 由 `dev_self_audit.py`（pre-push 钩子与 dev-qa 工作流共用）调用，版本不符时归入 `rel_block` → `--strict` 退出码 1 → 拦截推 main；阻断项已在 `dev_self_audit` 输出以 `[agent-todo][ERROR]` 渲染，无需另加提示。
+- 解析容错：README 版本表行解析不到时不误拦（格式异常由人工兜底）。
+- 验证：反向测试（临时文件模拟 README 版本不符）确返回阻断 ERROR；一致场景不误报；`dev_self_audit --strict` ERROR 0/WARN 0/INFO 33 零回归。
+
 ## 1.25.7 打磨明细（TRACE 评测整改 + 市场质量基准实测器固化收口）
 
 ### TRACE 评测整改（部署副本自评 4.7/优秀，补强 <5.0 子项，文档级）
