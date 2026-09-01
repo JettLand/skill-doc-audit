@@ -1,6 +1,7 @@
 #!/bin/sh
 # post-commit hook: keep the installed deployment copy in sync with committed source.
-# Installed via: git config core.hooksPath ../hooks  (relative to .git -> repo/hooks)
+# Installed via: git config core.hooksPath "D:/Agent Work/skill-doc-audit技能项目管理/hooks"
+#   （务必用绝对路径：相对 ../hooks 会被 git 解析到仓库外的 D:/Agent Work/hooks，钩子永不触发）
 # The sync itself lives in src/scripts/sync_deploy.py (dev-only, not deployed).
 set -e 2>/dev/null || true
 
