@@ -19,11 +19,14 @@
 - 配套文档：DEVELOPMENT.md「本地 CI 发出什么」节补第 6 类 `[agent-todo]`（check-bump 版本变动基准建议）真实渲染样例与「仅次/主版本触发、补丁号不触发」说明；release_check 表补 README 版本表行、由「共 4 类」更正为「共 5 类」。
 - 验证：模拟次版本 1.24.0→1.25.7 确打印 `[agent-todo][建议]`；当前无次/主变动时 `dev_self_audit --strict` 零误报（ERROR 0/WARN 0/INFO 33、rc 0）。
 
-### 新增第 7 类 `[agent-todo]`：次/主版本变动提示 doc + doc-llm 文档自审计（dev-only，dev_market_bench.py + DEVELOPMENT.md）
-- `dev_market_bench.py check-bump` 次/主版本变动分支新增第 2 条 `[agent-todo][建议]`：提示 agent 调用 doc + doc-llm 检查器做文档自审计（次/主版本变更常含能力或文档结构变动）。指令：`python src/scripts/audit_docs.py --skill ~/.workbuddy/skills/skill-doc-audit --check doc --check doc-llm --doc-llm-mode agent`（doc-llm 产出语义漂移 dossier 需 agent 接手判读；也可 `dev_self_audit.py --dev-docs` 一并扫 README/CHANGELOG）。
-- DEVELOPMENT.md「本地 CI（`pre-push`）发出什么」节重构为统一的 **`[agent-todo]` 指令清单**（1 表 7 行，含触发条件/指令/严重度/是否阻断），将原先散落的 release_check 5 类表格 + check-bump 第 6 类脚注合并为一份完整清单，并补第 7 类；渲染样例同步更新为双 `[agent-todo]` 块。
-- 触发语义与第 6 类一致：仅次/主版本（x.y）变动触发，补丁号（x.y.z）按设计不触发；非阻断、不自动跑。
-- 验证：模拟次版本 1.24.0→1.25.7 确打印两条 `[agent-todo][建议]`（基准实测 + 文档自审计）；`dev_self_audit --strict` ERROR 0/WARN 0/INFO 33 零回归。
+### 第 7–8 类 `[agent-todo]`：次/主版本变动须执行文档自审计与全量自审计（dev-only，dev_market_bench.py + dev_self_audit.py + DEVELOPMENT.md）
+- **第 7 类（doc + doc-llm 文档自审计）由 `[建议]` 升为 `[必须]`（阻断）**：次/主版本变动属质量高风险点，文档/结构漂移必须由 agent 实际跑过审计确认后才可发布。指令：`python src/scripts/audit_docs.py --skill ~/.workbuddy/skills/skill-doc-audit --check doc --check doc-llm --doc-llm-mode agent`。
+- **新增第 8 类（开发者模式全量自审计，必须、阻断）**：次/主版本变动时提示 agent 执行一次 `python src/scripts/dev_self_audit.py --dev-docs --strict`（全量检查器 + README/CHANGELOG 文档自审计，确认 dev 工具与发布面一致、无漂移），更好维护整体质量。
+- **第 6 类（市场质量基准实测）保持 `[建议]`（不阻断）**：基准实测 `run` 只在人工要求或 agent 评估后执行，check-bump 对它「建议、绝不自动跑」。
+- **机制变更（关键）**：`dev_self_audit.py` 不再纯透传 check-bump 的 stdout，改为经新增 `_parse_check_bump()` 解析——`[必须]` 项并入 `rel_block`（阻断，`--strict` 下升退出码、拦 push）、`[建议]` 项并入 `rel_info`（不阻断）；原样保留「必须/建议」标签使文档与渲染逐字一致。第 7–8 类由此真正强制，而非仅提示。
+- **第 5 类扩展**：`release_check.check_temp_residue` 在 `temp/` 残留之外新增检测仓库根/`src` 下的 `*.bak`/`*.bak.*` 过时备份（审计工具生成的 SKILL.md.bak.<n>，默认保留最近 3 个、更早的清理），指令补「清理 *.bak 备份」。
+- DEVELOPMENT.md「`[agent-todo]` 指令清单」由 7 行扩为 **8 行**；第 5 行补过时备份、第 7 行升「必须(阻断)」、新增第 8 行；说明文字与渲染样例同步更新（含 `_parse_check_bump` 合并渲染、第 6–8 类严重度语义）。
+- 验证：模拟次版本 1.24.0→1.25.7 确打印第 6 类 `[建议]` + 第 7–8 类 `[必须]`，且 `dev_self_audit --strict` 退出码 1（rel_block 非空 → 拦 push）；无版本变动时零误报（ERROR 0/WARN 0/INFO 33、rc 0）。
 
 ### 发布前重打包交由同步钩子自动执行（dev-only，build_dist.py + sync_deploy.py + release_check.py + .gitignore）
 - **目标**：把「发布 SkillHub 前手动重打包 dist 制品」从 agent 手动步骤改为同步钩子自动执行，彻底消灭陈旧 zip 漂移。

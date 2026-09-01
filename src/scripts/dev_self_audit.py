@@ -28,6 +28,7 @@ import os
 import sys
 import argparse
 import subprocess
+import re
 from types import SimpleNamespace
 
 # 仓库根经 __file__ 解析（不依赖 CWD）；dev 脚本共享样板见 _devcommon
@@ -37,6 +38,53 @@ if HERE not in sys.path:
 from _devcommon import ROOT, SRC, fail as _fail, resolve_deploy_dir
 
 DEP, _DEP_HOW = resolve_deploy_dir()   # 自动探测：优先 WORKBUDDY_CONFIG_DIR，失败回退多候选根探测
+
+
+def _parse_check_bump(text):
+    """把 dev_market_bench.check-bump 输出解析为 (rel_block, rel_info, ctx_lines)。
+
+    - `[agent-todo][必须]` → 阻断项（blocking=True，原样保留「必须」标签）→ --strict 下失败、拦 push
+    - `[agent-todo][建议]` → 非阻断提示（blocking=False，原样保留「建议」标签）
+    - 其它行（如版本变动标题）作为 ctx_lines 原样返回，由调用方打印为上下文
+
+    原样保留「必须 / 建议」标签，使本地 CI 指令清单（DEVELOPMENT.md）与真实渲染逐字一致。
+    """
+    block, info, ctx = [], [], []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        s = lines[i].strip()
+        m = re.match(r'^\[agent-todo\]\[(必须|建议)\]\s*(.*)$', s)
+        if m:
+            sev = m.group(1)
+            title = m.group(2)
+            detail_parts, todo = [], None
+            j = i + 1
+            while j < len(lines):
+                ns = lines[j].strip()
+                if not ns:
+                    j += 1
+                    continue
+                if ns.startswith("[agent-todo]"):
+                    break
+                if ns.startswith("→"):
+                    todo = ns[1:].strip()
+                else:
+                    detail_parts.append(ns)
+                j += 1
+            entry = {
+                "blocking": sev == "必须",
+                "severity": sev,   # 原样保留「必须」/「建议」标签
+                "title": title,
+                "detail": " ".join(detail_parts) if detail_parts else "",
+                "todo": todo or "",
+            }
+            (block if sev == "必须" else info).append(entry)
+            i = j
+        else:
+            ctx.append(lines[i])
+            i += 1
+    return block, info, ctx
 
 # 发布面之外的开发期工具：纳入扫描会产生与技能质量无关的噪音，显式排除。
 # _devcommon.py 同为 dev-only（不进部署副本），列入排除避免 orphan_asset 误报。
@@ -166,6 +214,23 @@ def main():
                                      "title": "发布就绪检查不可用",
                                      "detail": str(e),
                                      "todo": "手动核对版本号/CHANGELOG/dist/temp"}]
+    # ---- 5b) 版本变动提示（次/主版本）：解析 dev_market_bench.check-bump 输出 ----
+    # 必须项([必须])并入 rel_block（阻断，--strict 下失败 → 拦 push）；
+    # 建议项([建议])并入 rel_info（不阻断）。其它上下文行（版本变动标题）原样打印。
+    # best-effort：脚本缺失 / 无网络 / 缓存目录不可写均静默跳过，不影响门禁退出码。
+    try:
+        mb = os.path.join(HERE, "dev_market_bench.py")
+        if os.path.isfile(mb):
+            out = subprocess.run([sys.executable, mb, "check-bump"],
+                                 capture_output=True, text=True, timeout=30)
+            mb_block, mb_info, mb_ctx = _parse_check_bump(out.stdout + out.stderr)
+            rel_block.extend(mb_block)
+            rel_info.extend(mb_info)
+            for c in mb_ctx:
+                if c.strip():
+                    print(c)
+    except Exception:  # noqa: BLE001
+        pass
     if rel_block or rel_info:
         print("\n" + "=" * 72)
         print("发布前待办（Agent 提示 · 由 pre-push 钩子与 dev-qa 工作流发出）")
@@ -180,19 +245,6 @@ def main():
             print("      → %s" % r["todo"])
         if rel_block:
             print("\n⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。")
-    # ---- 6) 市场质量基准实测建议（次版本/大版本变动时提示 agent）----
-    # 仅打印建议，绝不动触发基准实测（run 只在人工要求或 agent 评估后执行）。
-    # best-effort：脚本缺失 / 无网络 / 缓存目录不可写均静默跳过，不影响门禁退出码。
-    try:
-        mb = os.path.join(HERE, "dev_market_bench.py")
-        if os.path.isfile(mb):
-            out = subprocess.run([sys.executable, mb, "check-bump"],
-                                 capture_output=True, text=True, timeout=30)
-            for line in (out.stdout + out.stderr).splitlines():
-                if line.strip():
-                    print(line)
-    except Exception:  # noqa: BLE001
-        pass
 
     # 阻断项并入失败判定（版本不一致 / CHANGELOG 未收口）
     failed = (s["error"] > 0) or (args.strict and s["warn"] > 0) or bool(rel_block)

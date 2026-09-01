@@ -13,9 +13,9 @@
   不入库、由 post-commit 钩子经 `sync_deploy.py` 自动 `build_dist.ensure_fresh()` 重建，
   `check_dist_staleness` 仅作「同步钩子未跑」的兜底守卫（正常流程恒不提示）。
 
-  阻断项（版本不一致 / CHANGELOG 未收口）以 ERROR/WARN 返回，使 dev_self_audit
-  在 --strict 下失败、拦下 push；非阻断项（dist 过期兜底 / temp 残留）仅作 INFO 提示，
-  不阻塞常规提交与推送。
+  阻断项（版本不一致 / CHANGELOG 未收口 / 版本变动须做的文档自审计）以 ERROR/WARN/必须
+  返回，使 dev_self_audit 在 --strict 下失败、拦下 push；非阻断项（dist 过期兜底 / temp
+  残留 / 过时备份 / 市场基准实测建议）仅作 INFO/建议 提示，不阻塞常规提交与推送。
 """
 import os
 import re
@@ -188,26 +188,37 @@ def check_dist_staleness():
 
 
 def check_temp_residue():
-    """temp/ 存放临时测试产物；及时清理（但清理前先确认非用户手动放入的文件）。"""
-    temp_dir = os.path.join(ROOT, "temp")
-    if not os.path.isdir(temp_dir):
-        return None
+    """temp/ 存放临时测试产物；另须清理开发期产生的过时备份(.bak)。
+
+    过时产物：审计工具改动 SKILL.md 时会生成 SKILL.md.bak.<n> 备份（默认保留最近 3 个，
+    见项目约定），更早的应清理；这些文件已被 .gitignore 忽略、不应入库。
+    """
     found = []
-    for pat in ("*_test*.py", "*.mhtml", "_eval*.txt", "stress*", "_rezip*"):
-        for p in glob.glob(os.path.join(temp_dir, pat)):
+    # 1) temp/ 测试残留
+    temp_dir = os.path.join(ROOT, "temp")
+    if os.path.isdir(temp_dir):
+        for pat in ("*_test*.py", "*.mhtml", "_eval*.txt", "stress*", "_rezip*"):
+            for p in glob.glob(os.path.join(temp_dir, pat)):
+                found.append(os.path.relpath(p, ROOT))
+        for p in glob.glob(os.path.join(temp_dir, "*.py")):
+            r = os.path.relpath(p, ROOT)
+            if r not in found:
+                found.append(r)
+    # 2) 过时备份(.bak / .bak.*)：开发期工具生成的 SKILL.md.bak.<n> 等
+    for base in (ROOT, SRC, os.path.join(SRC, "scripts")):
+        for p in glob.glob(os.path.join(base, "*.bak")):
             found.append(os.path.relpath(p, ROOT))
-    for p in glob.glob(os.path.join(temp_dir, "*.py")):
-        r = os.path.relpath(p, ROOT)
-        if r not in found:
-            found.append(r)
+        for p in glob.glob(os.path.join(base, "*.bak.*")):
+            found.append(os.path.relpath(p, ROOT))
     if not found:
         return None
     return {
         "blocking": False,
         "severity": "INFO",
-        "title": "temp/ 残留测试产物",
-        "detail": "发现 %d 个可能过期的临时文件：%s" % (len(found), ", ".join(found[:8])),
-        "todo": "及时清理 temp/ 测试残留；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）",
+        "title": "temp/ 残留测试产物与过时备份(.bak)",
+        "detail": "发现 %d 个可能过期的临时/备份文件：%s" % (len(found), ", ".join(found[:8])),
+        "todo": "及时清理 temp/ 测试残留与 *.bak 备份（*.bak 默认保留最近 3 个、更早的删除）；"
+                "⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）",
     }
 
 
