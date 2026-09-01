@@ -12,8 +12,8 @@
   ],
   "backup": null,
   "summary": {
-    "error": 12,
-    "warn": 4,
+    "error": 13,
+    "warn": 3,
     "info": 2,
     "pass": false
   },
@@ -80,7 +80,7 @@
     },
     {
       "checker": "doc",
-      "severity": "WARN",
+      "severity": "ERROR",
       "category": "UNKNOWN_IDENT",
       "category_cn": "未知标识符",
       "message": "文档里提到的名称 tune_model 在代码里找不到（可能拼写有误或已被删除；若为外部 MCP/插件工具请在 frontmatter 的 allowed-tools 声明）",
