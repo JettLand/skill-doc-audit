@@ -38,6 +38,13 @@
 - 验证：`sync_deploy.py` 过期/缺失 zip 场景确自动重建、最新场景跳过重建；部署副本 zip 与 `src/` zip sha256 一致；`dev_self_audit --strict` ERROR 0/WARN 0/INFO 33 零回归。
 - **补充验证（兜底守卫正向触发实测 + 版本号漂移修正）**：用户追问下实测兜底守卫两个正向分支均能正常触发——① zip 早于发布面源码（模拟 `post-commit` 钩子跳过）确打印 `[agent-todo][INFO] dist 制品可能过期（同步钩子未重建）`；② zip 缺失（模拟钩子从未运行）确打印 `[agent-todo][INFO] dist 制品缺失（同步钩子可能未运行）`；两者 EXIT 0（INFO 不阻断，符合设计），正常流程（zip 最新）恒不误报。另修正 `release_check.py` / `build_dist.py` / `DEVELOPMENT.md` 中误写的「v1.25.8 起」——当前版本仍为 1.25.7（未发布累积、dev-only 改动不进部署副本），按约定版本号于授权发布时统一升，故改为版本中立措辞；全仓已无 1.25.8 残留。
 
+### 市场质量基准实测器下载口径对齐官方 find-skills（dev-only，dev_market_bench.py）
+- **确认**：`download_and_extract` 原本使用的 `https://lightmake.site/api/v1/download?slug=<slug>` 即 find-skills 技能文档 Step 6 的官方端点，下载通道本就官方、非野路子。用户建议「用官方 SKILL 的 API 下载更安全」后核实一致，并据此进一步对齐官方流程。
+- **强化（本地优先短路）**：新增常量 `LOCAL_MARKETPLACE`（`~/.workbuddy/skills-marketplace/skills`）；`download_and_extract` 先查该目录，样本技能若已存在则直接 `copytree`、不发网络请求。这吻合官方 find-skills Step 5 本地优先流程，同时降低对官方接口的请求频次（呼应「避免过于频繁请求引来审查」诉求）。
+- 下载产物仍落 bench 临时目录、不安装进实时技能目录（`~/.workbuddy/skills`）；下载合法性以官方端点为准，**不依赖任何内部/未公开路径**。
+- 模块文档补「下载口径」段说明本地优先 + 官方端点，明确产物落点与不依赖内部路径。
+- 验证：本地优先分支无网络复制 OK；网络分支 1 个真实请求（slug=oo-browserbase）下载 OK；py_compile 通过。
+
 ## 1.25.7 打磨明细（TRACE 评测整改 + 市场质量基准实测器固化收口）
 
 ### TRACE 评测整改（部署副本自评 4.7/优秀，补强 <5.0 子项，文档级）

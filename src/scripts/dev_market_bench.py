@@ -30,6 +30,12 @@ dev_market_bench.py —— 市场质量基准实测器（dev-only 辅助开发�
   实际跑基准（run）只在「人工要求」或「agent 评估重大版本变动后建议」时执行；
   check-bump 供 dev_self_audit 在次版本/大版本变动时打印建议（绝不动触发 run，不自动跑基准）。
 
+下载口径（与官方 find-skills 技能一致 · 用户 2026-09-02 确认）：
+  样本技能优先复用本地技能市场 `~/.workbuddy/skills-marketplace/skills/<slug>`（免网络请求），
+  否则走官方端点 `https://lightmake.site/api/v1/download?slug=<slug>`；产物落在 bench 临时目录、
+  不安装进实时技能目录。下载合法性以官方端点为准，**不依赖任何内部/未公开路径**，
+  且本地优先短路同时降低对官方接口的请求频次（呼应「避免过于频繁请求引来审查」的诉求）。
+
 退出码：
   0 正常；2 参数/路径错误；run 下被审技能出现 ERROR 属被测现象、不升退出码（与 run_market_audit 一致）。
 
@@ -62,6 +68,8 @@ INDEX_JSON = os.path.join(CACHE, "quality_index.json")
 HISTORY_JSON = os.path.join(CACHE, "sampled_history.json")
 LAST_VERSION = os.path.join(CACHE, "last_bench_version.txt")
 SKILLS_DIR = os.path.join(CACHE, "skills")
+LOCAL_MARKETPLACE = os.path.join(os.path.expanduser("~"), ".workbuddy",
+                                 "skills-marketplace", "skills")  # 官方 find-skills Step 5 本地优先
 RESULTS_JSON = os.path.join(CACHE, "results.json")
 REPORT_MD = os.path.join(CACHE, "report.md")
 
@@ -259,17 +267,37 @@ def record_sampled(slugs):
 
 # ── 下载 + 审计（复用旧 run_market_audit 的稳健实现）──────────────────────────
 def download_and_extract(slug):
-    """下载技能 zip 并解包到 skills/<slug>/，返回 (skill_dir_or_None, error_or_None)。"""
+    """下载技能并解包到 SKILLS_DIR/<slug>/，返回 (skill_dir_or_None, error_or_None)。
+
+    下载走官方 SkillHub 端点（与 find-skills 技能文档 Step 6 完全一致：
+    https://lightmake.site/api/v1/download?slug=<slug>），并对「本地技能市场」做
+    优先短路——若样本技能已存在于 LOCAL_MARKETPLACE/<slug>，直接复制、不发网络请求。
+    这既吻合官方 find-skills 的 Step 5 本地优先流程，也降低对官方接口的请求频次
+    （呼应「避免过于频繁请求引来审查」的诉求）。下载产物落在 bench 临时目录，
+    不安装进实时技能目录（~/.workbuddy/skills）。
+    """
+    dest = os.path.join(SKILLS_DIR, slug)
+    os.makedirs(dest, exist_ok=True)
+
+    # ① 本地技能市场优先（官方 find-skills Step 5）：已缓存则免网络下载
+    if os.path.isdir(LOCAL_MARKETPLACE):
+        src = os.path.join(LOCAL_MARKETPLACE, slug)
+        if os.path.isdir(src):
+            try:
+                if not os.path.isfile(os.path.join(dest, "SKILL.md")):
+                    shutil.copytree(src, dest, dirs_exist_ok=True)
+                return dest, None
+            except Exception as e:  # noqa: BLE001
+                return None, "local_copy_failed:%r" % e
+
+    # ② 否则走官方下载端点
     zip_path = os.path.join(SKILLS_DIR, slug + ".zip")
     url = "https://lightmake.site/api/v1/download?slug=" + slug
-    os.makedirs(SKILLS_DIR, exist_ok=True)
     try:
         rc = subprocess.run(["curl", "-sL", "--max-time", "40", "-o", zip_path, url],
                             capture_output=True, text=True)
         if rc.returncode != 0 or not os.path.isfile(zip_path) or os.path.getsize(zip_path) == 0:
             return None, "download_failed(rc=%s)" % rc.returncode
-        dest = os.path.join(SKILLS_DIR, slug)
-        os.makedirs(dest, exist_ok=True)
         try:
             with zipfile.ZipFile(zip_path) as z:
                 z.extractall(dest)
@@ -281,7 +309,6 @@ def download_and_extract(slug):
             shutil.move(zip_path, os.path.join(zips_dir, slug + ".zip"))
         except (OSError, Exception):  # noqa: BLE001
             pass
-        skill_dir = dest
         if not os.path.isfile(os.path.join(dest, "SKILL.md")):
             found = None
             for root, _dirs, files in os.walk(dest):
@@ -290,8 +317,8 @@ def download_and_extract(slug):
                     break
             if found is None:
                 return None, "no_SKILL.md_in_zip"
-            skill_dir = found
-        return skill_dir, None
+            return found, None
+        return dest, None
     except Exception as e:  # noqa: BLE001
         return None, "download_exception:%r" % e
 
