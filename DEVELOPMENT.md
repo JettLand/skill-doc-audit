@@ -68,6 +68,8 @@ python src/scripts/make_fixtures.py --baseline   # 仅人工显式触发
 - `sync_deploy.py`（dev-only）：把 `src/` 发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md / dist/skill-doc-audit.zip）字节级同步到部署副本 `~/.workbuddy/skills/skill-doc-audit`，清理 `__pycache__`，末段校验一致性；**刻意排除** dev 工具与 `tests/`。
 - `hooks/post-commit`（`git config core.hooksPath` 须为绝对路径 `D:/Agent Work/skill-doc-audit技能项目管理/hooks`）：每次 `git commit` 后自动运行 `sync_deploy.py`，**提交即同步**。⚠ 钩子必须在能找到 `python` 的环境运行，且 `core.hooksPath` 必须为绝对路径——相对 `../hooks` 会被 git 解析到仓库外导致钩子永不触发；提交后务必 `diff` 核验副本一致，不能只看 commit 成功。
 
+部署目录解析（与用户名/平台/设备解耦）：`sync_deploy.py` 与 `dev_self_audit.py` 均通过 `_devcommon.resolve_deploy_dir()` 自动探测，优先级 `SKILL_DEPLOY_DIR` > `WORKBUDDY_HOME` > 默认 `~/.workbuddy/skills/skill-doc-audit`（`~` 按当前用户展开，Windows/Linux/macOS 通用，不写死盘符或用户名）。**换机器 / 非标准安装**只需设其一（如 `export SKILL_DEPLOY_DIR=/path/to/deploy`），无需改代码；默认即指向本机标准位置，向后兼容原 `C:/Users/admin/.workbuddy/...` 旧值。
+
 手动触发：`python src/scripts/sync_deploy.py`（可用 `SKILL_DEPLOY_DIR` 覆盖目标路径）。
 
 ## 未发布改动工作流（累积发布）

@@ -16,6 +16,26 @@ HERE = os.path.dirname(os.path.abspath(__file__))        # <root>/src/scripts
 ROOT = os.path.dirname(os.path.dirname(HERE))            # <root>
 SRC = os.path.join(ROOT, "src")                          # 技能源码根 src/
 
+SKILL_NAME = "skill-doc-audit"                           # 部署副本的技能目录名
+
+
+def resolve_deploy_dir():
+    """解析「已部署副本」目录，尽量与用户名 / 平台 / 设备解耦。
+
+    优先级（从高到低）：
+      1. SKILL_DEPLOY_DIR  —— 显式按机覆盖（CI、非标准安装、换机器迁移）
+      2. WORKBUDDY_HOME    —— 若 WorkBuddy 根与 ~/.workbuddy 不同
+      3. ~/.workbuddy/skills/<SKILL_NAME>  —— 标准跨平台默认
+         （~ 按当前用户展开，不写死盘符 / 用户名，Windows/Linux/macOS 通用）
+    """
+    env = os.environ.get("SKILL_DEPLOY_DIR", "").strip()
+    if env:
+        return env
+    wb_home = os.environ.get("WORKBUDDY_HOME", "").strip()
+    if wb_home:
+        return os.path.join(wb_home, "skills", SKILL_NAME)
+    return os.path.join(os.path.expanduser("~"), ".workbuddy", "skills", SKILL_NAME)
+
 
 def fail(msg, code=2, tag="dev"):
     sys.stderr.write("[%s] ERROR: %s\n" % (tag, msg))

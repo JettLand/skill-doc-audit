@@ -49,12 +49,9 @@ import filecmp
 HERE = os.path.dirname(os.path.abspath(__file__))   # .../src/scripts
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
-from _devcommon import ROOT, SRC
+from _devcommon import ROOT, SRC, resolve_deploy_dir
 
-DEP = os.environ.get(
-    "SKILL_DEPLOY_DIR",
-    r"C:/Users/admin/.workbuddy/skills/skill-doc-audit",
-)
+DEP = resolve_deploy_dir()   # 自动探测；可被 SKILL_DEPLOY_DIR / WORKBUDDY_HOME 覆盖
 
 # (relative-in-src, relative-in-deploy) — file-level release surface
 SYNC_FILES = [
