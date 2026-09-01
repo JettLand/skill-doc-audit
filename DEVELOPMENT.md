@@ -86,7 +86,14 @@ python src/scripts/make_fixtures.py --baseline   # 仅人工显式触发
 - `sync_deploy.py`（dev-only）：把 `src/` 发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md / dist/skill-doc-audit.zip）字节级同步到部署副本 `~/.workbuddy/skills/skill-doc-audit`，清理 `__pycache__`，末段校验一致性；**刻意排除** dev 工具与 `tests/`。
 - `hooks/post-commit`（`git config core.hooksPath` 须为绝对路径 `D:/Agent Work/skill-doc-audit技能项目管理/hooks`）：每次 `git commit` 后自动运行 `sync_deploy.py`，**提交即同步**。⚠ 钩子必须在能找到 `python` 的环境运行，且 `core.hooksPath` 必须为绝对路径——相对 `../hooks` 会被 git 解析到仓库外导致钩子永不触发；提交后务必 `diff` 核验副本一致，不能只看 commit 成功。
 
-部署目录解析（与用户名/平台/设备解耦）：`sync_deploy.py` 与 `dev_self_audit.py` 均通过 `_devcommon.resolve_deploy_dir()` 自动探测，优先级 `SKILL_DEPLOY_DIR` > `WORKBUDDY_HOME` > 默认 `~/.workbuddy/skills/skill-doc-audit`（`~` 按当前用户展开，Windows/Linux/macOS 通用，不写死盘符或用户名）。**换机器 / 非标准安装**只需设其一（如 `export SKILL_DEPLOY_DIR=/path/to/deploy`），无需改代码；默认即指向本机标准位置，向后兼容原 `C:/Users/admin/.workbuddy/...` 旧值。
+部署目录解析（与用户名/平台/设备解耦，**非标准安装下真正定位、不降级**）：`sync_deploy.py` 与 `dev_self_audit.py` 均通过 `_devcommon.resolve_deploy_dir()` 解析，返回 `(path, how)`（how 打印在同步日志，便于排查）。优先级：
+1. `SKILL_DEPLOY_DIR`（显式按机覆盖，最高，绕过一切自动探测）
+2. **`WORKBUDDY_CONFIG_DIR` / `CODEBUDDY_CONFIG_DIR` + `/skills/<name>`** —— WorkBuddy 运行时**必导出**的配置目录（见进程环境 `WORKBUDDY_CONFIG_DIR=C:\Users\admin\.workbuddy`），非标准安装 / 自定义数据目录 / 换用户名均可靠定位，这是根治「降级」的主机制
+3. `~/<WORKBUDDY_DATA_FOLDER_NAME>/skills/<name>`（数据文件夹名 + 主目录，默认 `.workbuddy`）
+4. `~/.workbuddy/skills/<name>`（标准跨平台默认，`~` 按当前用户展开，不写死盘符/用户名）
+5. **探测兜底**：在候选根（`LOCALAPPDATA/CodeBuddyExtension/skills`、`APPDATA/WorkBuddy/skills`、`XDG_DATA_HOME/workbuddy/skills`、`~/Library/Application Support/WorkBuddy/skills` 等）中找首个含 `<name>/SKILL.md` 的目录——覆盖「裸终端运行、未继承 `WORKBUDDY_*` 变量」的场景
+
+> 严格测试已证明：把 `WORKBUDDY_CONFIG_DIR` 指向自定义数据目录（非标准安装）时，`sync_deploy` 实际同步 19 文件并 `verify: OK`，**不再 skip/降级**（见 `temp/_test_resolve2.py` 的 T2/T7）。只有「所有候选根都找不到该技能」的极端情况才退回默认并优雅跳过——那已不是降级，而是确实未安装。
 
 手动触发：`python src/scripts/sync_deploy.py`（可用 `SKILL_DEPLOY_DIR` 覆盖目标路径）。
 

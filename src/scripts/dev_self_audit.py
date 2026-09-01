@@ -34,7 +34,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 from _devcommon import ROOT, SRC, fail as _fail, resolve_deploy_dir
 
-DEP = resolve_deploy_dir()   # 自动探测；可被 SKILL_DEPLOY_DIR / WORKBUDDY_HOME 覆盖
+DEP, _DEP_HOW = resolve_deploy_dir()   # 自动探测：优先 WORKBUDDY_CONFIG_DIR，失败回退多候选根探测
 
 # 发布面之外的开发期工具：纳入扫描会产生与技能质量无关的噪音，显式排除。
 # _devcommon.py 同为 dev-only（不进部署副本），列入排除避免 orphan_asset 误报。

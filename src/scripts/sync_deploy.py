@@ -51,7 +51,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 from _devcommon import ROOT, SRC, resolve_deploy_dir
 
-DEP = resolve_deploy_dir()   # 自动探测；可被 SKILL_DEPLOY_DIR / WORKBUDDY_HOME 覆盖
+DEP, _DEP_HOW = resolve_deploy_dir()   # 自动探测：优先 WORKBUDDY_CONFIG_DIR，失败回退多候选根探测
 
 # (relative-in-src, relative-in-deploy) — file-level release surface
 SYNC_FILES = [
@@ -136,8 +136,10 @@ def _verify():
 def main():
     if not os.path.isdir(DEP):
         print("[sync_deploy] deploy dir not found: %s" % DEP)
+        print("[sync_deploy]   (resolved via %s; non-standard install? set SKILL_DEPLOY_DIR)" % _DEP_HOW)
         print("[sync_deploy] skip (set SKILL_DEPLOY_DIR to override)")
         return 0
+    print("[sync_deploy] deploy dir: %s (resolved via %s)" % (DEP, _DEP_HOW))
     copied = 0
     for s, d in SYNC_FILES:
         sp, dp = os.path.join(SRC, s), os.path.join(DEP, d)
