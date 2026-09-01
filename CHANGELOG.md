@@ -7,6 +7,13 @@
 
 ## 未发布改动（累计，发布时统一升版本号）
 
+### 市场质量基准实测器：8 线程并发参数化 + 本地优先多源（dev-only，dev_market_bench.py）
+- **并发落地为显式参数**：原 `build_index` 内 `ThreadPoolExecutor(max_workers=8)` 为硬编码、不可调；现新增 `--workers`（默认 **8**，即用户确认的方案）与 `--delay`（默认 0.0，每个评测请求前额外等待秒数，用于按需进一步降低瞬时请求密度）。新增 `_quality_task(slug, delay)` 承载限速；`build_index`/`run_bench` 签名与 `index`/`run` 两个子命令均透传，日志打印实际并发数与等待时长。
+- **本地优先由「单一路径」升级为「多候选源」**：新增 `local_candidate_dirs()`，按优先级遍历——环境变量 `SKILL_MARKET_BENCH_LOCAL_DIRS`（`os.pathsep` 分隔，最高优先，便于 CI/异机复用）> 官方本地技能市场 `~/.workbuddy/skills-marketplace/skills`（find-skills Step 5）> `~/.workbuddy/skills`、`~/.codebuddy/skills`（find-skills Step 4）> IDE 市场插件缓存 `~/.workbuddy/plugins/marketplaces/*/plugins/*/skills`。**动机**：官方市场目录本机并不存在，旧实现短路从未生效；补入其他同语义本地副本后本机可用源从 0 增至 49 个。只读复制、**绝不改动或安装进实时技能目录**。
+- 计数与可观测：`download_and_extract(slug, stats=None)` 新增可选 stats，累计 `local`/`remote`；`run` 开头打印本地源清单、结束打印「本地命中 / 远端下载」并写入报告 meta（`local_hits`/`remote_downloads`）。
+- 配套：`_skill_dir_has_md()` 判定（目录自身或一层子目录含 SKILL.md）；补 `import glob`；模块 docstring 增「请求密度控制」与更新「下载口径」段；DEVELOPMENT.md 市场实测器章节补第 5（并发/限速）、第 6（本地优先多源）条与 `--workers/--delay` 用法示例。
+- 验证：`py_compile` 通过；本地命中实测（本机插件缓存 `pdf`）返回目录含 SKILL.md 且 `stats={'local':1,'remote':0}`、不走网络；环境变量覆盖分支生效且优先级最高；`index --pool 3 --workers 2 --delay 0.3` 日志确显示「2 线程并发…等待 0.30s」且 3/3 取到质量分；`--help` 默认显示 workers 8 / delay 0；测试产物（pdf、zz-demo）已清理，测试污染的小索引已删除（下次 `run` 按默认参数重建）。
+
 ### 本地 CI 版本一致性门禁加固（dev-only，release_check.py）
 - `release_check.py` 新增 `check_readme_version()`：校验 `README.md`「版本摘要」表最新版本行 == `SKILL.md` `version`（阻断级 ERROR）。至此「版本四处一致性」中 SKILL.md / sources.py User-Agent / README 版本表三处机器强制相等，CHANGELOG 仍仅校验「已收口为版本节」（`check_changelog_promotion`）。
 - 由 `dev_self_audit.py`（pre-push 钩子与 dev-qa 工作流共用）调用，版本不符时归入 `rel_block` → `--strict` 退出码 1 → 拦截推 main；阻断项已在 `dev_self_audit` 输出以 `[agent-todo][ERROR]` 渲染，无需另加提示。

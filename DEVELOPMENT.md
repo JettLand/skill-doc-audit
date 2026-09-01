@@ -36,11 +36,14 @@
 2. **取样规则**：从候选池（全市场**随机页偏移**抽样 `pool` 个 slug，默认 1000，避免热度偏差）→ 逐个 `fetch_evaluation` 取质量分 → 升序取**质量最低 1000** → 随机抽 50 做审计。默认不固定种子（每次天然不同）+ 维护采样历史（`sampled_history.json`）排除近 3 次已采 slug，进一步避免重复样本。
 3. **规模约束与近似（已在代码中实测确认）**：市场技能 13.3 万；列表接口仅支持 `score/downloads/stars/updatedAt` 排序、**不返回质量分字段**；全量爬评测（13 万次请求）不可行。故「质量最低 1000」是候选池内的工程化近似，非字面全局最低 1000（已在报告头部显式标注，避免误读）。
 4. **不进自动调度**：实际跑基准（`run`）只在人工要求或 agent 评估重大版本变动后建议时执行；`check-bump` 子命令供 `dev_self_audit` 在次/主版本变动时打印建议（best-effort、不失败 CI、绝不触发 `run`）。
+5. **请求密度控制**（用户 2026-09-02 定稿）：`index` 拉取质量分采用 **8 线程并发**（`--workers`，默认 8）；如需进一步降低瞬时请求密度，可用 `--delay <秒>` 让每个评测请求前额外等待（默认 0，即不额外等待）。并发与限速均为显式参数，默认行为与用户确认的「8 线程并发」一致。候选池默认 1000（同日由 3000 下调，降低单次 `index` 的评测请求总量）。
+6. **下载口径（与官方 find-skills 一致）**：下载前先遍历本地候选源（`local_candidate_dirs()`）——环境变量 `SKILL_MARKET_BENCH_LOCAL_DIRS`（`os.pathsep` 分隔，最高优先）> 官方本地技能市场 `~/.workbuddy/skills-marketplace/skills` > `~/.workbuddy/skills`、`~/.codebuddy/skills` > IDE 市场插件缓存 `~/.workbuddy/plugins/marketplaces/*/plugins/*/skills`——命中即复制、**完全不发网络请求**；未命中才走官方端点 `https://lightmake.site/api/v1/download?slug=<slug>`。产物落 bench 临时目录、**只读本地副本、绝不改动或安装进实时技能目录**；`run` 结束会打印「本地命中 / 远端下载」计数并写入报告 meta。
 
 子命令：
 
 ```bash
 python src/scripts/dev_market_bench.py index            # 构建/刷新质量索引（随机候选池 + 逐个取质量分，默认 1000 次评测请求，约数分钟）
+python src/scripts/dev_market_bench.py index --workers 8 --delay 0.2   # 8 线程并发 + 每请求前等待 0.2s（进一步降密度）
 python src/scripts/dev_market_bench.py run              # 采样最低质量 1000 中 50 → 下载 → 全量审计 → 报告（缺索引时自动 index）
 python src/scripts/dev_market_bench.py run --sample 50 --seed 7   # 可复现抽样
 python src/scripts/dev_market_bench.py check-bump       # 版本监测（由 dev_self_audit 自动调用）

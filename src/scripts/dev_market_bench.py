@@ -31,10 +31,18 @@ dev_market_bench.py —— 市场质量基准实测器（dev-only 辅助开发�
   check-bump 供 dev_self_audit 在次版本/大版本变动时打印建议（绝不动触发 run，不自动跑基准）。
 
 下载口径（与官方 find-skills 技能一致 · 用户 2026-09-02 确认）：
-  样本技能优先复用本地技能市场 `~/.workbuddy/skills-marketplace/skills/<slug>`（免网络请求），
-  否则走官方端点 `https://lightmake.site/api/v1/download?slug=<slug>`；产物落在 bench 临时目录、
-  不安装进实时技能目录。下载合法性以官方端点为准，**不依赖任何内部/未公开路径**，
-  且本地优先短路同时降低对官方接口的请求频次（呼应「避免过于频繁请求引来审查」的诉求）。
+  样本技能先遍历本地候选源（`local_candidate_dirs()`：环境变量覆盖 > 官方本地技能市场
+  ~/.workbuddy/skills-marketplace/skills > ~/.workbuddy/skills、~/.codebuddy/skills >
+  IDE 市场插件缓存 ~/.workbuddy/plugins/marketplaces/*/plugins/*/skills），命中即复制、
+  **完全不发网络请求**；未命中才走官方端点 `https://lightmake.site/api/v1/download?slug=<slug>`。
+  产物落在 bench 临时目录、不安装进实时技能目录，且只读本地副本、绝不改动原目录。
+  下载合法性以官方端点为准，**不依赖任何内部/未公开路径**；本地优先短路同时降低对官方
+  接口的请求频次（呼应「避免过于频繁请求引来审查」的诉求）。
+
+请求密度控制（用户 2026-09-02 定稿）：
+  index 拉取质量分采用 **8 线程并发**（`--workers`，默认 8）；如需进一步降低瞬时请求密度，
+  可用 `--delay <秒>` 让每个评测请求前额外等待（默认 0，即不额外等待）。并发与限速均为
+  显式参数，默认行为与用户确认的「8 线程并发」一致。
 
 退出码：
   0 正常；2 参数/路径错误；run 下被审技能出现 ERROR 属被测现象、不升退出码（与 run_market_audit 一致）。
@@ -47,6 +55,7 @@ dev_market_bench.py —— 市场质量基准实测器（dev-only 辅助开发�
 """
 import argparse
 import concurrent.futures as futures
+import glob
 import json
 import os
 import random
@@ -70,6 +79,8 @@ LAST_VERSION = os.path.join(CACHE, "last_bench_version.txt")
 SKILLS_DIR = os.path.join(CACHE, "skills")
 LOCAL_MARKETPLACE = os.path.join(os.path.expanduser("~"), ".workbuddy",
                                  "skills-marketplace", "skills")  # 官方 find-skills Step 5 本地优先
+# 本地优先根目录可被环境变量整体覆盖（os.pathsep 分隔，便于 CI / 异机复用本地缓存）
+LOCAL_DIRS_ENV = "SKILL_MARKET_BENCH_LOCAL_DIRS"
 RESULTS_JSON = os.path.join(CACHE, "results.json")
 REPORT_MD = os.path.join(CACHE, "report.md")
 
@@ -190,7 +201,14 @@ def collect_pool(pool, page_size=100, total=None):
     return slugs
 
 
-def build_index(pool, page_size=100):
+def _quality_task(slug, delay=0.0):
+    """并发拉取质量分的单个任务；delay>0 时先等待，用于降低对官方接口的请求密度。"""
+    if delay and delay > 0:
+        time.sleep(delay)
+    return fetch_quality(slug)
+
+
+def build_index(pool, page_size=100, workers=8, delay=0.0):
     os.makedirs(CACHE, exist_ok=True)
     total = fetch_total()
     log("[index] 市场技能总数 ≈ %d；随机抽候选池 %d（page_size=%d）" % (total, pool, page_size))
@@ -198,11 +216,13 @@ def build_index(pool, page_size=100):
     if not slugs:
         log("[index] 候选池为空：无法访问市场列表接口。")
         return {}
-    log("[index] 候选池实采 %d 个 slug；并发拉取 TRACE 质量分…" % len(slugs))
+    workers = max(1, int(workers))
+    log("[index] 候选池实采 %d 个 slug；%d 线程并发拉取 TRACE 质量分（每请求前等待 %.2fs）…"
+        % (len(slugs), workers, max(0.0, float(delay))))
     results = {}
     done = 0
-    with futures.ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(fetch_quality, s): s for s in slugs}
+    with futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_quality_task, s, delay): s for s in slugs}
         for fu in futures.as_completed(futs):
             s = futs[fu]
             try:
@@ -266,26 +286,75 @@ def record_sampled(slugs):
 
 
 # ── 下载 + 审计（复用旧 run_market_audit 的稳健实现）──────────────────────────
-def download_and_extract(slug):
+def _skill_dir_has_md(d):
+    """目录自身或其一层子目录含 SKILL.md 即视为可用技能副本。"""
+    if os.path.isfile(os.path.join(d, "SKILL.md")):
+        return True
+    try:
+        for name in os.listdir(d):
+            if os.path.isfile(os.path.join(d, name, "SKILL.md")):
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def local_candidate_dirs():
+    """本地技能副本的候选根目录（按优先级），命中即免网络下载。
+
+    官方 find-skills Step 5 要求「下载前先查本地技能市场」，其默认目录为
+    `~/.workbuddy/skills-marketplace/skills`；但该目录并非所有机器都存在（本机即无），
+    故再纳入同语义的其他本地副本根目录，提高本地命中率：
+      ① 环境变量 SKILL_MARKET_BENCH_LOCAL_DIRS（os.pathsep 分隔，最高优先，便于覆盖）
+      ② 官方本地技能市场 ~/.workbuddy/skills-marketplace/skills
+      ③ 已安装技能目录 ~/.workbuddy/skills、~/.codebuddy/skills（find-skills Step 4）
+      ④ IDE 市场插件缓存 ~/.workbuddy/plugins/marketplaces/*/plugins/*/skills
+    只读这些目录、不写不删；复制到 bench 缓存后再审计，绝不改动原副本。
+    """
+    env = os.environ.get(LOCAL_DIRS_ENV, "")
+    roots = [p for p in env.split(os.pathsep) if p.strip()]
+    roots += [
+        LOCAL_MARKETPLACE,
+        os.path.join(os.path.expanduser("~"), ".workbuddy", "skills"),
+        os.path.join(os.path.expanduser("~"), ".codebuddy", "skills"),
+    ]
+    mkt = os.path.join(os.path.expanduser("~"), ".workbuddy", "plugins",
+                       "marketplaces", "*", "plugins", "*", "skills")
+    roots += sorted(glob.glob(mkt))
+    out, seen = [], set()
+    for r in roots:
+        r = os.path.normpath(r)
+        if r and r not in seen and os.path.isdir(r):
+            seen.add(r)
+            out.append(r)
+    return out
+
+
+def download_and_extract(slug, stats=None):
     """下载技能并解包到 SKILLS_DIR/<slug>/，返回 (skill_dir_or_None, error_or_None)。
 
     下载走官方 SkillHub 端点（与 find-skills 技能文档 Step 6 完全一致：
-    https://lightmake.site/api/v1/download?slug=<slug>），并对「本地技能市场」做
-    优先短路——若样本技能已存在于 LOCAL_MARKETPLACE/<slug>，直接复制、不发网络请求。
+    https://lightmake.site/api/v1/download?slug=<slug>），并在联网前先遍历
+    `local_candidate_dirs()` 做**本地优先短路**——命中即复制、完全不发网络请求。
     这既吻合官方 find-skills 的 Step 5 本地优先流程，也降低对官方接口的请求频次
     （呼应「避免过于频繁请求引来审查」的诉求）。下载产物落在 bench 临时目录，
     不安装进实时技能目录（~/.workbuddy/skills）。
+
+    `stats` 为可选 dict，用于累计本次 run 的 `local`（本地命中）/ `remote`（联网下载）次数。
     """
     dest = os.path.join(SKILLS_DIR, slug)
     os.makedirs(dest, exist_ok=True)
 
-    # ① 本地技能市场优先（官方 find-skills Step 5）：已缓存则免网络下载
-    if os.path.isdir(LOCAL_MARKETPLACE):
-        src = os.path.join(LOCAL_MARKETPLACE, slug)
-        if os.path.isdir(src):
+    # ① 本地优先（官方 find-skills Step 5）：命中任一本地候选源即免网络下载
+    for root in local_candidate_dirs():
+        src = os.path.join(root, slug)
+        if os.path.isdir(src) and _skill_dir_has_md(src):
             try:
                 if not os.path.isfile(os.path.join(dest, "SKILL.md")):
                     shutil.copytree(src, dest, dirs_exist_ok=True)
+                if isinstance(stats, dict):
+                    stats["local"] = stats.get("local", 0) + 1
+                log("   本地命中（免下载）：%s" % src)
                 return dest, None
             except Exception as e:  # noqa: BLE001
                 return None, "local_copy_failed:%r" % e
@@ -309,16 +378,19 @@ def download_and_extract(slug):
             shutil.move(zip_path, os.path.join(zips_dir, slug + ".zip"))
         except (OSError, Exception):  # noqa: BLE001
             pass
+        skill_dir = dest
         if not os.path.isfile(os.path.join(dest, "SKILL.md")):
             found = None
-            for root, _dirs, files in os.walk(dest):
+            for wroot, _dirs, files in os.walk(dest):
                 if "SKILL.md" in files:
-                    found = root
+                    found = wroot
                     break
             if found is None:
                 return None, "no_SKILL.md_in_zip"
-            return found, None
-        return dest, None
+            skill_dir = found
+        if isinstance(stats, dict):
+            stats["remote"] = stats.get("remote", 0) + 1
+        return skill_dir, None
     except Exception as e:  # noqa: BLE001
         return None, "download_exception:%r" % e
 
@@ -465,12 +537,13 @@ def write_report(summary, meta):
 
 
 # ── run 子命令 ────────────────────────────────────────────────────────────────
-def run_bench(sample=50, seed=None, dedup=3, pool=1000, refresh=False, no_index=False):
+def run_bench(sample=50, seed=None, dedup=3, pool=1000, refresh=False, no_index=False,
+              workers=8, delay=0.0):
     if refresh or (not no_index and not os.path.isfile(INDEX_JSON)):
         if no_index and not os.path.isfile(INDEX_JSON):
             log("[run] 质量索引缺失且 --no-index，退出。请先 `index`。")
             return 2
-        build_index(pool)
+        build_index(pool, workers=workers, delay=delay)
     idx = load_index() or {}
     scored = {s: q for s, q in idx.items() if isinstance(q, (int, float))}
     if not scored:
@@ -490,6 +563,12 @@ def run_bench(sample=50, seed=None, dedup=3, pool=1000, refresh=False, no_index=
     log("[run] 质量最低区间 %d 个 → 抽 %d（seed=%s）" % (lowest_n, len(picked), seed))
 
     os.makedirs(SKILLS_DIR, exist_ok=True)
+    locals_roots = local_candidate_dirs()
+    if locals_roots:
+        log("[run] 本地优先源 %d 个：%s" % (len(locals_roots), " | ".join(locals_roots)))
+    else:
+        log("[run] 无本地优先源，样本将全部走官方下载端点")
+    dl_stats = {"local": 0, "remote": 0}
     done = {}
     if os.path.isfile(RESULTS_JSON):
         try:
@@ -509,7 +588,7 @@ def run_bench(sample=50, seed=None, dedup=3, pool=1000, refresh=False, no_index=
             log("   已审计，跳过")
             continue
         rec = {"slug": slug, "quality": scored.get(slug)}
-        skill_dir, derr = download_and_extract(slug)
+        skill_dir, derr = download_and_extract(slug, dl_stats)
         if derr:
             rec["download_error"] = derr
             log("   下载失败: %s" % derr)
@@ -535,12 +614,15 @@ def run_bench(sample=50, seed=None, dedup=3, pool=1000, refresh=False, no_index=
     summary = summarize_results(out["skills"])
     meta = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "pool": len(idx),
             "scored": len(scored), "lowest_n": lowest_n, "sample": len(picked),
-            "seed": seed, "dedup": dedup}
+            "seed": seed, "dedup": dedup,
+            "local_hits": dl_stats.get("local", 0),
+            "remote_downloads": dl_stats.get("remote", 0)}
     write_report(summary, meta)
     record_sampled(picked)
-    log("DONE in %.1fs | ERROR %d WARN %d INFO %d | doc-llm OK %d/%d"
+    log("DONE in %.1fs | ERROR %d WARN %d INFO %d | doc-llm OK %d/%d | 本地命中 %d / 远端下载 %d"
         % (time.time() - t0, summary["tot_err"], summary["tot_warn"], summary["tot_info"],
-           summary["doc_llm_ok"], summary["n_dl_ok"]))
+           summary["doc_llm_ok"], summary["n_dl_ok"],
+           dl_stats.get("local", 0), dl_stats.get("remote", 0)))
     return 0
 
 
@@ -623,6 +705,10 @@ def main():
     p_idx = sub.add_parser("index", help="构建/刷新质量索引（随机候选池 + 逐个取质量分）")
     p_idx.add_argument("--pool", type=int, default=1000, help="候选池大小（默认 1000）")
     p_idx.add_argument("--page-size", type=int, default=100, help="列表分页大小（默认 100）")
+    p_idx.add_argument("--workers", type=int, default=8,
+                       help="拉取质量分的并发线程数（默认 8）")
+    p_idx.add_argument("--delay", type=float, default=0.0,
+                       help="每个评测请求前额外等待秒数（默认 0；用于降低请求密度）")
 
     p_run = sub.add_parser("run", help="采样最低质量 1000 中 50 → 审计 → 报告")
     p_run.add_argument("--sample", type=int, default=50, help="抽取数量（默认 50）")
@@ -630,6 +716,10 @@ def main():
     p_run.add_argument("--dedup", type=int, default=3,
                        help="排除近 N 次已采 slug（默认 3；0=不排除）")
     p_run.add_argument("--pool", type=int, default=1000, help="index 候选池大小（默认 1000）")
+    p_run.add_argument("--workers", type=int, default=8,
+                       help="自动 index 时拉取质量分的并发线程数（默认 8）")
+    p_run.add_argument("--delay", type=float, default=0.0,
+                       help="自动 index 时每个评测请求前额外等待秒数（默认 0）")
     p_run.add_argument("--refresh-index", action="store_true", help="强制重建质量索引")
     p_run.add_argument("--no-index", action="store_true", help="索引缺失时直接报错（不自动 index）")
 
@@ -637,11 +727,12 @@ def main():
 
     args = ap.parse_args()
     if args.cmd == "index":
-        build_index(args.pool, args.page_size)
+        build_index(args.pool, args.page_size, workers=args.workers, delay=args.delay)
         return 0
     if args.cmd == "run":
         return run_bench(sample=args.sample, seed=args.seed, dedup=args.dedup,
-                         pool=args.pool, refresh=args.refresh_index, no_index=args.no_index)
+                         pool=args.pool, refresh=args.refresh_index, no_index=args.no_index,
+                         workers=args.workers, delay=args.delay)
     if args.cmd == "check-bump":
         return check_bump()
     # 无子命令：默认 run
