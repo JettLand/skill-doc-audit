@@ -151,7 +151,7 @@ def main():
                                      "todo": "手动核对版本号/CHANGELOG/dist/temp"}]
     if rel_block or rel_info:
         print("\n" + "=" * 72)
-        print("发布前待办（Agent 提示 · 来自同步钩子/本地CI）")
+        print("发布前待办（Agent 提示 · 由 pre-push 钩子与 dev-qa 工作流发出）")
         print("=" * 72)
         for r in rel_block:
             print("  [agent-todo][%s] %s" % (r["severity"], r["title"]))
