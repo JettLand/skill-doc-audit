@@ -528,13 +528,15 @@ def current_version():
     if not os.path.isfile(p):
         return None
     txt = open(p, encoding="utf-8").read()
-    m = re.search(r"^version:\s*(.+?)\s*$", txt, re.MULTILINE)
-    return m.group(1).strip() if m else None
+    # 去 YAML 引号：frontmatter 形如 version: "1.25.7"
+    m = re.search(r'^version:\s*["\']?([0-9][0-9A-Za-z.\-]*)["\']?\s*$', txt, re.MULTILINE)
+    return m.group(1) if m else None
 
 
 def _ver_tuple(v):
     try:
-        return tuple(int(x) for x in str(v).split("."))
+        return tuple(int(x) for x in str(v).strip().strip('"').strip("'").split(".")
+                     if x.strip() != "")
     except Exception:  # noqa: BLE001
         return None
 

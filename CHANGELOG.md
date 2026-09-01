@@ -13,6 +13,12 @@
 - 解析容错：README 版本表行解析不到时不误拦（格式异常由人工兜底）。
 - 验证：反向测试（临时文件模拟 README 版本不符）确返回阻断 ERROR；一致场景不误报；`dev_self_audit --strict` ERROR 0/WARN 0/INFO 33 零回归。
 
+### 修复 check-bump 版本变动检测失效（dev-only，dev_market_bench.py）
+- **根因**：`current_version()` 从 SKILL.md frontmatter 读出的版本带 YAML 引号（`"1.25.7"`），`_ver_tuple()` 解析失败返回 `None` → `is_minor_or_major_bump` 恒为 `False` → 次/主版本变动也**从不打印 `[agent-todo][建议]`**，功能形同虚设（此前所有提交都未触发过该提示）。
+- **修复**：`current_version()` 改用带引号容错的 `VERSION_RE`（与 `release_check.py` 对齐）去引号；`_ver_tuple()` 增加 `.strip('"').strip("'")` 健壮性（空段忽略）。修复后次/主版本（x.y）变动正确打印 `[agent-todo][建议]`，补丁号（x.y.z）变动按设计不触发。
+- 配套文档：DEVELOPMENT.md「本地 CI 发出什么」节补第 6 类 `[agent-todo]`（check-bump 版本变动基准建议）真实渲染样例与「仅次/主版本触发、补丁号不触发」说明；release_check 表补 README 版本表行、由「共 4 类」更正为「共 5 类」。
+- 验证：模拟次版本 1.24.0→1.25.7 确打印 `[agent-todo][建议]`；当前无次/主变动时 `dev_self_audit --strict` 零误报（ERROR 0/WARN 0/INFO 33、rc 0）。
+
 ## 1.25.7 打磨明细（TRACE 评测整改 + 市场质量基准实测器固化收口）
 
 ### TRACE 评测整改（部署副本自评 4.7/优秀，补强 <5.0 子项，文档级）

@@ -156,11 +156,12 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 ### 本地 CI（`pre-push` 钩子）发出什么
 
-`pre-push` 钩子（`hooks/pre-push`）在 `git push origin main` 前调用 `dev_self_audit.py --strict` + `self_validate.py`。其中 `dev_self_audit` 在汇总后调用 `release_check.run_release_checks()`，由它产出 `[agent-todo]` 提示块——**本地 CI 是这些提示仅有的两个发出方之一（另一个是远程 `dev-qa`；`post-commit` 同步钩子不发提示）**。执行 `dev_self_audit.py --strict` 时，若命中下列任一检查项，会打印一个提示块，**每项都给出发指令级的可照做动作**。共 4 类检查：
+`pre-push` 钩子（`hooks/pre-push`）在 `git push origin main` 前调用 `dev_self_audit.py --strict` + `self_validate.py`。其中 `dev_self_audit` 在汇总后调用 `release_check.run_release_checks()`，由它产出 `[agent-todo]` 提示块——**本地 CI 是这些提示仅有的两个发出方之一（另一个是远程 `dev-qa`；`post-commit` 同步钩子不发提示）**。执行 `dev_self_audit.py --strict` 时，若命中下列任一检查项，会打印一个提示块，**每项都给出发指令级的可照做动作**。共 5 类检查（均来自 `release_check.py`，见「发布就绪检查」节）；此外还有**第 6 类** `[agent-todo]` 来自 `dev_market_bench.py check-bump`（版本变动基准建议，见本节末）：
 
 | 检查项 | 严重度 | 是否阻断 | 触发条件 | 发出的 `todo` 指令（原文） |
 |---|---|---|---|---|
-| 版本号一致性 | `ERROR` | **是** | `SKILL.md version` ≠ `sources.py` 第144行 `User-Agent` | `将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/<SKILL版本>` |
+| 版本号一致性（SKILL.md ↔ sources.py） | `ERROR` | **是** | `SKILL.md version` ≠ `sources.py` 第144行 `User-Agent` | `将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/<SKILL版本>` |
+| 版本号一致性（README 版本摘要表） | `ERROR` | **是** | `README.md`「版本摘要」表最新版本行 ≠ `SKILL.md version` | `在 README.md「版本摘要」表顶部补一行 '| <SKILL版本> | （本次改动说明） |'，或修正已有行版本号`（解析不到版本表行时不误拦） |
 | CHANGELOG 收口 | `WARN` | **是** | `SKILL.md version` 高于 `CHANGELOG.md` 最高版本节 | `将 CHANGELOG.md 的「未发布改动」节提升为 '<SKILL版本> 打磨明细' 节后再提交` |
 | dist 制品过期 | `INFO` | 否 | `dist/skill-doc-audit.zip` 早于发布面源码 mtime | `发布 SkillHub 前重打包：python src/scripts/build_dist.py` |
 | temp 残留 | `INFO` | 否 | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py` | `及时清理 temp/ 测试残留；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` |
@@ -177,6 +178,21 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 ⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。
 ```
+
+> 第 6 类 `[agent-todo]`：**版本变动基准建议**（来自 `dev_market_bench.py check-bump`，由 `dev_self_audit.py:186-195` 以子进程调用并透传其 stdout，**独立于上面的 release_check 提示块**）。
+> - **仅当次版本 / 主版本（x.y.z 中的 x 或 y）发生变动时才打印**；日常**补丁号**变动（x.y.**z**，如 1.25.5 → 1.25.6）**不触发**——这正是「日常提交看不到这条提示」的预期原因，并非功能失效。
+> - 严重度打 `[建议]` 标签（非阻断，**不升退出码、不拦 push**），因为基准实测 `run` 只在人工要求或 agent 评估后执行，check-bump 只「建议、绝不自动跑」。
+> - 检测基线存于 `bench/market_bench/last_bench_version.txt`（gitignore，不进版本库）；每次运行都刷新为当前版本，故同一版本变动只提示一次。
+> - 真实渲染样例（模拟次版本 1.24.0 → 1.25.7 触发）：
+
+```
+[agent-todo][建议] 检测到次版本变动 v1.24.0 → v1.25.7
+  建议运行「市场质量基准实测器」验证规模化行为是否稳定：
+    python src/scripts/dev_market_bench.py run
+  （基准实测不自动执行，由 Agent 评估后决定是否运行；仅人工要求或本建议触发时启用）
+```
+
+> ⚠ 历史坑位：`check-bump` 曾因 `current_version()` 读出的版本带 YAML 引号（`"1.25.7"`）导致 `_ver_tuple` 解析失败、`is_minor_or_major_bump` 恒为 `False`、次/主版本变动也**从不提示**（形同虚设）。已修复（`current_version()` 去引号 + `_ver_tuple` 健壮性增强），修复后次/主版本变动能正确打印上述 `[agent-todo][建议]`。
 
 > 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·dist·temp」，绝不因此阻断门禁。
 
@@ -217,7 +233,7 @@ python src/scripts/make_fixtures.py --baseline   # 仅人工显式触发
 
 版本迭代后有一批「必须由 agent 执行」的收尾操作，此前依赖 agent 记忆、易漏做并造成隐蔽漂移（例如 `sources.py` 的 `User-Agent` 版本号带陈旧值自报给远端）。现固化为 `src/scripts/release_check.py`，由 `dev_self_audit.py` 调用——本地 `pre-push` 与远程 `dev-qa` CI 都跑 `dev_self_audit`，故**两道门禁都会输出带 `[agent-todo]` 标记的提示块**，agent 无需回忆即可照做：
 
-- **版本号一致性（阻断）**：`SKILL.md` `version` 必须等于 `sources.py` 第144行的 `User-Agent: skill-doc-audit/<ver>`；不一致 → ERROR 并打印精确修复指令，`--strict` 下拦下 push。
+- **版本号一致性（阻断，两处机器校验）**：① `SKILL.md` `version` 必须等于 `sources.py` 第144行的 `User-Agent: skill-doc-audit/<ver>`；② `SKILL.md` `version` 必须等于 `README.md`「版本摘要」表最新版本行。任一处不一致 → ERROR 并打印精确修复指令，`--strict` 下拦下 push。（`CHANGELOG` 最高版本节仍仅校验「已收口」，不逐字比对。）
 - **CHANGELOG 收口（阻断）**：`SKILL.md` 版本高于 CHANGELOG 最高版本节时，提示把「未发布改动」提升为 `<ver> 打磨明细`；WARN，`--strict` 下拦截。
 - **dist 制品过期（提示）**：`src/dist/skill-doc-audit.zip` 早于发布面源码时，提示重打包（发布 SkillHub 前必做）；INFO，不阻塞。配套 `src/scripts/build_dist.py`（可复现打包命令，提示里直接给出）。
 - **temp/ 残留（提示）**：`temp/` 发现 `*_test*.py` / `*.mhtml` / `_eval*.txt` / `stress*` 等临时产物时提示清理；INFO，且提示重申「清理前先确认非用户手动放入的文件」（遵循 temp/ 管理约定）。
