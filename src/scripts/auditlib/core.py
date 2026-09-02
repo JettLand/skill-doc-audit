@@ -79,6 +79,35 @@ DOC_EXIT_RE = re.compile(r"^\|\s*`(\d+)`\s*\|", re.M)          # 表格行退出
 DOC_EXIT_INLINE_RE = re.compile(r"`(\d+)`")                    # 行内反引号退出码（退出码：\`0\`...\`130\`）
 CODE_EXIT_RE = re.compile(r"sys\.exit\(\s*([^)]*?)\)", re.M)   # 进程退出码实参（进程级，非函数 return）
 STATUS_RE = re.compile(r"write_result\(\s*[\"']([a-z_]+)[\"']")
+
+
+def extract_code_exit_codes(blob):
+    """从代码 blob 抽取真实进程退出码（sys.exit(<arg>) 实参中的数字）。
+
+    与 doc 检查器 A3、doc-llm 事实清单共用同一口径，避免两套实现漂移：
+    - 只认 `sys.exit(N)` 进程级退出，避开函数内 `return N`（DEV_TOOLS 的 return 0/2
+      曾是误报源）；
+    - 覆盖 `sys.exit(0 if failed else 1)` 条件表达式两种可能退出码（从实参里再抽数字）；
+    - 逐行剥离 `#` 注释后再匹配——注释里提及的字面 `sys.exit(42)` 之类示例不是真实
+      退出行为，不该计入契约（doc.py 注释曾因此复发误报）。
+    返回去重后的数字字符串集合（如 {"0","1","130"}）。
+    """
+    exits = set()
+    stripped = "\n".join((line.split("#", 1)[0]) for line in (blob or "").splitlines())
+    for arg in CODE_EXIT_RE.findall(stripped):
+        exits |= set(re.findall(r"\d+", arg))
+    return exits
+
+
+# 发布面之外的开发期工具（单一真相源，dev_self_audit.py 从此处导入）：
+# 纳入扫描会产生与技能质量无关的噪音，显式排除。
+# _devcommon.py 同为 dev-only（不进部署副本），列入排除避免 orphan_asset 误报。
+# release_check.py 为 dev-only 发布就绪检查脚本，同样不进部署副本、不属发布面。
+# （原 build_dist.py 制品构建脚本已随「市场自行重打包」移除，不再列此。）
+DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
+             "dev_self_audit.py", "_devcommon.py", "release_check.py",
+             "dev_market_bench.py", "dev_commit.py"}
+
 VERSION_RE = re.compile(r"^version:\s*[\"']?([0-9][0-9A-Za-z.\-]*)[\"']?\s*$", re.M)
 
 # ---- security 检查器正则 ----

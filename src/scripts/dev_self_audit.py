@@ -88,14 +88,9 @@ def _parse_check_bump(text):
             i += 1
     return block, info, ctx
 
-# 发布面之外的开发期工具：纳入扫描会产生与技能质量无关的噪音，显式排除。
-# _devcommon.py 同为 dev-only（不进部署副本），列入排除避免 orphan_asset 误报。
-# release_check.py 为 dev-only 发布就绪检查脚本，同样不进部署副本、不属发布面，
-# 列入排除避免 orphan_asset / 源码噪音误报。
-# （原 build_dist.py 制品构建脚本已随「市场自行重打包」移除，不再列此。）
-DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
-             "dev_self_audit.py", "_devcommon.py", "release_check.py",
-             "dev_market_bench.py", "dev_commit.py"}
+# DEV_TOOLS 单一真相源移至 auditlib.core（doc 检查器 A3 退出码比对需按文件排除 dev 工具，
+# 避免直接 CLI 审计 src 时把 make_fixtures 的 sys.exit(42) 等 dev 专用码误报为 EXIT_CODE_ONLY）。
+from auditlib.core import DEV_TOOLS
 
 
 def _guard_dev_tools():

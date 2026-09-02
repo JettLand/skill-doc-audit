@@ -67,10 +67,16 @@ def check_doc(ctx):
             for _line in doc.splitlines():
                 if "退出码" in _line:
                     doc_exits |= set(DOC_EXIT_INLINE_RE.findall(_line))
-            # 代码退出码：从 sys.exit(<arg>) 实参中提取数字（覆盖条件表达式两种分支）
+            # 代码退出码：从 sys.exit(<arg>) 实参中提取数字（覆盖条件表达式两种分支）。
+            # 与 doc-llm 事实清单共用 extract_code_exit_codes（见 core.py），避免口径漂移。
+            # 按文件遍历并排除 DEV_TOOLS（dev 专用码如 make_fixtures 的 sys.exit(42) 不是
+            # 发布面 CLI 契约，不该要求 SKILL.md 记录）——与 dev_self_audit 的 exclude 口径一致，
+            # 使「直接 CLI 审计 src」与发布门禁行为对齐。
             code_exits = set()
-            for _arg in CODE_EXIT_RE.findall(blob):
-                code_exits |= set(re.findall(r"\d+", _arg))
+            for _rel, _content in code.items():
+                if _rel.replace("\\", "/").rsplit("/", 1)[-1] in DEV_TOOLS:
+                    continue
+                code_exits |= extract_code_exit_codes(_content)
             deprecated = set()
             for line in doc.splitlines():
                 m2 = re.match(r"^\|\s*`(\d+)`\s*\|", line)

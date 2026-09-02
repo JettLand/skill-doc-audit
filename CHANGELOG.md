@@ -5,6 +5,18 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.15 打磨明细（doc-llm 事实清单退出码口径与 doc 检查器对齐，修复并行升级遗漏）
+
+- **动机**：v1.27.12 重写 `doc.py` 退出码比对（改认真实进程退出码 `sys.exit(<arg>)`、不再误匹配函数 `return N`）时，漏改 `doc_llm.py` 的 `_code_fact_sheet`——其「返回码」仍用旧的 `return\s+(\d+)` 正则，会把 DEV_TOOLS 的 `return 0/2`、`make_fixtures` 的 `return 42` 误列为「返回码」，与 doc 口径不一致，且 dossier 比对要点第 2 条明确要求 agent 核对「退出码」，会据此误导语义比对。属「升级 doc 正向能力覆盖时未同步升级 doc-llm」的并行升级遗漏。
+
+- **修复**：`core.py` 新增共享 helper `extract_code_exit_codes(blob)`（只认 `sys.exit(N)`、从实参抽数字、覆盖 `sys.exit(0 if failed else 1)` 条件分支）；`doc.py` A3 与 `doc_llm.py` `_code_fact_sheet` 均改用此 helper，单一真相源、杜绝漂移。`doc-llm` 的 dossier「代码事实清单」现在列出的「返回码」与 `doc` 检查器比对的进程退出码完全一致。
+
+- **影响面**：仅 doc-llm dossier 内容（临时文件）与 doc 内部提取逻辑变化；finding 代码/严重级不变（doc-llm 在 self_validate 黄金快照中处于 DETERMINISTIC 集合之外，dossier 文件内容不进快照比对），不破坏 self_validate 黄金快照。补丁号变动按约定仅走 doc 检查器校验（doc 退出码比对行为不变、自 v1.27.12 起已正确）。
+
+- **修复并行升级遗漏**：`doc_llm.py` 的 `_code_fact_sheet` 仍用旧 `return\s+(\d+)` 提取「返回码」（会误列 dev 工具 `return 0/2`），改与 `doc.py` 共用 core.py 新增的共享 helper `extract_code_exit_codes(blob)`（只认 `sys.exit(N)`、覆盖条件表达式两种分支），事实清单「返回码」键名同步更正为「退出码」。
+- **退出码比对排除 DEV_TOOLS**：`DEV_TOOLS` 单一真相源移至 `core.py`（`dev_self_audit.py` 改从 core 导入）；`doc.py` A3 改为按文件遍历提取退出码并排除 dev 工具，使「直接 CLI 审计 src」与 `dev_self_audit`（exclude 口径）行为对齐——dev 专用码（如 `make_fixtures` 的 `sys.exit(42)`）不再被误报为 `EXIT_CODE_ONLY`。
+- **验证**：`py_compile` 全过；`dev_self_audit --strict` ERROR 0 / WARN 0；`self_validate` 4 fixture 全 PASS；`doc-llm` dossier 事实清单「退出码」现列 `sys.exit` 真实码（如 `dev_self_audit` → 0/1），不再含 `return` 误抓；doc 检查器直接审计 src 无 `EXIT_CODE_ONLY` 误报。四处版本号一致 1.27.15。
+
 ## 1.27.14 打磨明细（补全 v1.27.13 去散文收口：清除 SKILL.md 悬空引用）
 
 - **动机**：v1.27.13 已把 examples 弹窗强约束从 SKILL.md 散文改为代码 consent 闸门（`--examples-consent`），并删除「Agent 执行约定」整段；但 SKILL.md 正文仍残留 3 处指向该已删章节的悬空引用（deadcode 精度说明行、开发模式自动降级提示行、examples 弹窗约定 bullet）。Edit 工具对这几处报「成功」却未落盘（phantom success），经 Python 子串替换精确清除全部「Agent 执行约定」字样，文档仅保留用法参考、强制逻辑完全由代码执行。

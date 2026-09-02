@@ -3,7 +3,7 @@ from auditlib.core import *   # 常量 + 公共 helper（finding/collect_code/�
 from auditlib.model import *  # SkillModel / detect_format 等（如需）
 
 def _code_fact_sheet(code):
-    """从代码 blob 抽取轻量「事实清单」交给 agent 接手比对：定义/CLI 参数/返回码/常量。
+    """从代码 blob 抽取轻量「事实清单」交给 agent 接手比对：定义/CLI 参数/退出码/常量。
 
     不直接倾倒整份源码（避免超长上下文），仅给 agent 可交叉比对的符号事实。
     """
@@ -11,10 +11,12 @@ def _code_fact_sheet(code):
     for rel, content in code.items():
         defs = re.findall(r"^\s*(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)", content, re.M)
         flags = re.findall(r'add_argument\(\s*["\'](--[A-Za-z0-9_-]+)', content)
-        returns = sorted(set(re.findall(r"return\s+(\d+)", content)))
+        # 退出码：与 doc 检查器 A3 共用 extract_code_exit_codes —— 只认进程级 sys.exit(N)，
+        # 避开函数 return N（DEV_TOOLS 的 return 0/2 等），保证 dossier「返回码」与 doc 口径一致。
+        exits = sorted(extract_code_exit_codes(content))
         consts = re.findall(r"^([A-Z_][A-Z0-9_]*)\s*=", content, re.M)
-        rows.append("文件 %s: 顶层定义=%s; CLI参数=%s; 返回码=%s; 常量=%s"
-                    % (rel, defs[:40], flags, returns, consts[:40]))
+        rows.append("文件 %s: 顶层定义=%s; CLI参数=%s; 退出码=%s; 常量=%s"
+                    % (rel, defs[:40], flags, exits, consts[:40]))
     return "\n".join(rows)
 
 
@@ -115,7 +117,7 @@ def _write_doc_llm_dossier(ctx):
         "本文件由 skill-doc-audit 生成，供 **agent 直接接手** 完成语义漂移检测。\n"
         "请勿依赖任何外部 LLM；agent 应使用自身能力比对下方材料。\n\n"
         "%s\n\n"
-        "## 代码事实清单（由源码抽取：顶层定义 / CLI 参数 / 返回码 / 常量）\n\n%s\n\n"
+        "## 代码事实清单（由源码抽取：顶层定义 / CLI 参数 / 退出码 / 常量）\n\n%s\n\n"
         "## 正向覆盖缺口（代码有、文档未写，确定性预检）\n\n%s\n\n"
         "## 比对要点\n"
         "1. 先核对上方「正向覆盖缺口」：这些项代码已具备但文档未写，是最可能漏更新之处，"
