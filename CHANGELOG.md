@@ -5,6 +5,13 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.28.0 打磨明细（deadcode 缺库先自动安装 vulture，开发者模式能力最大化）
+
+- **deadcode 安装策略重构**：凡「需要 vulture 但缺失」的路径——显式 `--deadcode-mode vulture`、ask 交互选 1、**ask 非交互回退（此前直接回退 ast、不尝试安装）**、**交互超时（此前同样直接回退）**——均先自动 `pip install vulture`（最长 120s），成功即高精度；安装失败才回退零依赖 ast，并并发 WARN `precision_degraded` 显著反馈（message 明确「未安装且自动安装失败」+ user_decision 精度决策请求），绝不静默降级。显式 `--deadcode-mode ast/skip` 保持零联网（用户已显式决定低精度，绝不越权安装）。
+- **开发者模式能力最大化**：`dev_self_audit.py` 的 deadcode 默认模式由「已装 vulture 用 vulture、否则显式 ast（绕开安装路径）」改为恒请求 `vulture` 最大精度——缺失时由检查器自动安装，安装失败回退 ast 并告警（--strict 下低精度即失败，杜绝静默低精度跑全量审计）；其余能力此前已拉满（全检查器启用、doc-llm agent 接手、examples run+consent）。同步移除因此不再使用的 `_vulture_module` 导入。
+- **顶层设计原则措辞校准**：「默认即零依赖（不联网）」细化为「默认零依赖可用」——开箱即用不要求用户手动安装（缺依赖自动补齐、失败自动回退照常运行），显式选低档才完全不联网；SKILL.md 速答三问 / 误区五 / 避坑要点 / 参数注释与 checkers.md（总览、错误码表补 `precision_degraded` 行、安装策略、参数速查表）同步。
+- **验证**：`py_compile` 通过；monkeypatch 单测 4 场景全过（非交互缺库+安装失败→ast degraded、安装成功→vulture、显式 ast/skip 零联网不触发安装）；`self_validate` 4 fixture 全 PASS（`DETERMINISTIC` 集合不含 deadcode，黄金快照不受影响）；`dev_self_audit --strict` 全绿。四处版本号一致 1.28.0。
+
 ## 1.27.22 打磨明细（dev_commit 子进程显式 UTF-8 解码，修钩子回显 UnicodeDecodeError 噪声）
 
 - **问题**：v1.27.21 提交时实测复现——`dev_commit.py` 的 `_run()` 用 `subprocess.run(..., text=True)` 但未指定 `encoding`，Windows 下按系统区域编码（GBK）解码 post-commit 钩子输出的 UTF-8 中文（`[sync_deploy] ... 同步部署副本`），打印回执时抛 `UnicodeDecodeError`。提交与同步本身不受影响（`verify: OK` 仍正常打印），但回显通道被噪声污染。

@@ -258,7 +258,7 @@ examples 检查器（检查器 #9，v1.26.0 起纳入 `--all-checks` 全量集�
 | `--all` | 批量审计 `~/.workbuddy/skills/` 下全部已安装技能 |
 | `--check <名称>` | 仅启用指定检查器（可重复），`doc` 常驻默认开 |
 | `--all-checks` | 启用全部检查器（含 deadcode） |
-| `--deadcode-mode {ask,vulture,ast,skip}` | deadcode 精度模式；`ask` 默认已装 vulture 则自动高精度(不询问)，否则交互询问、30s 超时回退 `ast`；Agent/CI 用 `vulture`/`ast`/`skip` 跳过交互 |
+| `--deadcode-mode {ask,vulture,ast,skip}` | deadcode 精度模式；`ask` 默认已装 vulture 则自动高精度(不询问)，未装先尝试自动安装(失败回退 ast 并 WARN 告警)、否则交互询问、30s 超时亦先尝试安装；`vulture`/`ast`/`skip` 显式指定供 Agent/CI 跳过交互（ast/skip 绝不联网安装） |
 | `--preview` | 只预览将运行的检查器与将扫描的文件，不产出发现，退出码 0（适合首次审计前心里有数） |
 | `--strict` | WARN 也计入退出码（CI 门禁用） |
 | `--json` | 额外输出 JSON 机读结果（每条含 checker/severity/category/category_cn/message/file/line/suggestion） |

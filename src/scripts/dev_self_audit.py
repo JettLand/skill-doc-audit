@@ -123,7 +123,7 @@ def main():
     ap.add_argument("--no-sync-check", action="store_true",
                     help="跳过「部署副本 ↔ 源码」同步校验")
     ap.add_argument("--deadcode-mode", default=None,
-                    help="deadcode 精度模式（默认：已装 vulture 用 vulture，否则 ast）")
+                    help="deadcode 精度模式（默认 vulture 最大精度：缺失时自动安装，安装失败回退 ast 并显著告警；显式 ast/skip 不联网）")
     args = ap.parse_args()
 
     if not os.path.isdir(SRC):
@@ -150,13 +150,15 @@ def main():
         from auditlib.model import analyze_skill
         from auditlib.core import ALL_CHECKERS, CHECKER_CODES
         from auditlib.report import summarize, checker_receipt_runs
-        from auditlib.checkers.deadcode import _vulture_module
     except Exception as e:
         fail("无法导入 auditlib 包：%s" % e)
 
     # ---- 3) 审计最新源码发布面 + dev 文档 ----
-    # 复用引擎 deadcode 检查器已有的 _vulture_module()（避免与 dev_self_audit 重复实现）
-    deadcode_mode = args.deadcode_mode or ("vulture" if _vulture_module() is not None else "ast")
+    # 开发者模式能力最大化：deadcode 始终请求 vulture 最大精度——缺失时由检查器
+    # _resolve_deadcode_mode 先尝试自动安装，安装失败才回退 ast 并发 precision_degraded
+    # WARN（--strict 下即失败，低精度绝不静默）；显式 --deadcode-mode ast/skip 可
+    # 完全不联网。开发者模式其余能力同样拉满：doc-llm agent 接手、examples run+consent。
+    deadcode_mode = args.deadcode_mode or "vulture"
     cli_args = SimpleNamespace(
         deadcode_mode=deadcode_mode,
         # doc-llm：开发者模式默认 agent 接手——写出语义漂移 dossier（含 SKILL.md + references/*.md +
@@ -173,8 +175,9 @@ def main():
     dev_docs = [os.path.join(ROOT, "README.md"), os.path.join(ROOT, "CHANGELOG.md")]
 
     print("[audit] 审计目标：%s（最新源码）" % SRC)
-    print("[audit] deadcode 精度模式：%s%s" % (
-        deadcode_mode, "（已装 vulture）" if deadcode_mode == "vulture" else "（零依赖 ast，易误报）"))
+    print("[audit] deadcode 精度模式：%s（最大精度；缺失自动安装，失败回退 ast 并告警）" % deadcode_mode
+          if deadcode_mode == "vulture" else
+          "[audit] deadcode 精度模式：%s（显式指定，不联网）" % deadcode_mode)
     print("[audit] 开发者模式：递归扫描 %s 内全部 .md + 显式开发文档：%s"
           % (SRC, ", ".join(os.path.basename(d) for d in dev_docs)))
     print("[audit] 排除开发期工具：%s" % ", ".join(sorted(DEV_TOOLS)))
