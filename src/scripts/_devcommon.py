@@ -12,6 +12,17 @@ auditlib/，不含裸 src/scripts/ 文件），且已加入 dev_self_audit 的 D
 import os
 import sys
 
+# 跨平台 stdout/stderr 编码加固（同 auditlib/__init__.py）：dev 脚本在 git 钩子管道 / 文件
+# 重定向下，Windows 默认 stdout 回退 GBK 码页，无法编码 ✓/✗/⚠ 与中文，触发
+# UnicodeEncodeError 使脚本异常退出（曾误拦 push）。强制 UTF-8（errors=replace 兜底），
+# 与 pre-push 钩子的 PYTHONIOENCODING=utf-8 双保险；终端与重定向报告均按 UTF-8 落盘。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))        # <root>/src/scripts
 ROOT = os.path.dirname(os.path.dirname(HERE))            # <root>
 SRC = os.path.join(ROOT, "src")                          # 技能源码根 src/

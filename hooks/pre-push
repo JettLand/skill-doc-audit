@@ -6,6 +6,7 @@
 #   任一失败 → 拦截本次 push，逼你在发布前修复。
 # 与 post-commit 同目录；由 core.hooksPath 绝对路径安装，git 推 main 时自动触发。
 set -e 2>/dev/null || true
+export PYTHONIOENCODING=utf-8   # Windows 管道重定向 stdout 时强制 UTF-8，避免 ✓/✗/⚠ 触发 UnicodeEncodeError 误拦 push
 
 # `|| true` 不可省（同 post-commit）：开了 set -e 时，git 不可用会让命令替换非 0 并
 # errexit 终止，导致告警都打印不出来 —— 静默跳过是要避免的失效模式。
