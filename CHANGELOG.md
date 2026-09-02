@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.21 打磨明细（从代码移除 [agent-todo] #6/#7 + 修 Q1 文档缺陷）
+
+- **问题（指令与钩子执行重复）**：v1.27.20 仅把 DEVELOPMENT.md 第 6/7 类措辞从「必须执行」改成「已由钩子覆盖、agent 无需手动跑」，但**没动产生它们的代码**——`dev_market_bench.py` 的 `check_bump()` 仍打印这两条 `[agent-todo][必须]`（阻断）指令，正文仍是「必须运行 `audit_docs` / `dev_self_audit.py --dev-docs --strict`」。文档说「不用跑」、代码仍打「必须跑」，二者互相打架；且第 6/7 条的「执行」本身已被 `pre-push` 钩子（`dev_self_audit --strict`）100% 覆盖，真正只能 agent 做、无法自动化的是第 8 类（上架授权须问用户）。
+- **修复 1（代码移除）**：`dev_market_bench.py check_bump()` 删除次/主版本变动打印的第 7 类（全量自审计 `[必须]`）与补丁号变动打印的第 6 类（doc+doc-llm `[必须]`）两个 print 块；次版本 header 去掉「须完成下列质量自审计」承诺。保留 `#5` 基准建议、上架授权、文档叙述、未提交提示。代码内 `[agent-todo]` 文本本无编号，编号是 DEVELOPMENT.md 表格参照标签，故移除即文档重编号。
+- **修复 2（文档重编号）**：DEVELOPMENT.md 指令清单表格移除 #6/#7 行，原 #8→**#6**、#9→**#7**、#10→**#8**；重叠说明段改为「退役说明」；渲染样例删 #6/#7 块、次版本 header 同步；231/233/234/236/270 行编号引用与第 197 行引导段同步更新；`.workbuddy/memory/MEMORY.md` 第 17/18/54 行 `#8→#6`、`#9→#7`。
+- **修复 3（Q1 文档缺陷）**：① DEVELOPMENT.md 第 185 行「真实打印样例」含 `removed stale dist artifact` 行——当前 `sync_deploy.py` 根本不打印（dist 清理早于「市场自行重打包」改造移除，docstring 明确 no cleanup step），样例与真实输出不符，已删该行；② pre-push 钩子描述段补一张与 post-commit 同构的「自动执行命令表」（钩子实际 9 步：解析仓库根/仅 main 分支/未提交守卫/定位 python/自清理报告/dev_self_audit --strict/doc-llm 缺口门禁/self_validate/打印放行）。
+- **验证**：`py_compile dev_market_bench.py` 通过；`resolve_deploy_dir` 仍被文件其他地方使用（无悬空导入）；doc 检查器 ERROR/WARN 0；`self_validate` 4 fixture 全 PASS；四处版本号一致 1.27.21。dev-only 改动不进部署副本。
+
 ## 1.27.20 打磨明细（pre-push 报告删除改代码强制 + [agent-todo] #6/#7 去重文档）
 
 - **问题 1（真实缺陷）**：v1.27.19 落盘的 `bench/agent_audit_report.md` 删除仅靠钩子注释/提示文案「agent 读取分析后删除」，**无任何 `rm` 代码**——删除依赖 agent 记忆，恰是本技能致力消灭的「依赖记忆」模式复发。

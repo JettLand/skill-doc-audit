@@ -75,7 +75,7 @@ SRC = os.path.join(ROOT, "src")
 # 复用 dev 公共层的解耦能力：跨 agent/跨平台候选根 + 解释器解析（避免本工具另抄一份）
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
-from _devcommon import candidate_roots, resolve_deploy_dir, resolve_python  # noqa: E402
+from _devcommon import candidate_roots, resolve_python  # noqa: E402
 CACHE = os.path.join(ROOT, "bench", "market_bench")          # 运行时缓存（gitignore：不进版本库）
 INDEX_JSON = os.path.join(CACHE, "quality_index.json")
 HISTORY_JSON = os.path.join(CACHE, "sampled_history.json")
@@ -753,26 +753,14 @@ def check_bump():
         return 0
     if is_minor_or_major_bump(last, cur):
         kind = "主" if _ver_tuple(cur)[0] != _ver_tuple(last)[0] else "次"
-        print("检测到%s版本变动 v%s → v%s（次/主版本变更须完成下列质量自审计后才可发布）" % (kind, last, cur))
+        print("检测到%s版本变动 v%s → v%s（次/主版本变更须先取得上架授权；发布质量自审计由 pre-push 钩子自动覆盖）" % (kind, last, cur))
         print("[agent-todo][建议] ⚠ 决策点：次/主版本变动——是否运行「市场质量基准实测器」？")
         print("  默认不自动跑；但若本次涉及检查器逻辑 / 误报抑制 / 风险口径改动，建议运行以验证规模化行为稳定")
         print("  → python src/scripts/dev_market_bench.py run（仅人工要求或本建议触发时启用，不进自动调度）")
-        print("")
-        print("  [agent-todo][必须] 次/主版本变更须执行开发者模式全量自审计（维护整体质量）")
-        print("  全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移")
-        print("  → python src/scripts/dev_self_audit.py --dev-docs --strict")
-        # 次/主版本已被全量审计（#7，--all-checks 含 doc + doc-llm）覆盖，
-        # 故 doc + doc-llm 专项提醒（第6类）不再在此触发，改为仅补丁号变动时触发（见下）。
-    if cur != last and not is_minor_or_major_bump(last, cur):
-        # 补丁号（z）变动：次/主版本已走全量审计（#7），此处只针对补丁级文档自审计做专项提醒
-        print("")
-        print("检测到补丁号变动 v%s → v%s（补丁变动须完成下列文档自审计后才可发布）" % (last, cur))
-        print("  [agent-todo][必须] 补丁号变动须执行 doc + doc-llm 文档自审计（开发者模式）")
-        print("  doc 检查死链接/文档漂移，doc-llm 产出语义漂移 dossier 需 agent 接手判读")
-        # 部署副本路径经 resolve_deploy_dir() 解析（不写死 ~/.workbuddy，非标准安装/跨 agent 亦正确）
-        _dep, _how = resolve_deploy_dir()
-        print("  → python src/scripts/audit_docs.py --skill %s --check doc --check doc-llm --doc-llm-mode agent"
-              % _dep)
+        # 注：次/主版本的全量自审计（旧第 7 类）与补丁号的 doc+doc-llm 文档自审计（旧第 6 类）
+        # 自 v1.27.19 起已由 pre-push 钩子自动跑 `dev_self_audit --strict` 覆盖，v1.27.21 起
+        # 不再在此打印提醒——避免与钩子执行重复、且误导为「agent 必须手动跑」。门禁由钩子
+        # 跑审计后的检查器结果决定，无需 agent 手动跑命令。
     if cur != last:
         # 任何版本变化（含补丁）都须先取得用户授权才允许上架——上架是外部公开动作。
         print("")
