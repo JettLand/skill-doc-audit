@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.29.4"
+version: "1.29.5"
 license: MIT
 author: Jett
 agent_created: true
@@ -182,7 +182,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --strict
 python scripts/audit_docs.py --skill <目录> --all-checks --timeout 60
 # 超大文件跳过阈值（字节）；超过则跳过并报告，避免拖慢
 python scripts/audit_docs.py --skill <目录> --all-checks --max-file-size 2000000
-# deadcode 精度模式：ask(已装 vulture 则自动高精度,不询问) / 显式 vulture 高精度 / ast 零依赖 / skip 跳过；Agent/CI 用 --deadcode-mode 跳过交互询问
+# deadcode 精度模式：ask(已装 vulture 则自动高精度,不询问) / 显式 vulture 高精度 / ast 零依赖 / off 不运行；Agent/CI 用 --deadcode-mode 跳过交互询问
 python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture
 # 先预览将运行哪些检查器、将扫描哪些文件（不产出发现，退出码 0）
 python scripts/audit_docs.py --skill <目录> --all-checks --preview
