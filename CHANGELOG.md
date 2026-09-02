@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.17 打磨明细（全量文档↔代码交叉校对收口，纯文档修正）
+
+- **校对方法**：`--all-checks --doc-llm-mode agent` 全量审计 + dossier 语义比对 + 人工核对版本/CLI 参数/错误码/检查器清单/退出码与 DEVELOPMENT.md。机械层 3 ERROR / 8 WARN 全部溯源为 DEV_TOOLS 文件的已知误报类（dev 工具端点与 fixture 配方、审计目录名假象 `name_mismatch`），发布面用户文档零 ERROR。
+- **修复 1（checkers.md 与 SKILL.md 矛盾，真实漂移）**：checkers.md 死代码节原称「vulture 仅当环境已安装时运行、缺失自动回退」，与 SKILL.md「显式 vulture 缺库先自动 `pip install`」及代码 `_try_install_vulture` 实际行为不符；已对齐（并明确仅显式路径联网安装、ask 自动回退路径绝不触发安装）。
+- **修复 2（checkers.md 参数速查表缺项）**：补全 9 个遗漏参数行——`--doc-llm-mode` / `--examples-consent` / `--source` / `--ref` / `--keep-temp` / `--report` / `--target` / `--verify` / `--dev-docs`。
+- **修复 3（措辞）**：SKILL.md 与 checkers.md 的 examples「三档模式」实列 4 值（ask/static/run/off），更正为「多档模式」；SKILL.md 跨平台证明中「git/npm/skillhub 均列表传参」的 npm 实际不被调用（仅检测词表词），更正为实际调用的 `pip`；「完整运行示例」的「真实输出」改为「输出节选（示意，计数随版本演进有差异）」，避免示例不可复现的过度声称。
+- **验证**：doc 检查器 ERROR/WARN 0；`dev_self_audit --strict` ERROR 0 / WARN 0；`self_validate` 4 fixture 全 PASS。无代码改动。四处版本号一致 1.27.17。
+
 ## 1.27.16 打磨明细（补记 v1.27.0 doc-llm 正向覆盖缺口能力的用户文档同步，纯文档修正）
 
 - **问题**：v1.27.0 落地正向能力覆盖时，CHANGELOG 已明确记录「doc-llm 同步增强：dossier 新增『正向覆盖缺口』预分析段，共用 `compute_capability_gaps()`」，但 SKILL.md 与 references/checkers.md 的 doc-llm 描述均未体现——用户文档与代码能力漂移（恰为本技能自检目标类型）。

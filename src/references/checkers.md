@@ -202,7 +202,7 @@
 3. **`# keep` 内联白名单**：在定义行或上一行加 `# keep` 注释，即可保留该定义/导入、不再告警（适用于公开 API、钩子、测试辅助等确属有意的「未直接引用」符号）。
 4. **跨文件引用感知**：`unused_def` 先汇总全技能所有 `.py` 的引用集合，仅当某定义在**全技能范围都未被引用**时才报，避免把「本文件定义、他文件调用」的符号误判为死代码（多文件技能常见场景）。
 
-孤儿资源（`orphan_asset`）判定保守：只要文件名或相对路径（`scripts/x.py`、`references/x.md`）出现在任意文档或代码文本中，**或被技能内其他 `.py` 以模块名 import**，即视为已引用，故只可能漏报、不会把被引用文件误标为孤儿。可选增强 `vulture` 仅当选择 `--deadcode-mode vulture` 且环境已安装时运行；选 `ast` 或默认回退时不运行，`vulture` 缺失也自动回退零依赖，不影响默认行为。
+孤儿资源（`orphan_asset`）判定保守：只要文件名或相对路径（`scripts/x.py`、`references/x.md`）出现在任意文档或代码文本中，**或被技能内其他 `.py` 以模块名 import**，即视为已引用，故只可能漏报、不会把被引用文件误标为孤儿。可选增强 `vulture` 仅在选择 `--deadcode-mode vulture` 时运行：环境已装即直接高精度；未装则先尝试自动 `pip install vulture`（**仅此显式路径会联网安装**——ask 模式的非交互自动回退路径绝不触发安装，避免自动化场景意外联网），装不上再回退零依赖 `ast`；选 `ast`/`skip` 或 ask 自动回退时不运行也不安装，不影响默认行为。
 
 **两种精度模式的分工（避免重复报告）**：`ast` 模式由 AST 负责未使用导入 / 未使用定义 / 不可达代码 + 孤儿资源；`vulture` 模式由 vulture 负责导入 / 定义 / 类 / 方法 / 变量检测（高精度、低噪声），并叠加 AST 独有的不可达代码与孤儿资源检测，**不再重复报告 AST 的导入/定义项**。两种模式均支持 `# keep` 内联白名单（vulture 分支同样按定义行/上一行判定 `# keep` 并跳过）。vulture 分析若异常（如版本 API 不兼容），会在 stderr 打印告警并跳过该步、不影响其余检查器。
 
@@ -218,7 +218,7 @@ examples 检查器（检查器 #9，v1.26.0 起纳入 `--all-checks` 全量集�
 4. **外部 CLI 依赖声明（INFO 提示）**：示例调用了 `curl` / `pip` / `git` / `docker` 等外部 CLI，但该 CLI 未在本技能**代码**中出现、也未在 frontmatter 声明 → 提示可能缺依赖说明。判定用「代码 + frontmatter」而非「文档是否含该 token」——因为示例本身就写出该命令，token 必然出现，否则必误报。
 5. **沙箱试运行（仅 `run` 模式 + 作者显式标注）**：对带 `{example expected-exit=0 expected-stdout="..."}` 标注的示例，在受限沙箱内执行并比对期望（退出码 / 标准输出 / 标准错误）；超出条数上限（`--examples-max-cmd`，默认 12）或超时（`--examples-timeout`，默认 20s）即停。未标注的示例在任何模式下**只做静态检查、不执行**。
 
-### 二、三档模式与默认姿态
+### 二、多档模式与默认姿态
 
 | 模式 | 行为 | 适用场景 |
 |---|---|---|
@@ -268,4 +268,13 @@ examples 检查器（检查器 #9，v1.26.0 起纳入 `--all-checks` 全量集�
 | `--examples-mode {static,ask,run,off}` | examples 检查器模式；`ask` 默认(交互询问是否沙箱试运行，30s 超时/非交互回退 static 并 INFO 标注)，`static` 纯静态(零执行/零网络/零 token)，`run` 受限沙箱试运行带 expected 标注的示例，`off` 跳过 |
 | `--examples-timeout <秒>` | examples run 模式下单条示例命令执行超时（默认 20） |
 | `--examples-max-cmd <条>` | examples run 模式下单技能最多执行示例命令条数（默认 12，防突刺） |
+| `--doc-llm-mode {ask,agent,off}` | doc-llm 语义检测模式；`ask` 默认（交互问询是否 agent 接手，30s 超时/非交互跳过并记 INFO），`agent` 写 dossier 由 agent 接手比对，`off` 跳过 |
+| `--examples-consent` | examples 授权令牌：agent 非交互环境显式指定 `--examples-mode run/static/off` 时须附此令牌，否则脚本阻断并报 `examples_consent_missing`（ERROR），杜绝静默替用户决定 |
+| `--source {local,github,skillhub,url}` | 技能来源（默认 local 本机）；`github` 需 git、`skillhub` 需 skillhub CLI、`url` 标准库直抓零外部 CLI |
+| `--ref <值>` | 来源引用：`owner/repo`（可 `@分支`，逗号分隔批量）/ 集市 slug / https 地址 |
+| `--keep-temp` | 保留克隆/安装/抓取的临时目录并打印路径，便于排查 |
+| `--report {portability-matrix,translate,health}` | 生成对应报告（只读，不改写文件） |
+| `--target <格式>` | 仅 `--report translate` 时用：目标格式 `workbuddy`/`agentskills`/`claude-code`/`cursor-plugin`/`generic` |
+| `--verify` | 仅 `--report translate` 时用：内存往返保真校验，不落盘 |
+| `--dev-docs` | 开发者模式：doc/doc-llm 递归扫描技能目录内全部 `.md`（含 README/CHANGELOG），仅维护者自检用 |
 

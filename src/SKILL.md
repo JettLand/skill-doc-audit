@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.27.16"
+version: "1.27.17"
 license: MIT
 author: Jett
 agent_created: true
@@ -229,7 +229,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 
 校验**任意技能**文档里写出的命令示例是否站得住脚——避免「文档教用户的命令一跑就挂」这类漂移。默认 `ask`（交互询问是否允许沙箱试运行；非交互 / 超时回退 `static`），实际执行属需显式授权的可选能力；纯静态检查（零执行 / 零网络 / 零 token）仍是日常与 CI 的落地姿态。
 
-- **三档模式（`--examples-mode`）**：`ask`（默认，交互询问是否允许沙箱试运行，30 秒超时或本地非交互一律回退 static 并发 INFO finding `examples_degraded`）/ `static`（纯静态解析）/ `run`（受限沙箱试运行）/ `off`（跳过）。
+- **多档模式（`--examples-mode`）**：`ask`（默认，交互询问是否允许沙箱试运行，30 秒超时或本地非交互一律回退 static 并发 INFO finding `examples_degraded`）/ `static`（纯静态解析）/ `run`（受限沙箱试运行）/ `off`（跳过）。
 - **agent 决策回交（ask 非交互）**：`ask` 降级为静态并发 `examples_degraded` INFO，决策载荷进 JSON `user_prompts` 并在报告印「⚠ 需用户决策」块；agent 须据此向用户确认后以 `--examples-mode run/static` 重跑。**非交互环境若显式指定 `--examples-mode run/static/off` 须携带 `--examples-consent` 授权令牌，否则脚本阻断并报 `examples_consent_missing`（ERROR）——该强制由代码闸门执行，不依赖文档约定**。
 - **默认静态档查什么**：① 示例命令引用的脚本文件是否存在（`EXAMPLE_TARGET_MISSING`，仅核验 `.py/.js/.mjs/.ts/.sh/.ps1` 这类脚本扩展名，仓库引用 / 安装路径 / 输出文件一律跳过，避免误报）；② 传给脚本的参数是否在脚本中声明（`EXAMPLE_FLAG_UNKNOWN` WARN，仅 SKILL.md）；③ 示例调用的外部 CLI 是否在文档声明依赖（`EXAMPLE_EXT_CMD` INFO）；④ 是否含危险 / 不可逆命令（`EXAMPLE_DANGEROUS` ERROR/WARN）。纯文档快照（未取到代码）时退为 INFO，绝不把「没下载到」误判成「文件不存在」。
 - **安全红线（不可放宽）**：即便 `run` 模式也**绝不执行文档里的任意 shell**。只执行同时满足全部条件的命令：白名单解释器（python/python3/node）+ 无 shell 元字符（`; | & < > $ \` ( )` 等）+ 目标脚本在技能目录内 + 扩展名白名单 + 该示例块由作者显式标注了期望 + 受超时与条数上限约束。不满足即跳过并 INFO 说明，绝不「尽力执行」。
@@ -283,7 +283,7 @@ python scripts/audit_docs.py --check doc --skill <技能目录>
 python scripts/audit_docs.py --skill src --all-checks
 ```
 
-真实输出（节选，每条发现均带中文标签与机器码，自解释）：
+输出节选（示意，每条发现均带中文标签与机器码，自解释；各检查器计数随版本演进会有差异，以实际运行为准）：
 
 ```
   [doc]       ERROR 0 / WARN 0 / INFO 1
@@ -421,7 +421,7 @@ python scripts/audit_docs.py --skill src --all-checks
 本技能自身满足跨平台可部署要求，以下为**实测证据**（非声明、可复现）：
 
 - **纯 Python 标准库实现，零第三方依赖**：`scripts/audit_docs.py` 仅依赖 `argparse` / `re` / `os` / `json` / `zipfile` / `subprocess` / `threading` 等标准库，无需 `pip install`；`deadcode` 高精度模式的可选依赖 `vulture` 缺省时自动降级为零依赖 `ast`，非运行必需。
-- **无平台专属 API 的实际调用**：代码中出现的 `win32api` / `ctypes.windll` / `winreg` / `HKEY_` / `ShellExecute` / `os.startfile` / `powershell` / `cmd.exe` / `os.getcwd` / `shell=True` 等字样，**仅作为检查器自身的检测规则**（用于发现*其他*技能的这些反模式），本技能自身从未调用；所有外部 CLI（`git` / `npm` / `skillhub` 等）均以**列表传参**方式调用，未使用 `shell=True`。
+- **无平台专属 API 的实际调用**：代码中出现的 `win32api` / `ctypes.windll` / `winreg` / `HKEY_` / `ShellExecute` / `os.startfile` / `powershell` / `cmd.exe` / `os.getcwd` / `shell=True` 等字样，**仅作为检查器自身的检测规则**（用于发现*其他*技能的这些反模式），本技能自身从未调用；所有实际调用的外部 CLI（`git` / `pip` / `skillhub` 等）均以**列表传参**方式调用，未使用 `shell=True`。
 - **portability 自检零 OS 级发现**：在本技能源码（SKILL.md 未声明 `target_platform`，即「跨平台 = 全平台全检」）上运行 `--check portability`，结果为 `ERROR 0 / WARN 0`；所有 `INFO` 均为 `agent_coupling`（跨 *Agent* 咨询，提示 `.workbuddy` / `allowed-tools` 耦合，**非** OS 级破损）——无硬编码绝对路径、无启动目录依赖、无平台专属 shell、无解释器锁、无编码假设。
 - **结论**：可在 Windows / Linux / macOS 上无修改运行。仅当接入 `--source github`（git clone）或 `--source skillhub`（skillhub CLI）时才需对应外部 CLI 存在于 `PATH`；`--source url` 使用标准库 `urllib`，无需任何外部 CLI，且 HTTPS 依赖对目标 OS 透明。
 
