@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.14 打磨明细（补全 v1.27.13 去散文收口：清除 SKILL.md 悬空引用）
+
+- **动机**：v1.27.13 已把 examples 弹窗强约束从 SKILL.md 散文改为代码 consent 闸门（`--examples-consent`），并删除「Agent 执行约定」整段；但 SKILL.md 正文仍残留 3 处指向该已删章节的悬空引用（deadcode 精度说明行、开发模式自动降级提示行、examples 弹窗约定 bullet）。Edit 工具对这几处报「成功」却未落盘（phantom success），经 Python 子串替换精确清除全部「Agent 执行约定」字样，文档仅保留用法参考、强制逻辑完全由代码执行。
+
+- **影响面**：纯文档修正，无代码改动、无 finding 代码/严重级变化；`examples_consent` 闸门与 `user_prompts` 双通道机制均不变；不破坏 self_validate 黄金快照。补丁号变动按约定仅走 doc 检查器校验。
+
+- **验证**：grep 确认 SKILL.md 已无「Agent 执行约定」字样；`dev_self_audit --strict` ERROR 0 / WARN 0；`self_validate` 4 fixture 全 PASS。四处版本号一致 1.27.14。
+
 ## 1.27.13 打磨明细（examples 弹窗强约束改由代码 consent 闸门自执行，删除 Agent 执行约定散文）
 
 - **动机**：用户指出 v1.27.12 仍依赖 SKILL.md 散文（「Agent 执行约定」整段）强约束 agent 弹窗，与 v1.27.11「少靠散文、改由脚本抛指令」的意图相悖；且运行时 `user_prompts` 信号只能纠正「进了 ask 分支」的情况，管不了 agent 在「跑前」单方面传 `--examples-mode` 规避询问（正是此前未弹窗的根因）。
