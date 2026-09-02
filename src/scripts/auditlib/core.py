@@ -201,7 +201,7 @@ CATEGORY_LABELS = {
     "interpreter_lock": "解释器/运行时锁",
     "encoding_sep": "编码/路径分隔符假设",
     "agent_coupling": "Agent 平台耦合",
-    # examples：文档示例校验（v1.26.0，泛用版；默认纯静态，执行为需授权的可选能力）
+    # examples：文档示例校验（v1.26.0，泛用版；默认 ask，非交互/超时回退 static 零执行，执行为需授权的可选能力）
     "EXAMPLE_TARGET_MISSING": "示例引用文件不存在（照抄将失败）",
     "EXAMPLE_TARGET_UNVERIFIABLE": "示例引用无法核验（纯文档快照）",
     "EXAMPLE_FLAG_UNKNOWN": "示例参数在脚本中无声明",
@@ -232,9 +232,8 @@ DEADCODE_MODES = ("ask", "vulture", "ast", "skip")
 # 付费，故移除「零额外成本」误导表述；preview 模式（选项3）因会重复占用上下文 token 已移除。
 DOCLLM_MODES = ("off", "agent", "ask")
 # examples 检查器模式权威集合（v1.26.0）：
-# static=默认，纯静态（零执行/零网络/零 token）；ask=交互询问是否允许沙箱试运行，
-# 30 秒超时或本地非交互一律回退 static 并 INFO 标注；run=允许受限沙箱试运行
-# （仅白名单解释器 + 技能内脚本 + 带 expected 标注的块 + 超时保护）；off=本次不运行。
+# ask=默认（交互询问是否允许沙箱试运行，非交互/超时回退 static）；static=纯静态（零执行/零网络/零 token）；
+# run=允许受限沙箱试运行（仅白名单解释器 + 技能内脚本 + 带 expected 标注的块 + 超时保护）；off=本次不运行。
 EXAMPLES_MODES = ("static", "ask", "run", "off")
 # 文档声称的检查器数量："(N) 个检查器"
 DOC_CHECKER_COUNT_RE = re.compile(r"(\d+)\s*个\s*检查器")

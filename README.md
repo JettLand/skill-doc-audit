@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.27.7 | **examples 默认值改为 ask（非交互/超时回退 static）+ 开发者模式 examples 默认 run**：`cli.py` 的 `--examples-mode` 默认 `static`→`ask`；`dev_self_audit.py` `cli_args` 新增 `examples_mode="run"`（审计自家源码、执行自家带 expected 标注示例受控安全）。同步 SKILL.md / checkers.md / cli 帮助文本 / examples.py docstring 中「默认 static」措辞。评估确认：改为 run 后参数校验（第 3 步）仍由 `core_doc=(doc_name=="SKILL.md")` 控制，仅限 SKILL.md、未扩大范围。四处版本号一致 1.27.7 |
 | 1.27.6 | **DEV_TOOLS 语法守卫 DRY 重构（复用 runtime 同款 py_compile）**：抽出 `auditlib.core.compile_python_file` 公共 helper，`runtime` 检查器与 `_guard_dev_tools` 守卫复用同一 `py_compile` 语法校验实现——手段复用、入口独立（runtime 报 `py_syntax` ERROR 阻断发布面；守卫仅 INFO 非阻断，命中即提示 agent 复核）。`runtime.py` 移除内联 `py_compile`、改调 helper，`_guard_dev_tools` 同步复用；三处源码改动，行为不变、输出格式与错误摘要一致。四处版本号一致 1.27.6 |
 | 1.27.5 | **堵开发期工具盲区：新增 `dev_self_audit.py` 内置「DEV_TOOLS 语法守卫」**：全量审计只扫发布面、8 个 dev 工具被排除集剔除，成为唯一无自动化扫描的盲区；新增 `_guard_dev_tools()` 对每个 dev 工具单独 `py_compile` 兜底语法关，命中即打印 `[dev-tools] ⚠` 并追加 `[建议]` 非阻断项（不升退出码、不拦 push），把改坏 dev 工具的崩溃风险提前暴露。`[agent-todo]` 维持现状。部署自审 `ERROR 0 / WARN 0` |
 | 1.27.3 | **`[agent-todo]` 第 6 类触发条件修正（仅补丁号 z 变动）**：原第 6 类（doc + doc-llm 文档自审计）与第 5、7 类同在「次/主版本变动」触发块，存在重复——次/主版本已由第 7 类全量自审计（`--all-checks`，含 doc + doc-llm）覆盖。修正后第 6 类改为仅「补丁号（x.y.z 中 z）变动」触发，次/主版本不再重复提醒；`dev_market_bench.py check_bump` 与 `DEVELOPMENT.md` 指令清单、渲染样例同步。部署自审 `ERROR 0 / WARN 0` |

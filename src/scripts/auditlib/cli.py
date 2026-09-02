@@ -10,8 +10,8 @@ def main():
     ap.add_argument("--skill", help="技能目录")
     ap.add_argument("--all", action="store_true", help="审计 ~/.workbuddy/skills 下全部技能")
     ap.add_argument("--check", action="append", metavar="NAME",
-                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability/doc-llm/examples)，可重复；doc 常驻默认开；doc-llm 默认按 ask 处理（弹菜单询问是否启用语义检测，由 agent 接手），显式 --doc-llm-mode agent 即由 agent 直接接手（不依赖外部 LLM、但会占用 agent 推理 token，输入侧为主）；examples 默认纯静态(零执行/零网络/零 token)，--examples-mode run 方在受限沙箱试运行带 expected 标注的示例")
-    ap.add_argument("--all-checks", action="store_true", help="启用全部检查器（含 doc-llm：交互终端弹菜单询问是否启用 LLM 语义检测，30 秒超时默认不启用，绝不自动联网；非交互环境跳过并以 INFO 提示；含 examples：默认纯静态零执行/零网络/零 token，--examples-mode run 方在受限沙箱试运行带 expected 标注的示例）")
+                    help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability/doc-llm/examples)，可重复；doc 常驻默认开；doc-llm 默认按 ask 处理（弹菜单询问是否启用语义检测，由 agent 接手），显式 --doc-llm-mode agent 即由 agent 直接接手（不依赖外部 LLM、但会占用 agent 推理 token，输入侧为主）；examples 默认 ask(交互询问是否沙箱试运行，超时/非交互回退 static 零执行/零网络/零 token)，--examples-mode run 方在受限沙箱试运行带 expected 标注的示例")
+    ap.add_argument("--all-checks", action="store_true", help="启用全部检查器（含 doc-llm：交互终端弹菜单询问是否启用 LLM 语义检测，30 秒超时默认不启用，绝不自动联网；非交互环境跳过并以 INFO 提示；含 examples：默认 ask(交互询问是否沙箱试运行，超时/非交互回退 static 零执行/零网络/零 token)，--examples-mode run 方在受限沙箱试运行带 expected 标注的示例）")
     ap.add_argument("--backup", action="store_true", help="审计前备份 SKILL.md")
     ap.add_argument("--backup-limit", type=int, default=BACKUP_LIMIT,
                     help="SKILL.md 最多保留的备份数（默认 %d）" % BACKUP_LIMIT)
@@ -25,8 +25,8 @@ def main():
                     help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
     ap.add_argument("--doc-llm-mode", default=None, choices=list(DOCLLM_MODES),
                     help="doc-llm 语义漂移检测模式（v1.24.0 起由 agent 直接接手，不再依赖外部 LLM；v1.24.1 起移除 preview 选项）：ask(默认,交互终端呈现实选项：1)默认模式 2)agent接手(会占用 agent 推理 token，但不向外部 LLM 付费)，30 秒超时自动回退默认模式) / off(不运行) / agent(直接由 agent 接手：脚本写 dossier + 打印 AGENT_TAKEOVER 哨兵，agent 读取后自行比对)。Agent 经 AskUserQuestion 收到用户选择后显式传入")
-    ap.add_argument("--examples-mode", default="static", choices=list(EXAMPLES_MODES),
-                    help="examples 检查器模式（v1.26.0 新增，泛用版文档示例校验）：static(默认,纯静态解析,零执行/零网络/零 token,检查示例引用的文件是否存在/参数是否声明/外部CLI是否声明/是否含危险命令) / ask(交互终端询问是否允许沙箱试运行,30秒超时或本地非交互一律回退 static 并 INFO 标注降级) / run(受限沙箱试运行带 expected 标注的示例:仅白名单解释器+技能内脚本+超时保护) / off(本次不运行)")
+    ap.add_argument("--examples-mode", default="ask", choices=list(EXAMPLES_MODES),
+                    help="examples 检查器模式（v1.26.0 新增，泛用版文档示例校验）：ask(默认,交互终端询问是否允许沙箱试运行,30秒超时或本地非交互一律回退 static 并 INFO 标注降级) / static(纯静态解析,零执行/零网络/零 token,检查示例引用的文件是否存在/参数是否声明/外部CLI是否声明/是否含危险命令) / run(受限沙箱试运行带 expected 标注的示例:仅白名单解释器+技能内脚本+超时保护) / off(本次不运行)")
     ap.add_argument("--examples-timeout", type=float, default=20,
                     help="examples run 模式下单条示例命令执行超时秒数（默认 20）")
     ap.add_argument("--examples-max-cmd", type=int, default=12,

@@ -5,6 +5,19 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.7 打磨明细（examples 默认 ask + 开发者模式 examples 默认 run）
+
+### 1. examples 检查器默认值 static → ask（超时/非交互回退 static）
+- **动机**：用户指出 examples 检查器历经多次扩展，默认值应更贴合「交互确认、绝不静默替用户决定」原则——非交互/超时环境保持零执行静态档，交互终端则主动询问是否沙箱试运行。原 `static` 默认等于「永远不提示」，浪费了 ask 档的安全确认能力。
+- **做法**：`cli.py` `--examples-mode` 默认 `static`→`ask`；`_resolve_examples_mode` 已有非交互（`sys.stdin.isatty()` 判定）与 30s 超时双回退 static 逻辑，无需改动即落实「超时回退 static」诉求（非交互环境 `degraded=True` 发 INFO 标注，杜绝静默降级）。同步更新 `cli.py` 的 `--check`/`--all-checks`/`--examples-mode` 帮助文本、`examples.py` docstring 三档能力段、`SKILL.md` 与 `checkers.md` 中所有「默认 static / 默认纯静态」措辞为「默认 ask（非交互/超时回退 static）」。
+- **开发者模式**：`dev_self_audit.py` 的 `cli_args` 新增 `examples_mode="run"`——开发者审计「自家」技能源码，执行自家带 `expected` 标注的示例是受控且安全的，故越过 ask 直接 run 以捕获示例输出漂移；第三方技能仍须经 `--examples-mode run` 显式授权。
+- **副作用（run 模式当场抓出自身文档漂移）**：开发者模式改为 run 后，`dev_self_audit` 立即发现本技能 `SKILL.md` 第 275 行示例块（`python scripts/audit_docs.py --check doc` 标注 `expected-exit=0 expected-stdout="OK"`）实际执行退出码 2、输出不含 OK——属虚假标注示例。已修正：去掉会被误执行的 `{example ...}` 标注（改为行内代码展示语法），命令补全 `--skill <技能目录>`，标注语法改由行内代码 `{example expected-exit=0 expected-stdout="OK"}` 呈现（围栏标注块才被提取执行，行内代码不会）。此即「开发者模式默认 run」价值的正面验证。
+
+### 2. 参数校验范围评估（改为 run 后是否仍仅限 SKILL.md）
+- **结论：是，未扩大范围**。`check_examples` 第 3 步（示例参数是否在目标脚本声明）由 `core_doc = (doc_name == "SKILL.md")` 控制（examples.py:432/507）；即便模式为 `run`，该门控不变——`references`/开发文档（README/CHANGELOG）的示例参数仍不校验（其引用开发期工具参数表不在发布面代码内，套用会误报）。执行（第 5 步）仅对带 `{example ...}` 标注块生效，dev 文档鲜有标注，故 run 不会扩面误执行。
+- **验证**：py_compile 全绿；self_validate 黄金快照无回归；dev_self_audit 发布面 `ERROR 0 / WARN 0`；四处版本号一致 1.27.7。
+
+
 ## 1.27.6 打磨明细（DEV_TOOLS 语法守卫 DRY 重构：复用 runtime 同款 py_compile）
 
 ### 1. 抽出公共语法校验 helper，runtime 与守卫复用同一实现

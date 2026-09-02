@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.27.6"
+version: "1.27.7"
 license: MIT
 author: Jett
 agent_created: true
@@ -31,7 +31,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `deadcode`（运行前按 `--deadcode-mode` 选精度）：未使用定义 / 导入、不可达代码、孤立资源文件（Agent 调用须显式传 `--deadcode-mode`，见下方「Agent 执行约定」）。
 - `portability`（零依赖纯静态）：跨平台可移植性——硬编码绝对路径、`os.getcwd` 依赖、平台专属 shell、解释器锁、编码假设、`agent_coupling`；按 `target_platform` / `target_agent` 豁免。
 - `doc-llm`：自由散文语义漂移检测（由 agent 直接接手、无需外部 LLM）——由 agent 用自身能力比对 SKILL.md 与代码事实；全量检测显式问询，非交互环境记 INFO `doc_llm_skipped`。
-- `examples`（**检查器 #9**）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 传给脚本的参数是否声明 / 示例调用的外部 CLI 是否声明 / 是否含危险或不可逆命令）。默认 `static`（纯静态、零执行 / 零网络 / 零 token）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。
+- `examples`（**检查器 #9**）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 传给脚本的参数是否声明 / 示例调用的外部 CLI 是否声明 / 是否含危险或不可逆命令）。默认 `ask`（交互询问是否沙箱试运行；非交互 / 超时一律回退 `static` 零执行 / 零网络 / 零 token）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
 
@@ -265,15 +265,15 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 
 ## examples 检查器：文档示例静态校验（检查器 #9）
 
-校验**任意技能**文档里写出的命令示例是否站得住脚——避免「文档教用户的命令一跑就挂」这类漂移。默认**纯静态**（零执行 / 零网络 / 零 token），执行为需显式授权的可选能力。
+校验**任意技能**文档里写出的命令示例是否站得住脚——避免「文档教用户的命令一跑就挂」这类漂移。默认 `ask`（交互询问是否允许沙箱试运行；非交互 / 超时回退 `static`），实际执行属需显式授权的可选能力；纯静态检查（零执行 / 零网络 / 零 token）仍是日常与 CI 的落地姿态。
 
-- **三档模式（`--examples-mode`）**：`static`（默认，纯静态解析）/ `ask`（交互询问是否允许沙箱试运行，30 秒超时或本地非交互一律回退 static 并 INFO 标注降级）/ `run`（受限沙箱试运行）/ `off`（跳过）。
+- **三档模式（`--examples-mode`）**：`ask`（默认，交互询问是否允许沙箱试运行，30 秒超时或本地非交互一律回退 static 并 INFO 标注降级）/ `static`（纯静态解析）/ `run`（受限沙箱试运行）/ `off`（跳过）。
 - **默认静态档查什么**：① 示例命令引用的脚本文件是否存在（`EXAMPLE_TARGET_MISSING`，仅核验 `.py/.js/.mjs/.ts/.sh/.ps1` 这类脚本扩展名，仓库引用 / 安装路径 / 输出文件一律跳过，避免误报）；② 传给脚本的参数是否在脚本中声明（`EXAMPLE_FLAG_UNKNOWN` WARN，仅 SKILL.md）；③ 示例调用的外部 CLI 是否在文档声明依赖（`EXAMPLE_EXT_CMD` INFO）；④ 是否含危险 / 不可逆命令（`EXAMPLE_DANGEROUS` ERROR/WARN）。纯文档快照（未取到代码）时退为 INFO，绝不把「没下载到」误判成「文件不存在」。
 - **安全红线（不可放宽）**：即便 `run` 模式也**绝不执行文档里的任意 shell**。只执行同时满足全部条件的命令：白名单解释器（python/python3/node）+ 无 shell 元字符（`; | & < > $ \` ( )` 等）+ 目标脚本在技能目录内 + 扩展名白名单 + 该示例块由作者显式标注了期望 + 受超时与条数上限约束。不满足即跳过并 INFO 说明，绝不「尽力执行」。
-- **示例标注语法（作者可选，供 run 模式比对）**：
+- **示例标注语法（作者可选，供 run 模式比对）**：为示例围栏加标注 `{example expected-exit=0 expected-stdout="OK"}` 后，run 模式会执行并比对期望（仅白名单解释器 + 技能内脚本 + 超时保护）；未标注的示例任何模式都只做静态检查、不执行。
 
-```bash {example expected-exit=0 expected-stdout="OK"}
-python scripts/audit_docs.py --check doc
+```bash
+python scripts/audit_docs.py --check doc --skill <技能目录>
 ```
 
 支持 `expected-exit` / `expected-stdout` / `expected-stderr`。未标注的示例任何模式都只做静态检查、不执行。

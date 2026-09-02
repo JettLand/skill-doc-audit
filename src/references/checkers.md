@@ -14,7 +14,7 @@
 - `deadcode`（运行前按 `--deadcode-mode` 选精度，已装 vulture 则自动高精度、不询问）：死代码检测（未使用定义/导入、不可达代码、孤立资源文件）
 - `portability`（零依赖纯静态分析，全部 WARN/INFO 不报 ERROR）：跨平台可移植性——硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合 / 跨格式可移植性损失（`lossy_port`，Phase 6）。按 SKILL.md 的 `target_platform` 字段豁免对应平台项；`--report portability-matrix` 可打印「源格式 → 各目标格式」的 P/D/L 损失矩阵
 - `doc-llm`（**独立检查器**，v1.23.0 起纳入 `--all-checks` 全量集，v1.24.0 起由 agent 直接接手）：语义漂移增强检测——覆盖 `doc` 触及不到的自由散文语义漂移，由 agent 用自身能力判定（不再调用外部 LLM）；默认 `ask` 问询、非交互记 INFO `doc_llm_skipped`。错误码见下方明细 `DOC_LLM_DRIFT` / `doc_llm_agent_handoff` / `doc_llm_skipped`
-- `examples`（**新增检查器 #9**，v1.26.0 起纳入 `--all-checks` 全量集）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 参数是否声明 / 外部 CLI 是否声明 / 是否含危险命令）。默认 `static`（纯静态、零执行 / 零网络 / 零 token）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。错误码见下方明细 `EXAMPLE_TARGET_MISSING` / `EXAMPLE_DANGEROUS` / `EXAMPLE_FLAG_UNKNOWN` / `EXAMPLE_EXT_CMD` / `EXAMPLE_UNVERIFIED` 等
+- `examples`（**新增检查器 #9**，v1.26.0 起纳入 `--all-checks` 全量集）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 参数是否声明 / 外部 CLI 是否声明 / 是否含危险命令）。默认 `ask`（交互询问是否沙箱试运行；非交互 / 超时回退 `static` 零执行 / 零网络 / 零 token）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。错误码见下方明细 `EXAMPLE_TARGET_MISSING` / `EXAMPLE_DANGEROUS` / `EXAMPLE_FLAG_UNKNOWN` / `EXAMPLE_EXT_CMD` / `EXAMPLE_UNVERIFIED` 等
 
 ### 检查器执行回执（身份代号 + 调用结果）
 任一检查器被调用时，引擎（`auditlib/model.py` 的 dispatch 循环）都会为它生成一条**执行回执**，明确告知 agent / 使用者「这个检查器到底有没有真跑过」——杜绝 doc-llm 类「静默落空却显示通过」的隐患。
@@ -222,12 +222,12 @@ examples 检查器（检查器 #9，v1.26.0 起纳入 `--all-checks` 全量集�
 
 | 模式 | 行为 | 适用场景 |
 |---|---|---|
-| `static`（**默认**） | 纯静态解析，零执行 / 零网络 / 零 token / 零第三方依赖 | 日常审计、CI、Agent 自动化 |
-| `ask` | 交互终端弹菜单询问是否授权沙箱试运行；30s 超时 / 非交互环境一律回退 `static` 并发 INFO 标注「已降级」 | 交互终端想试运行又想确认 |
+| `ask`（**默认**） | 交互终端弹菜单询问是否授权沙箱试运行；30s 超时 / 非交互环境一律回退 `static` 并发 INFO 标注「已降级」 | 交互终端想试运行又想确认（日常 / CI / Agent 自动化默认落到 `static` 静态档） |
+| `static` | 纯静态解析，零执行 / 零网络 / 零 token / 零第三方依赖 | 日常审计、CI、Agent 自动化（即 `ask` 的回退落点） |
 | `run` | 受限沙箱试运行带 `expected` 标注的示例 | 显式要验证示例真实输出 |
 | `off` | 完全跳过本检查器 | 不需要示例校验时 |
 
-默认 `static` 是刻意的**最保守姿态**：本检查器绝不替用户决定执行，非交互环境（管道 / Agent 自动化）不会卡住等待输入，直接回退静态并显著标注，杜绝「静默降级」。
+默认 `ask` 仍坚守**最保守姿态**：本检查器绝不替用户决定执行——仅交互环境弹问询，非交互（管道 / Agent 自动化）直接回退 `static` 并显著标注降级，超时无输入也回退 `static`，杜绝「静默执行」。
 
 ### 三、安全红线（不可协商）
 
@@ -265,7 +265,7 @@ examples 检查器（检查器 #9，v1.26.0 起纳入 `--all-checks` 全量集�
 | `--timeout <秒>` | 整体超时保护，超时优雅终止（退出码 130）而非卡死 |
 | `--max-file-size <字节>` | 超大文件跳过阈值，避免拖慢 |
 | `--backup` / `--backup-limit N` | 审计前备份 SKILL.md（默认最多保留 3 个备份） |
-| `--examples-mode {static,ask,run,off}` | examples 检查器模式；`static` 默认纯静态(零执行/零网络/零 token)，`ask` 交互询问是否沙箱试运行(30s 超时/非交互回退 static 并 INFO 标注)，`run` 受限沙箱试运行带 expected 标注的示例，`off` 跳过 |
+| `--examples-mode {static,ask,run,off}` | examples 检查器模式；`ask` 默认(交互询问是否沙箱试运行，30s 超时/非交互回退 static 并 INFO 标注)，`static` 纯静态(零执行/零网络/零 token)，`run` 受限沙箱试运行带 expected 标注的示例，`off` 跳过 |
 | `--examples-timeout <秒>` | examples run 模式下单条示例命令执行超时（默认 20） |
 | `--examples-max-cmd <条>` | examples run 模式下单技能最多执行示例命令条数（默认 12，防突刺） |
 

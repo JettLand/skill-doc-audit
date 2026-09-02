@@ -168,6 +168,9 @@ def main():
         # 全部 dev .md）并打印 AGENT_TAKEOVER，供交互 agent 直接接手比对；非交互（钩子/CI）下无害
         # （仅多写一个临时 dossier 文件，无 agent 读取时不影响退出码）。语义比对不再静默跳过。
         doc_llm_mode="agent",
+        # examples：开发者模式审计「自家」技能源码，执行自家带 expected 标注的示例是受控且安全的，
+        # 故默认 run（受限沙箱试运行）以捕获示例输出漂移；第三方技能仍须经 --examples-mode run 显式授权。
+        examples_mode="run",
         max_file_size=2_000_000,
     )
     dev_docs = [os.path.join(ROOT, "README.md"), os.path.join(ROOT, "CHANGELOG.md")]
