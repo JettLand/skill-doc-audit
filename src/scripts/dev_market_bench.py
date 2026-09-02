@@ -754,9 +754,9 @@ def check_bump():
     if is_minor_or_major_bump(last, cur):
         kind = "主" if _ver_tuple(cur)[0] != _ver_tuple(last)[0] else "次"
         print("检测到%s版本变动 v%s → v%s（次/主版本变更须完成下列质量自审计后才可发布）" % (kind, last, cur))
-        print("[agent-todo][建议] 建议运行「市场质量基准实测器」验证规模化行为是否稳定")
-        print("  → python src/scripts/dev_market_bench.py run")
-        print("  （基准实测不自动执行，由 Agent 评估后决定是否运行；仅人工要求或本建议触发时启用）")
+        print("[agent-todo][建议] ⚠ 决策点：次/主版本变动——是否运行「市场质量基准实测器」？")
+        print("  默认不自动跑；但若本次涉及检查器逻辑 / 误报抑制 / 风险口径改动，建议运行以验证规模化行为稳定")
+        print("  → python src/scripts/dev_market_bench.py run（仅人工要求或本建议触发时启用，不进自动调度）")
         print("")
         print("  [agent-todo][必须] 次/主版本变更须执行开发者模式全量自审计（维护整体质量）")
         print("  全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移")
@@ -791,7 +791,7 @@ def check_bump():
         print("")
         print("  [agent-todo][建议] 检测到未提交的本地改动，请立即本地 commit")
         print("  本地提交即触发 post-commit 钩子同步部署副本，避免 src 与部署副本 / 版本号长期脱节")
-        print("  → git add <改动文件> && git commit -m \"...\"（提交与发布解耦：未上架也可随时提交）")
+        print("  → python src/scripts/dev_commit.py -m \"<有意义说明>\"（静态提交助手：自动 git add -u + commit，commit 触发 post-commit 同步部署副本；新增文件加 --all 或显式传路径；提交与发布解耦，未上架也可随时提交）")
     try:
         os.makedirs(CACHE, exist_ok=True)
         open(LAST_VERSION, "w", encoding="utf-8").write(cur)

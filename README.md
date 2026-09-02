@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.27.4 | **新增静态提交助手 `dev_commit.py` + 提升 `[agent-todo]` 第 5 类可见性**：`dev_commit.py` 让 agent 不必手搓 git 命令即可完成「有意义的本地提交」（强制 -m、默认 `git add -u`、空提交保护、commit 必触发 post-commit 同步部署副本），第 10 类提醒改指向它；第 5 类由被动「建议运行」改为「⚠ 决策点」明示句式强制 agent 决策，`dev_self_audit` 待办渲染在 [建议] 项前加「非阻断项（请逐项确认是否适用）」小标题避免被埋。`dev_commit.py` 已列入 `DEV_TOOLS` 排除集。部署自审 `ERROR 0 / WARN 0` |
 | 1.27.3 | **`[agent-todo]` 第 6 类触发条件修正（仅补丁号 z 变动）**：原第 6 类（doc + doc-llm 文档自审计）与第 5、7 类同在「次/主版本变动」触发块，存在重复——次/主版本已由第 7 类全量自审计（`--all-checks`，含 doc + doc-llm）覆盖。修正后第 6 类改为仅「补丁号（x.y.z 中 z）变动」触发，次/主版本不再重复提醒；`dev_market_bench.py check_bump` 与 `DEVELOPMENT.md` 指令清单、渲染样例同步。部署自审 `ERROR 0 / WARN 0` |
 | 1.27.2 | **checkers.md 新增 examples 检查器「功能与风险详解」综合篇幅 + 新增 `[agent-todo]` 第 10 类常驻提交提醒**：examples 检查器补充五类检查覆盖 / 三档模式与默认姿态 / 安全红线 / 风险与局限 / 误报抑制机制的完整说明；check-bump 新增不依赖版本变动的常驻提醒——检测到未提交改动即提示立即本地 commit（防长期开发记忆漂移使 src 与部署副本 / 版本号脱节），`[建议]` 不阻断、不升退出码。部署自审 `ERROR 0 / WARN 0` |
 | 1.27.1 | **用户文档版本叙述收敛 + 发布门禁强化**：删除 SKILL.md / references 内联版本里程碑叙述（如「v1.26.0 新增」），用户文档只描述当前能力本身；新增 `[agent-todo]` 第 9 类（版本变动时用户文档不写版本变动叙述，属开发者文档 CHANGELOG 职责）。部署自审 `ERROR 0 / WARN 0 / INFO 35` |

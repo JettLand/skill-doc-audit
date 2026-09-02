@@ -5,6 +5,22 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.4 打磨明细（静态提交助手 dev_commit.py + 第 5 类可见性提升）
+
+### 1. 新增 dev_commit.py 静态提交助手（减少 agent 对 git 机制的记忆负担）
+- **动机**：同步钩子（post-commit）因运行时机（commit 之后）与作用对象（仓库外的部署副本）所限，无法承担 `commit` 动作；而 agent 每次手搓 `git add` + `git commit` 既繁琐又易因纪律松弛产出低质 message 或漏提交。将「提交」收敛为一条静态助手调用，既减少 agent 依赖、又不破坏「提交有意图、message 有意义」的纪律。
+- **设计**：`python src/scripts/dev_commit.py -m "<说明>" [file ...]`；强制 `-m`（杜绝 `auto:` 低质 message）；默认 `git add -u`（仅已跟踪改动，避免误纳临时 / 敏感未跟踪文件）；新增文件可显式传参或 `--all`（`git add -A`，仍受 `.gitignore` 约束）；空提交保护（暂存区为空直接退出，绝不建空 commit）；**不提供 `--no-verify`**，commit 必触发 post-commit 钩子自动同步部署副本。
+- 第 10 类常驻提醒（`#10`）文案由 `git add <改动文件> && git commit -m "..."` 改为指向 `dev_commit.py`，`DEVELOPMENT.md` 第 10 行与渲染样例同步。`dev_commit.py` 列入 `dev_self_audit` 的 `DEV_TOOLS` 排除集（dev-only，不进部署副本扫描）。
+
+### 2. 提升 [agent-todo] 第 5 类可见性（你「没注意到」的根因修复）
+- **根因**：第 5 类本是 `[建议]`（非阻断、INFO），与 `[必须]` 阻断项（`#8`）并列时被低优先信号淡化；且其载荷「建议运行基准实测器」在设计上就是「不自动跑、通常跳过」，进一步被当作可忽略项；叠加你近期未 `push`、pre-push 钩子对那几次次版本变动根本没跑过，故未印到终端。（机制本身正确，已受控复现：临时将 `last_bench_version.txt` 置 `1.26.0` 跑 `check-bump` 能正确打印第 5 类。）
+- **修复**：`check_bump` 第 5 类由被动「建议运行「市场质量基准实测器」验证规模化行为是否稳定」改为明示句式「`⚠ 决策点：次/主版本变动——是否运行「市场质量基准实测器」？`」+「默认不自动跑；但若本次涉及检查器逻辑 / 误报抑制 / 风险口径改动，建议运行以验证规模化行为稳定」，强制 agent 在次/主版本时显式决策而非静默跳过；`dev_self_audit` 待办渲染在 `rel_info`（[建议] 项）前新增「—— 非阻断项（请逐项确认是否适用，勿直接略过）——」小标题，避免被阻断项淹没。`DEVELOPMENT.md` 第 5 行与渲染样例同步。
+
+### 验证
+- `py_compile` 通过（dev_commit.py / dev_market_bench.py / dev_self_audit.py）；四处版本号一致 1.27.4（SKILL.md / sources.py UA / README 版本摘要 / CHANGELOG 最高节）
+- `self_validate` 黄金快照全 PASS（dev_commit.py 已入 DEV_TOOLS 排除，无 orphan_asset 误报）
+- `dev_self_audit` 发布面 `ERROR 0 / WARN 0`，改进后第 5 类「⚠ 决策点」句式与「非阻断项」小标题实测正确渲染；因本次 z 变动（1.27.3 → 1.27.4）第 6 类正确触发
+
 ## 1.27.3 打磨明细（[agent-todo] 第 6 类触发条件修正：仅补丁号 z 变动）
 
 ### `[agent-todo]` 第 6 类触发条件从「次/主版本」改为「补丁号（z）」

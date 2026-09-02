@@ -93,7 +93,7 @@ def _parse_check_bump(text):
 # （原 build_dist.py 制品构建脚本已随「市场自行重打包」移除，不再列此。）
 DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
              "dev_self_audit.py", "_devcommon.py", "release_check.py",
-             "dev_market_bench.py"}
+             "dev_market_bench.py", "dev_commit.py"}
 
 
 def fail(msg, code=2):
@@ -240,10 +240,12 @@ def main():
             print("  [agent-todo][%s] %s" % (r["severity"], r["title"]))
             print("      %s" % r["detail"])
             print("      → %s" % r["todo"])
-        for r in rel_info:
-            print("  [agent-todo][%s] %s" % (r["severity"], r["title"]))
-            print("      %s" % r["detail"])
-            print("      → %s" % r["todo"])
+        if rel_info:
+            print("\n  —— 非阻断项（请逐项确认是否适用，勿直接略过）——")
+            for r in rel_info:
+                print("  [agent-todo][%s] %s" % (r["severity"], r["title"]))
+                print("      %s" % r["detail"])
+                print("      → %s" % r["todo"])
         if rel_block:
             print("\n⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。")
 
