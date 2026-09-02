@@ -16,8 +16,10 @@ dev_self_audit.py —— skill-doc-audit 开发模式自审计（脚本化，不
      doc-llm（语义漂移 dossier）扫描，捕捉发布文档之外的漂移。
   4) 只扫发布面：排除 sync_deploy.py / self_validate.py / make_fixtures.py / dev_self_audit.py
      等开发期工具，使结果与「实际发布质量」对齐，不被 dev 工具噪音干扰。
+  5) 开发期工具语法守卫：DEV_TOOLS 不进发布面扫描，此处对每个 dev 工具单独 py_compile
+     兜底语法关（开发期改坏 dev 工具会立刻崩、却逃过发布面检查器），非阻断、命中即提示 agent 复核。
 
-退出码：0 = 无 ERROR（--strict 下还需无 WARN）；1 = 发现 ERROR（或 --strict 下 WARN）；2 = 参数/路径错误。
+  退出码：0 = 无 ERROR（--strict 下还需无 WARN）；1 = 发现 ERROR（或 --strict 下 WARN）；2 = 参数/路径错误。
 
 用法：
   python src/scripts/dev_self_audit.py                 # 校验同步 + 审计最新源码发布面 + dev 文档
@@ -94,6 +96,29 @@ def _parse_check_bump(text):
 DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
              "dev_self_audit.py", "_devcommon.py", "release_check.py",
              "dev_market_bench.py", "dev_commit.py"}
+
+
+def _guard_dev_tools():
+    """开发期工具盲区守卫：DEV_TOOLS 不在发布面扫描内，逐个 py_compile 兜底语法关。
+
+    返回 (ok, errors)：ok=True 表示全部通过；errors 为「文件名: 末行错误」列表。
+    仅兜底语法，不替代发布面检查器（结构/安全/依赖）；非阻断，命中即提示 agent 复核。
+    best-effort：文件缺失 / 无编译能力均静默跳过（视为通过，不误报）。
+    """
+    import py_compile
+    errors = []
+    for name in sorted(DEV_TOOLS):
+        p = os.path.join(HERE, name)
+        if not os.path.isfile(p):
+            continue
+        try:
+            py_compile.compile(p, doraise=True)
+        except py_compile.PyCompileError as e:
+            msg = str(e).strip().splitlines()[-1] if str(e).strip() else "未知语法错误"
+            errors.append("%s: %s" % (name, msg))
+        except Exception as e:  # noqa: BLE001
+            errors.append("%s: %s" % (name, e))
+    return (len(errors) == 0), errors
 
 
 def fail(msg, code=2):
@@ -232,6 +257,22 @@ def main():
                     print(c)
     except Exception:  # noqa: BLE001
         pass
+    # ---- 5c) 开发期工具语法守卫（堵盲区）----
+    # DEV_TOOLS 被发布面排除集剔除（不参与结构/安全/依赖检查），此处逐个 py_compile 兜底
+    # 语法关，避免「改了 dev 工具却漏 py_compile」导致下次运行直接崩溃。非阻断（INFO/[建议]）。
+    dev_ok, dev_errs = _guard_dev_tools()
+    print("[dev-tools] 开发期工具语法守卫（DEV_TOOLS）：%s"
+          % ("一致 OK" if dev_ok else "不一致 %d 处" % len(dev_errs)))
+    if not dev_ok:
+        print("[dev-tools] ⚠ 下列开发期工具存在语法错误，发布前请修复：")
+        for e in dev_errs:
+            print("      - %s" % e)
+        rel_info.append({
+            "severity": "建议",
+            "title": "开发期工具存在语法错误（py_compile 守卫）",
+            "detail": "；".join(dev_errs),
+            "todo": "对报错的 dev 工具运行 `python -m py_compile src/scripts/<文件名>` 修复语法后再提交",
+        })
     if rel_block or rel_info:
         print("\n" + "=" * 72)
         print("发布前待办（Agent 提示 · 由 pre-push 钩子与 dev-qa 工作流发出）")

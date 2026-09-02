@@ -5,6 +5,13 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.5 打磨明细（开发期工具语法守卫：堵 DEV_TOOLS 盲区）
+
+### 1. 新增开发期工具语法守卫（堵盲区，非阻断）
+- **动机**：全量审计开发者模式只扫发布面，DEV_TOOLS（8 个开发期工具）被排除集剔除、不参与结构/安全/依赖检查，成为唯一盲区——改坏 dev 工具只会在下次运行 `dev_self_audit` 时直接崩，却逃过任何检查器。
+- **做法**：`dev_self_audit.py` 新增 `_guard_dev_tools()`，对每个 DEV_TOOLS 文件单独 `py_compile` 兜底语法关；命中语法错误时打印 `[dev-tools] ⚠` 并追加一条 `[建议]` 非阻断项（不升退出码、不拦 push），提示 agent 运行 `python -m py_compile src/scripts/<文件名>` 修复。仍保持 `dev_self_audit` 退出码语义不变（仅 ERROR/WARN 与阻断项影响），`[agent-todo]` 维持现状。
+- **验证**：py_compile 全绿；self_validate 4 fixture PASS；dev_self_audit 发布面 `ERROR 0 / WARN 0 / INFO 36`（新增 `[dev-tools]` 守卫一致 OK）；四处版本号一致 1.27.5。
+
 ## 1.27.4 打磨明细（静态提交助手 dev_commit.py + 第 5 类可见性提升）
 
 ### 1. 新增 dev_commit.py 静态提交助手（减少 agent 对 git 机制的记忆负担）

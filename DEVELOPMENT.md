@@ -78,7 +78,8 @@ python src/scripts/dev_market_bench.py check-bump       # 版本监测（由 dev
 1. **同步校验**：复用 `sync_deploy._verify()` 确认「部署副本 ↔ 最新源码 `src/`」字节一致；不一致说明有未提交改动或钩子未触发，明确告警。
 2. **审计最新源码**：一律对 `src/`（最新提交）跑全量检查器，而非部署副本——避免审计过时产物。
 3. **开发文档纳入漂移**：`--dev-docs` 递归扫描 `src/` 内全部 `.md` 描述性文档（含 `README.md` / `CHANGELOG.md` / `references/*.md` / `examples` 等）交 `doc`（A1 裸文件名 `EXTERNAL_REF` 提示）+ `doc-llm`（语义漂移 dossier）扫描；默认（不带此旗标）仅扫 `SKILL.md` + `references/*.md`。
-4. **只扫发布面**：排除 `sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py`，使结果与发布质量对齐，不被 dev 工具噪音干扰。
+4. **只扫发布面**：排除 `DEV_TOOLS`（`sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `release_check.py` / `dev_commit.py`），使结果与发布质量对齐，不被 dev 工具噪音干扰。
+5. **开发期工具语法守卫**：`DEV_TOOLS` 不进发布面扫描，故 `_guard_dev_tools()` 对每个 dev 工具单独 `py_compile` 兜底语法关（改坏 dev 工具会立刻崩、却逃过检查器）；命中即打印 `[dev-tools] ⚠` 并追加一条 `[建议]` 非阻断项，不升退出码、不拦 push。
 
 退出码：`0` = 无 ERROR（`--strict` 下还需无 WARN）；`1` = 发现 ERROR（或 `--strict` 下 WARN）；`2` = 参数/路径错误。
 
@@ -120,7 +121,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | `README.md` / `CHANGELOG.md` / `references/*.md` / 任意 `.md` | `dev_self_audit.py`（默认即 `--dev-docs`，递归扫描 `src/` 内全部 `.md`） | — | 把开发文档纳入漂移扫描 |
 | `src/scripts/auditlib/checkers/{doc,structure,security,runtime,deps,examples}.py` 或公共层 `model` / `report` / `core` | `self_validate.py` | — | 检查器行为回归护栏：对 fixtures 跑确定性检查器（含 examples）、比对 `tests/examples/*.expected.json` 黄金快照 |
 | `src/scripts/auditlib/checkers/{deadcode,doc_llm,portability}.py` 或 fixtures / 文档自身 | `dev_self_audit.py`（视情况） | `self_validate.py` | deadcode/doc_llm/portability 不在 `DETERMINISTIC` 子集，跑 `self_validate` 无回归捕捉价值、反引入噪音 |
-| dev 工具自身（sync_deploy / self_validate / make_fixtures / dev_self_audit / `_devcommon`） | 仅 `dev_self_audit.py` 复查 | `self_validate.py` | dev 工具不进发布面，`self_validate` 审计的是用户技能行为、与 dev 工具改动无关 |
+| dev 工具自身（DEV_TOOLS 全 8 个：`sync_deploy` / `self_validate` / `make_fixtures` / `dev_self_audit` / `dev_market_bench` / `_devcommon` / `release_check` / `dev_commit`） | `dev_self_audit.py` 内置 `_guard_dev_tools()` 逐个 `py_compile` 兜底语法关（非阻断 `[建议]`） | `self_validate.py` | dev 工具不进发布面，`self_validate` 审计的是用户技能行为、与 dev 工具改动无关；语法盲区由 `dev_self_audit` 守卫补上 |
 | 发布前（统一动作） | `dev_self_audit.py --strict` **+** `self_validate.py` | — | 一键全量：先质量门禁、再检查器回归（也可靠 CI 钩子自动覆盖） |
 | 版本迭代 / 发布前收尾 | （`dev_self_audit.py` 内置 `release_check` 自动提示） | 手动记忆 | 版本号一致性(SKILL.md↔sources.py) / CHANGELOG 收口 / temp 清理 / **上架前取得用户授权**——改为门禁输出 `[agent-todo]`，不再依赖记忆 |
 | 次版本/主版本变动（x.y / X.y） | （`dev_self_audit.py` 末尾 best-effort 调 `dev_market_bench.py check-bump` 自动提示） | 手动记忆 | 是否运行「市场质量基准实测器」`run` 由 agent 评估决定——仅打印 `[agent-todo]` 建议，**不自动跑基准**（基准实测只在人工要求或该建议触发时启用） |
