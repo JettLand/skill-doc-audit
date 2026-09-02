@@ -420,7 +420,15 @@ def check_examples(ctx):
             " --examples-mode run（允许）或 --examples-mode static（拒绝）重新调用本检查器；切勿静默代用户默认。",
             suggestion="run 模式为白名单软沙箱（非 OS 级隔离），执行的技能内脚本仍以当前用户权限运行，"
                        "可能读写本地文件或发起网络访问；仅对信任的技能选 run。与 doc-llm 的 agent 接手约定一致："
-                       "非交互环境的决策须交由用户确认，而非脚本静默替决。"))
+                       "非交互环境的决策须交由用户确认，而非脚本静默替决。",
+            user_decision=user_decision(
+                "examples",
+                "示例执行验证是否允许受限沙箱试运行？（ask 模式、非交互环境无法询问，已降级为纯静态检查）",
+                [("1", "仅静态检查（默认，零执行 / 零网络 / 零 token）"),
+                 ("2", "受限沙箱试运行（白名单软隔离，绝不执行任意 shell / 外部命令）")],
+                default="1",
+                rerun_hint="python audit_docs.py --skill <技能目录> --examples-mode run   # 或 static",
+            )))
 
     skill_dir = ctx["skill_dir"]
     scripts_dir = ctx["scripts_dir"]

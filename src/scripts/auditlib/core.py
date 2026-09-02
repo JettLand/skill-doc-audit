@@ -298,7 +298,8 @@ def category_cn(category):
 # --------------------------------------------------------------------------- #
 # Finding 模型
 # --------------------------------------------------------------------------- #
-def finding(checker, severity, category, message, file=None, line=None, suggestion=None, ref=None):
+def finding(checker, severity, category, message, file=None, line=None, suggestion=None, ref=None,
+           user_decision=None):
     # 跨平台归一化：路径分隔符统一为正斜杠。Windows 用反斜杠(\\)、Linux 用正斜杠(/)，
     # 若不归一，file/message/ref 中的脚本路径会在两平台产生不同签名，导致黄金快照
     # 跨平台比对失败（self_validate 在 ubuntu CI 上因 scripts\main.py vs scripts/main.py
@@ -309,7 +310,7 @@ def finding(checker, severity, category, message, file=None, line=None, suggesti
         message = message.replace("\\", "/")
     if ref:
         ref = ref.replace("\\", "/")
-    return {
+    d = {
         "checker": checker,
         "severity": severity,
         "category": category,
@@ -322,6 +323,12 @@ def finding(checker, severity, category, message, file=None, line=None, suggesti
         # 不参与任何比对/报告（人类报告按 checker/category 分组，机读快照按签名比对忽略此键）。
         "ref": ref,
     }
+    # user_decision：仅在 ask 模式非交互降级时由检查器挂载，供 build_json 提升为顶层
+    # user_prompts（agent 读取后须向用户弹窗确认）。属「需用户决策」的结构化载荷，不参与
+    # 计数/比对；dedupe_findings 重建时本键会丢失（ask 降级 finding 不经去重，安全）。
+    if user_decision is not None:
+        d["user_decision"] = user_decision
+    return d
 
 
 # --------------------------------------------------------------------------- #
@@ -383,6 +390,52 @@ def compile_python_file(path, cfile=None):
         return (False, msg, True)
     except Exception as e:  # noqa: BLE001
         return (False, str(e), False)
+
+
+def is_interactive():
+    """stdin 是否为交互终端（TTY）。非 TTY（管道 / Agent 自动化调用）下不弹菜单、不卡住。"""
+    return sys.stdin.isatty()
+
+
+def prompt_choice(title, options, timeout=30):
+    """统一的「交互选项菜单」harness：写 stderr + 后台线程读 stdin + 超时保护。
+
+    返回用户键入的选项 key（options 中某项的 key）；超时 / 无输入 / 读取异常返回 ""。
+    options：[(key, label), ...]，key 为用户键入的简短标识（如 "1"/"2"），label 为展示文本。
+    供 deadcode / doc-llm / examples 三处 ask 模式复用，消除逐字重复的线程 + 超时读取样板
+    （v1.27.11 抽象自三者同源实现，行为等价：超时默认、异常静默回退 ""）。
+    """
+    sys.stderr.write("\n" + title + "\n")
+    for key, label in options:
+        sys.stderr.write("  %s) %s\n" % (key, label))
+    sys.stderr.write("请输入%s（%d 秒内未选则默认）：" % ("/".join(k for k, _ in options), timeout))
+    sys.stderr.flush()
+    buf = {}
+    def _read():
+        try:
+            buf["v"] = sys.stdin.readline().strip()
+        except Exception:
+            buf["v"] = ""
+    th = threading.Thread(target=_read, daemon=True)
+    th.start()
+    th.join(timeout)
+    return buf.get("v", "")
+
+
+def user_decision(checker, question, options, default, rerun_hint):
+    """构造「需用户决策」结构化载荷，挂到 finding 上、供 build_json 提升为顶层 user_prompts。
+
+    agent 读取 JSON 输出的 user_prompts 后，应逐项用提问工具向用户确认，
+    再以显式 --X-mode 重跑——取代对 SKILL.md 散文约定的依赖（更稳健、不易读漏）。
+    options：[(key, label), ...]；default：默认选项 key；rerun_hint：重跑命令示例（含 --X-mode）。
+    """
+    return {
+        "checker": checker,
+        "question": question,
+        "options": [{"key": k, "label": v} for k, v in options],
+        "default": default,
+        "rerun_hint": rerun_hint,
+    }
 
 
 def resolve_exists(skill_dir, ref, scripts_dir, extra_roots=None):

@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.27.11 | **ask 模式交互骨架抽象为共享 harness + 脚本抛 user_prompts**：`core.py` 抽出 `is_interactive`/`prompt_choice`/`user_decision` 三件套，deadcode/doc-llm/examples 三处 ask 模式复用（消除逐字重复的线程+超时读取样板）；三检查器非交互降级 finding 挂载结构化 `user_decision` 载荷，`report.build_json` 将其提升为 JSON 顶层 `user_prompts`，agent 据此确定性向用户弹窗确认，不再依赖 SKILL.md 散文约定；`SKILL.md` examples 章节「agent 操作约定」瘦身为 1 行。同步修复 `core.py finding()` 因提前 return 导致 `user_decision` 死代码未挂载的缺陷（此前 user_prompts 恒为空）。finding 代码/严重级未变，不破坏 self_validate 黄金快照。四处版本号一致 1.27.11 |
 | 1.27.10 | **examples ask 模式与 deadcode/doc-llm 统一「非交互降级」行为**：`_resolve_examples_mode` 改为与 `_resolve_doc_llm_mode` 同构的 3 元组 `(mode, degraded, reason)`；非 TTY 降级时 `check_examples` 发 INFO finding `examples_degraded`，建议文本明确指令 **agent 用提问工具向用户确认**后按选择显式重跑（呼应 doc-llm 的「agent 接手」约定，非交互决策须交用户，不静默代决）。`SKILL.md` 新增「agent 操作约定（ask 模式非交互必须弹窗）」。finding 代码/严重级(INFO)不变，不破坏 self_validate 黄金快照。四处版本号一致 1.27.10 |
 | 1.27.9 | **examples 检查器 ask 模式选项 2 文本增强**：补「绝不执行任意 shell / 外部命令」并新增一行「⚠ 风险提示」（沙箱非操作系统级容器，脚本仍以当前用户权限运行，可能读写本地文件或发起网络访问；请仅对信任的技能选择此档）。仅用户可见提示文本变更，`_sandbox_reject_reason` 白名单网关与执行语义未改。四处版本号一致 1.27.9 |
 | 1.27.8 | **展示名更名：`技能文档审计` → `技能体检助手`**：仅改用户可见 `displayName`、文档标题与描述首句、README 提及；技术标识 `name`/`slug` 维持 `skill-doc-audit` 不变（避免破坏部署副本路径与检查器注册）。纯表述类变更，无功能改动。四处版本号一致 1.27.8 |

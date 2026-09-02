@@ -83,7 +83,7 @@ def _resolve_deadcode_mode(args):
     if _vulture_module() is not None:
         sys.stderr.write("[deadcode] 检测到 vulture 库，自动采用高精度模式（跳过询问）\n")
         return "vulture", False
-    if not sys.stdin.isatty():
+    if not is_interactive():
         sys.stderr.write(
             "[deadcode] ⚠ 非交互（自动化）环境且未检测到 vulture，回退零依赖 AST 模式"
             "（精度较低、易误报）。如需高精度请安装 vulture 并以 --deadcode-mode vulture 显式指定。\n"
@@ -92,36 +92,21 @@ def _resolve_deadcode_mode(args):
     return _prompt_deadcode_mode()
 
 def _prompt_deadcode_mode():
-    """交互询问 deadcode 模式；30 秒超时默认 ast（零依赖，易误报）。
+    """交互询问 deadcode 精度模式；30 秒超时默认 ast（零依赖，易误报）。
 
     返回 (mode, degraded)：超时/无输入或「选了 vulture 但缺失」视为降级（degraded=True），
     因为并非用户清醒选择的精度；显式选 2（ast）/3（skip）则 degraded=False。
     """
-    sys.stderr.write(
-        "\n[deadcode] 选择死代码检测精度模式：\n"
-        "  1) vulture 高精度（推荐，需已安装 vulture）\n"
-        "  2) 零依赖 AST（易误报，无需安装）\n"
-        "  3) 本次跳过 deadcode\n"
-        "请输入 1/2/3（30 秒内未选则默认 2 零依赖）："
-    )
-    sys.stderr.flush()
-
-    buf = {}
-
-    def _read():
-        try:
-            buf["v"] = sys.stdin.readline().strip()
-        except Exception:
-            buf["v"] = ""
-
-    th = threading.Thread(target=_read, daemon=True)
-    th.start()
-    th.join(30)
-    choice = buf.get("v", "")
-    if not choice:
+    key = prompt_choice(
+        "[deadcode] 选择死代码检测精度模式：",
+        [("1", "vulture 高精度（推荐，需已安装 vulture）"),
+         ("2", "零依赖 AST（易误报，无需安装）"),
+         ("3", "本次跳过 deadcode")],
+        timeout=30)
+    if not key:
         sys.stderr.write("\n[deadcode] 超时/无输入，默认零依赖 AST 模式（精度降级）\n")
         return "ast", True
-    if choice == "1":
+    if key == "1":
         if _vulture_module() is None:
             sys.stderr.write("[deadcode] 未检测到 vulture 库，尝试自动安装 vulture……\n")
             if _try_install_vulture() is not None:
@@ -130,7 +115,7 @@ def _prompt_deadcode_mode():
             sys.stderr.write("[deadcode] ⚠ 未检测到 vulture 库且自动安装失败，回退零依赖 AST 模式（精度降级）\n")
             return "ast", True
         return "vulture", False
-    if choice == "3":
+    if key == "3":
         return "skip", False
     return "ast", False
 
@@ -140,10 +125,21 @@ def check_deadcode(ctx):
     if degraded:
         # 静默降级（非 TTY + 未装 vulture / 显式 vulture 但缺失）→ 显著提示精度下降，
         # 让自动化评测/调用方能够「看见」降级，而非无提示地以低精度结果蒙混过关。
+        # 结构化 user_decision 同步注入，供 build_json 提升为顶层 user_prompts ->
+        # agent 据此确定性弹窗，不再依赖 SKILL.md 散文约定（见 report.build_json）。
         findings.append(finding(
             "deadcode", SEVERITY_WARN, "precision_degraded",
             "deadcode 精度降级：当前为非交互（自动化）环境且未安装 vulture，已回退至零依赖 AST 模式（精度较低、易误报）。",
-            suggestion="请在运行环境安装 vulture 并以 --deadcode-mode vulture 显式指定；或由 Agent 在调用前主动询问用户精度模式（见 SKILL.md「Agent 执行约定」）。",
+            suggestion="JSON 输出 user_prompts 已含精度模式决策请求；请 agent 向用户确认后显式重跑。",
+            user_decision=user_decision(
+                "deadcode",
+                "deadcode 精度模式选择（ask 模式、非交互环境无法询问，已降级为 AST）：希望以哪种精度运行？",
+                [("1", "安装 vulture 后以 --deadcode-mode vulture 高精度运行（推荐）"),
+                 ("2", "零依赖 AST（易误报，无需安装）"),
+                 ("3", "跳过 deadcode 检查")],
+                default="2",
+                rerun_hint="python audit_docs.py --skill <技能目录> --deadcode-mode vulture   # 或 ast / skip",
+            ),
         ))
     if mode == "skip":
         return findings

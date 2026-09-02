@@ -114,6 +114,13 @@ def build_json(results):
             "portability_matrix": (build_portability_matrix(r["skill_model"])
                                    if r.get("skill_model") else []),
         }
+        # 顶层 user_prompts：ask 模式在非交互环境下注入的「需用户决策」结构化指令。
+        # agent 读到该字段（非空）应逐项用提问工具向用户确认，再以显式 --X-mode 重跑。
+        # 仅在有值时注入，避免污染既有的黄金快照（self_validate 比对逐键）；findings 仍保留
+        # 原 INFO/WARN 标记作为人读降级提示，user_prompts 是其机器可读的「决策请求」镜像。
+        prompts = [f["user_decision"] for f in r["findings"] if f.get("user_decision")]
+        if prompts:
+            rec["user_prompts"] = prompts
         if "translate" in r:
             rec["translate"] = r["translate"]
         out.append(rec)

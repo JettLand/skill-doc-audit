@@ -44,7 +44,7 @@ def _resolve_doc_llm_mode(args):
     if mode == "agent":
         return "agent", False, None
     # ask 模式：交互征询，绝不替用户决定
-    if not sys.stdin.isatty():
+    if not is_interactive():
         # 自动化环境无法询问 → 回退默认（纯脚本），并显著告知被跳过（INFO，不告警）
         return "off", True, "ask 模式处于非交互（自动化）环境，无法向用户询问，已回退默认（纯脚本）模式"
     choice = _prompt_doc_llm_mode(timeout=30)
@@ -62,29 +62,15 @@ def _prompt_doc_llm_mode(timeout=30):
       - agent：由 agent 介入完成语义漂移检测（使用 agent 自身能力，会占用 agent 推理 token，但不依赖外部 LLM、无需付费）。
     代价透明 + 兜底：菜单标注「agent 介入、消耗额外 token」；超时一律回退 off，绝不联网。
     """
-    sys.stderr.write(
-        "\n[doc-llm] 语义漂移检测（Vector 2）如何运行？\n"
-        "  1) 默认模式：纯脚本检查，零依赖，不调用 LLM（0 token）【推荐 · %d 秒超时默认】\n"
-        "  2) 启用语义漂移检查（agent 介入，消耗额外 token）\n"
-        "请选择 [1/2]：" % timeout
-    )
-    sys.stderr.flush()
-    buf = {}
-
-    def _read():
-        try:
-            buf["v"] = sys.stdin.readline().strip()
-        except Exception:
-            buf["v"] = ""
-
-    th = threading.Thread(target=_read, daemon=True)
-    th.start()
-    th.join(timeout)
-    choice = buf.get("v", "")
-    if not choice:
+    key = prompt_choice(
+        "[doc-llm] 语义漂移检测（Vector 2）如何运行？",
+        [("1", "默认模式：纯脚本检查，零依赖，不调用 LLM（0 token）【推荐 · %d 秒超时默认】" % timeout),
+         ("2", "启用语义漂移检查（agent 介入，消耗额外 token）")],
+        timeout=timeout)
+    if not key:
         sys.stderr.write("\n[doc-llm] 超时/无输入，已自动采用默认模式（不调用 LLM）。\n")
         return "off"
-    if choice == "2":
+    if key == "2":
         return "agent"
     return "off"
 
@@ -176,10 +162,19 @@ def check_doc_llm(ctx):
     if mode == "off":
         if degraded and not explicit:
             # --all-checks 全量自带、非交互环境无法询问 → INFO 提示，不升 WARN
+            # 结构化 user_decision 同步注入（见 report.build_json），让 agent 确定性弹窗。
             findings.append(finding(
                 "doc-llm", SEVERITY_INFO, "doc_llm_skipped",
                 "doc-llm（语义漂移检测）已纳入本次全量检测，但当前为非交互环境、无法向用户询问，已跳过（未调用任何 LLM、零成本）。Vector 1 确定性检查仍生效。",
-                suggestion="如需语义级检测：由 agent 调用本技能并以 --doc-llm-mode agent 接手；或在交互终端运行 --all-checks 并在菜单中选「agent 接手」。不想被询问可显式 --doc-llm-mode off。",
+                suggestion="JSON 输出 user_prompts 已含语义检测决策请求；请 agent 向用户确认后显式重跑。",
+                user_decision=user_decision(
+                    "doc-llm",
+                    "doc-llm 语义漂移检测是否由 agent 接手？（ask 模式、非交互环境无法询问，已跳过）",
+                    [("1", "纯脚本检查（默认，0 token）"),
+                     ("2", "由 agent 接手语义检测（占用 agent 推理 token）")],
+                    default="1",
+                    rerun_hint="python audit_docs.py --skill <技能目录> --doc-llm-mode agent   # 或 off",
+                ),
             ))
         return findings
     # 不应到达

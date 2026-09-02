@@ -5,6 +5,16 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.11 打磨明细（ask 交互骨架抽象为共享 harness + 脚本抛 user_prompts 取代 SKILL.md 散文约定）
+
+- **动机**：用户指出 deadcode/doc-llm/examples 三处 ask 模式交互骨架（TTY 探测 → 后台线程读 stdin + 超时 → 返回模式）逐字重复，应抽象复用；且「靠 SKILL.md 明文约定要求 agent 弹窗」不稳定（agent 可能读漏），应改由脚本执行时抛出结构化指令让 agent 确定性弹窗，并顺带节省 SKILL.md 篇幅。
+- **做法**：
+  1. `core.py` 新增共享 harness：`is_interactive()`（包 `sys.stdin.isatty()`）、`prompt_choice(title, options, timeout)`（统一 stderr 菜单 + 后台线程读 stdin + 超时回退默认，行为等价于三者原实现）、`user_decision(checker, question, options, default, rerun_hint)`（构造「需用户决策」结构化载荷）。deadcode/doc-llm 的 `_resolve_*` 已改用 `is_interactive`/`prompt_choice`；examples 的 gate 保持 `(mode, degraded, reason)` 3 元组（与 doc-llm 同构），降级分支挂载 `user_decision`。
+  2. `finding()` 新增可选 `user_decision` 参数；`report.build_json` 将带该字段的 finding 提升为 JSON 顶层 `user_prompts`（仅非空注入，保护 self_validate 基线）。
+  3. `SKILL.md` examples 章节「agent 操作约定」由整段散文瘦身为 1 行，指向 `user_prompts` 机制——弹窗指令改由脚本结构化抛出，不再依赖散文约定。
+  4. **修复 `core.py finding()` 缺陷**：原实现在构造 dict 后提前 `return`，导致挂载 `user_decision` 的代码成为不可达死代码，`user_prompts` 此前恒为空（deadcode/doc-llm/examples 的降级请求从未真正附加）。改为 `d = {...}` 后条件挂载 `user_decision` 再 `return d`，使三检查器降级请求真正生效。
+- **性质**：抽象复用 + 行为等价 + 修复隐藏缺陷；finding 代码/严重级（INFO/WARN）未变，不破坏 self_validate 黄金快照；补丁号变动。四处版本号一致 1.27.11。
+
 ## 1.27.10 打磨明细（examples ask 模式与 deadcode/doc-llm 统一「非交互降级」行为）
 
 - **动机**：用户要求确保 agent 在调用 examples 检查器 ask 模式时**一定会对用户弹窗提问**。此前 examples 虽在非 TTY 发过 INFO finding，但建议文本未明确「agent 须问用户」，且 SKILL.md 无强制约定，导致 agent 不会可靠弹窗。用户指示「参考 deadcode 与 doc-llm 检查器的做法，统一功能行为」——二者在非交互下均降级并发结构化 finding（deadcode WARN `precision_degraded`、doc-llm INFO `doc_llm_skipped`），examples 应对齐。
