@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.16 打磨明细（补记 v1.27.0 doc-llm 正向覆盖缺口能力的用户文档同步，纯文档修正）
+
+- **问题**：v1.27.0 落地正向能力覆盖时，CHANGELOG 已明确记录「doc-llm 同步增强：dossier 新增『正向覆盖缺口』预分析段，共用 `compute_capability_gaps()`」，但 SKILL.md 与 references/checkers.md 的 doc-llm 描述均未体现——用户文档与代码能力漂移（恰为本技能自检目标类型）。
+- **修复（纯文档）**：SKILL.md 检查器清单、checkers.md 检查器总览补写 dossier 的「正向覆盖缺口」预分析段（与 doc 检查器 `DOC_CAPABILITY_MISSING` 共用 `compute_capability_gaps()`，确定性列出代码已注册但文档未写的检查器 / CLI 参数，列为 agent 比对要点优先核对）与「代码事实清单」（顶层定义 / CLI 参数 / 退出码 / 常量）构成；checkers.md 错误码明细 `doc_llm_agent_handoff` 行补 dossier 内容构成。无代码改动。
+- **验证**：`py_compile` 不涉及（零代码改动）；`dev_self_audit --strict` ERROR 0 / WARN 0；`self_validate` 4 fixture 全 PASS。四处版本号一致 1.27.16。
+
 ## 1.27.15 打磨明细（doc-llm 事实清单退出码口径与 doc 检查器对齐，修复并行升级遗漏）
 
 - **动机**：v1.27.12 重写 `doc.py` 退出码比对（改认真实进程退出码 `sys.exit(<arg>)`、不再误匹配函数 `return N`）时，漏改 `doc_llm.py` 的 `_code_fact_sheet`——其「返回码」仍用旧的 `return\s+(\d+)` 正则，会把 DEV_TOOLS 的 `return 0/2`、`make_fixtures` 的 `return 42` 误列为「返回码」，与 doc 口径不一致，且 dossier 比对要点第 2 条明确要求 agent 核对「退出码」，会据此误导语义比对。属「升级 doc 正向能力覆盖时未同步升级 doc-llm」的并行升级遗漏。
