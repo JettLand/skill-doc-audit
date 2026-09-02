@@ -41,7 +41,7 @@
 | doc | `EXTERNAL_REF` | 外部裸文件名引用 | 裸文件名引用，可能指向技能外文件，需人工确认 | INFO |
 | doc | `B_STATUS` | 运行状态枚举 | 运行状态全集（供 AI 复核） | INFO |
 | doc | `B_CONFIG` | 配置项枚举 | 配置项全集（供 AI 复核） | INFO |
-| doc | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致 | 文档枚举的集合（如 deadcode 模式 `{ask,vulture,ast,skip}` 或 `ask/vulture/ast/skip`）与代码权威集合 `DEADCODE_MODES` 不符 | WARN |
+| doc | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致 | 文档枚举的集合（如 deadcode 模式 `{ask,vulture,ast,off}` 或 `ask/vulture/ast/off`）与代码权威集合 `DEADCODE_MODES` 不符 | WARN |
 | doc | `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致 | 文档「N 个检查器」等数量声明与 `len(ALL_CHECKERS)` 实际计数不符 | WARN |
 | doc | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | 能力声明动词（提供/支持/默认/自动/…）行内的反引号标识符在代码与声明中均不存在（能力可能已移除或拼写有误） | WARN |
 | doc | `DOC_CAPABILITY_MISSING` | 代码声明的能力文档未提及（正向覆盖缺口） | 仅审计本框架技能（代码含 `ALL_CHECKERS`）：注册的每个检查器名 / 用户面向 CLI 参数须出现在 SKILL.md 或 references 文档中，否则提示文档漏更新（与 `DOC_CAPABILITY_DRIFT` 正反向对称） | WARN |
@@ -202,7 +202,7 @@
 3. **`# keep` 内联白名单**：在定义行或上一行加 `# keep` 注释，即可保留该定义/导入、不再告警（适用于公开 API、钩子、测试辅助等确属有意的「未直接引用」符号）。
 4. **跨文件引用感知**：`unused_def` 先汇总全技能所有 `.py` 的引用集合，仅当某定义在**全技能范围都未被引用**时才报，避免把「本文件定义、他文件调用」的符号误判为死代码（多文件技能常见场景）。
 
-孤儿资源（`orphan_asset`）判定保守：只要文件名或相对路径（`scripts/x.py`、`references/x.md`）出现在任意文档或代码文本中，**或被技能内其他 `.py` 以模块名 import**，即视为已引用，故只可能漏报、不会把被引用文件误标为孤儿。可选增强 `vulture` 仅在选择 `--deadcode-mode vulture` 时运行：环境已装即直接高精度；未装则先尝试自动 `pip install vulture`（**仅此显式路径会联网安装**——ask 模式的非交互自动回退路径绝不触发安装，避免自动化场景意外联网），装不上再回退零依赖 `ast`；选 `ast`/`skip` 或 ask 自动回退时不运行也不安装，不影响默认行为。
+孤儿资源（`orphan_asset`）判定保守：只要文件名或相对路径（`scripts/x.py`、`references/x.md`）出现在任意文档或代码文本中，**或被技能内其他 `.py` 以模块名 import**，即视为已引用，故只可能漏报、不会把被引用文件误标为孤儿。可选增强 `vulture` 仅在选择 `--deadcode-mode vulture` 时运行：环境已装即直接高精度；未装则先尝试自动 `pip install vulture`（**仅此显式路径会联网安装**——ask 模式的非交互自动回退路径绝不触发安装，避免自动化场景意外联网），装不上再回退零依赖 `ast`；选 `ast`/`off` 或 ask 自动回退时不运行也不安装，不影响默认行为。
 
 **两种精度模式的分工（避免重复报告）**：`ast` 模式由 AST 负责未使用导入 / 未使用定义 / 不可达代码 + 孤儿资源；`vulture` 模式由 vulture 负责导入 / 定义 / 类 / 方法 / 变量检测（高精度、低噪声），并叠加 AST 独有的不可达代码与孤儿资源检测，**不再重复报告 AST 的导入/定义项**。两种模式均支持 `# keep` 内联白名单（vulture 分支同样按定义行/上一行判定 `# keep` 并跳过）。vulture 分析若异常（如版本 API 不兼容），会在 stderr 打印告警并跳过该步、不影响其余检查器。
 

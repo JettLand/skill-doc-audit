@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.29.1 打磨明细（补修 v1.29.0 收口遗漏：checkers.md 残留 `skip`）
+
+- **问题（真实缺陷，v1.29.0 自身引入）**：v1.29.0 的 `skip`→`off` 统一改动中，`checkers.md` 的 L44（`DOC_ENUM_DRIFT` 错误码表示例 `{ask,vulture,ast,skip}`）与 L205（安装策略段「选 `ast`/`skip` 或 ask 自动回退」）两处编辑因**编辑工具写入假成功（phantom success）未落盘**，磁盘仍是旧 `skip` 枚举——与代码 `DEADCODE_MODES=("ask","vulture","ast","off")` 形成 `DOC_ENUM_DRIFT` 型文档↔代码不一致（恰是本技能自己要抓的漂移）。其余文件（SKILL.md/DEVELOPMENT.md/L261 参数表/deadcode.py/core.py/cli.py）均已正确改为 `off`。
+- **修复**：用 Python 字节级替换根治 `checkers.md` 两处（规避编辑工具假成功），Read 复核确认落盘；全项目 deadcode 语境 `skip` 残留清零（仅剩 `doc_llm_skipped`/`EXAMPLE_SANDBOX_SKIP` 等无关错误码）。
+- **验证**：doc `--all-checks` ERROR=0/WARN=0（DOC_ENUM_DRIFT 一致）、self_validate 4/4 PASS、四处版本号一致 1.29.1。纯文档枚举同步，无行为变更。
+
 ## 1.29.0 打磨明细（deadcode 关闭档统一为 `off`，移除 `skip` 别名）
 
 - **接口一致性（用户要求）**：deadcode 检查器的「本次跳过」档原用 `skip`，与 doc-llm/examples 的关闭档 `off` 命名不一致（属本技能自身要抓的「接口漂移」类）。统一为 `off` 且**不保留 `skip` 别名**（移除枚举值＝破坏性接口变更 → 升次版本）：
