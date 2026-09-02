@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.29.3 | **补记 v1.29.2 漏改的「三道机制分工对比表」post-commit 职责（纯文档修正）**：v1.29.2 新增 bump_audit 使 post-commit 职责从纯同步变为「同步 + 版本 bump 自动早期审计」，但 DEVELOPMENT.md 对比表 L141/L146 未同步、仍写「只同步」——已更新表行与要点（保留不发 [agent-todo]、不门禁的正确部分）。纯文档，无代码改动。四处版本号一致 1.29.3 |
 | 1.29.2 | **post-commit 版本 bump 自动审计（dev 工具增强）**：新增 `bump_audit.py`，post-commit 同步后检测本次提交是否 bump 版本号，变了即自动跑 `dev_self_audit`（全量含 doc + doc-llm agent + dev 文档 README/CHANGELOG）作早期反馈、回显给 agent，版本未变静默——消除「补丁号跑审计靠记忆」；不阻断 commit（最终门禁仍为 pre-push --strict）。`bump_audit` 列入 DEV_TOOLS。四处版本号一致 1.29.2 |
 | 1.29.1 | **补修 v1.29.0 checkers.md 残留 `skip`（纯文档枚举同步，补丁级）**：v1.29.0 的 `skip`→`off` 统一中，checkers.md L44（`DOC_ENUM_DRIFT` 示例）与 L205（安装策略段）两处编辑因工具写入假成功未落盘，磁盘仍 `skip`，与代码 `DEADCODE_MODES` 形成 DOC_ENUM_DRIFT 型不一致；用字节级替换根治，全项目 deadcode 语境 skip 清零。doc `--all-checks` ERROR/WARN 0、self_validate 4/4 PASS。四处版本号一致 1.29.1 |
 | 1.29.0 | **deadcode 关闭档统一为 `off`（移除 `skip` 别名，次版本接口变更）**：与 doc-llm/examples 的 `off` 命名对齐，消除接口漂移；`DEADCODE_MODES` 元组、cli/dev_self_audit 参数 help、deadcode 逻辑判定、SKILL.md/checkers.md 枚举描述全部 `skip`→`off`。语义不变（off≡原 skip，用户显式跳过），无代码依赖原值。四处版本号一致 1.29.0 |

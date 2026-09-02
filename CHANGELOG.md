@@ -5,6 +5,20 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.29.3 打磨明细（补记 v1.29.2 漏改的「三道机制分工对比表」post-commit 职责，纯文档修正）
+
+- **问题（v1.29.2 文档收口遗漏，用户追问「新增执行流程是否记入文档」时发现）**：v1.29.2 新增
+  `bump_audit.py` 改变了 `post-commit` 钩子的职责（从「纯同步」变为「同步 + 版本 bump 时自动跑
+  `dev_self_audit` 作早期反馈」），但 DEVELOPMENT.md 的 **「三道自动化机制分工对比」表**（L141
+  `post-commit` 行及其 L146 要点）未同步更新，仍写「post-commit 只同步、不发提示、不门禁」——与
+  L152/L173 已更新的新行为矛盾，形成文档漂移。
+- **修复**：更新对比表 L141 行（post-commit「执行的命令」列补 `bump_audit.py`、触发时机注明「版本
+  bump 提交额外自动审计」）与 L146 要点（职责=同步 + 版本 bump 自动早期审计），并保留正确部分
+  （`post-commit` 不发 `[agent-todo]`、不做门禁，`[agent-todo]` 仍只来自 `pre-push` 与 `dev-qa`）。
+  纯文档，无代码改动。
+- **验证**：doc + doc-llm 全量（dev_self_audit 补丁约定，含 dev 文档 README/CHANGELOG）ERROR 0/WARN 0；
+  四处版本号一致 1.29.3。
+
 ## 1.29.2 打磨明细（post-commit 版本 bump 自动审计：bump_audit.py，dev 工具增强）
 
 - **动机（用户要求消除「补丁号跑审计靠 agent 记忆」）**：pre-push 钩子只在推 main 时跑

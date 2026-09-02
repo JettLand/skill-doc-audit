@@ -138,12 +138,12 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 | 机制 | 触发时机 | 执行的命令 | 同步校验（副本 ↔ src） | 发 `[agent-todo]` | 门禁拦截 | 失败后果 |
 |---|---|---|---|---|---|---|
-| 同步钩子 `post-commit` | 每次 `git commit` | `sync_deploy.py`（仅同步副本） | 自身即同步动作 | **否** | 否 | 仅告警（commit 已成功），不阻塞 |
+| 同步钩子 `post-commit` | 每次 `git commit`（版本 bump 提交额外自动审计） | `sync_deploy.py`（同步副本）→ 版本变了再 `bump_audit.py`（自动跑 `dev_self_audit` 全量作**早期反馈**） | 自身即同步动作 | **否** | 否（bump_audit 恒返 0，不拦 commit） | 仅告警（commit 已成功），不阻塞 |
 | 本地 CI `pre-push` | `git push origin main` | `dev_self_audit.py --strict` + `self_validate.py` | **是**（本机有副本） | **是** | 是（任一失败拦 push） | 拦截本次 push，须先修复 |
 | 远程 CI `dev-qa.yml` | push/PR 到 `main`（GitHub Actions） | `dev_self_audit.py --strict --no-sync-check` + `self_validate.py` | **否**（`--no-sync-check`，CI 无副本） | **是** | 是（job 失败标红 PR） | PR 标红，拦下合并/发布 |
 
 要点：
-- **`post-commit` 仍只同步、不打包、不发提示、不门禁**——职责单一（提交即把 `src/` 发布面同步到部署副本，并清掉副本里过时的 `dist/` 残留）；`[agent-todo]` 由 `dev_self_audit` 输出，故只来自 `pre-push` 与 `dev-qa`。（旧版曾在此**按需重建发布制品 zip**，现已移除——市场在上架时自行重打包，本地 zip 无用且会被拒收，详见下方命令表。）
+- **`post-commit` 职责 = 同步 + 版本 bump 自动早期审计**：提交即把 `src/` 发布面同步到部署副本（并清副本里过时的 `dist/` 残留）；**若本次提交 bump 了版本号，再由 `bump_audit.py` 自动跑一次 `dev_self_audit` 全量（含 doc + doc-llm agent + dev 文档）作早期反馈回显给 agent，不依赖 agent 记忆手动跑**。它**不发 `[agent-todo]`、不门禁**（bump_audit 恒返 0）——`[agent-todo]` 仍只来自 `pre-push` 与 `dev-qa`。（旧版曾在此按需重建发布制品 zip，现已移除——市场上架时自行重打包，本地 zip 无用且会被拒收，详见下方命令表。）
 - **同步校验开关是本地与远程的唯一实质差异**：本机有部署副本故 `pre-push` 保留校验；GitHub 机器无副本，`dev-qa` 加 `--no-sync-check`。两套门禁的检查内容（`dev_self_audit --strict` + `self_validate`）完全一致。
 - **`[agent-todo]` 在远程 CI 仅日志噪音、但门禁（退出码）仍生效**：GitHub 上无 agent 消费提示文本，而 `release_check` 阻断项会升 `dev_self_audit` 退出码 → `dev-qa` 的 `publish-gate` job 失败 → PR 标红，是本地钩子未拦住时的远程兜底。
 
