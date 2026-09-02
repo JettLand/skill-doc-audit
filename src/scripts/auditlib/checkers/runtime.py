@@ -3,7 +3,6 @@ from auditlib.core import *   # 常量 + 公共 helper（finding/collect_code/�
 from auditlib.model import *  # SkillModel / detect_format 等（如需）
 
 def check_runtime(ctx):
-    import py_compile
     findings = []
     skill_dir = ctx["skill_dir"]
     doc = ctx["doc"]
@@ -17,16 +16,15 @@ def check_runtime(ctx):
             if not os.path.isfile(p):
                 continue
             cf = os.path.join(tmpdir, os.path.basename(rel) + ".pyc")
-            try:
-                py_compile.compile(p, cfile=cf, doraise=True)
-            except py_compile.PyCompileError as e:
-                msg = str(e).strip().splitlines()[-1]
-                findings.append(finding("runtime", SEVERITY_ERROR, "py_syntax",
-                                        "Python 语法错误: %s — %s" % (rel, msg), file=rel,
-                                        suggestion="修正语法"))
-            except Exception as e:  # noqa: BLE001
-                findings.append(finding("runtime", SEVERITY_WARN, "py_check_fail",
-                                        "无法校验 %s: %s" % (rel, e), file=rel))
+            ok, msg, is_syntax = compile_python_file(p, cfile=cf)
+            if not ok:
+                if is_syntax:
+                    findings.append(finding("runtime", SEVERITY_ERROR, "py_syntax",
+                                            "Python 语法错误: %s — %s" % (rel, msg), file=rel,
+                                            suggestion="修正语法"))
+                else:
+                    findings.append(finding("runtime", SEVERITY_WARN, "py_check_fail",
+                                            "无法校验 %s: %s" % (rel, msg), file=rel))
 
         # 文档引用的脚本是否存在
         for m in re.finditer(r"(scripts/[A-Za-z0-9_\-]+\.(?:py|js|jsx|ts|tsx|vue|go|rs|java|c|cpp|h|rb|php|swift|kt|lua|sh|ps1))", doc):

@@ -364,6 +364,28 @@ def collect_code(skill_dir, exclude=None):
     return files, skipped
 
 
+def compile_python_file(path, cfile=None):
+    """对单个 Python 文件做 py_compile 语法校验，供 runtime 检查器与 dev 盲区守卫**复用同一实现**。
+
+    返回 (ok, msg, is_syntax)：
+      - ok=True   → 语法通过，msg=None；
+      - ok=False  → msg 为错误摘要（PyCompileError 取末行，其它异常取 str），
+                    is_syntax=True 表示 Python 语法错误、False 表示其它编译异常
+                    （如 IO 错误，runtime 据此降为 WARN 而非 ERROR）。
+    cfile：可选 .pyc 输出路径（runtime 写入临时目录避免污染；守卫用默认）。
+    best-effort：异常被捕获，调用方自决是否阻断（runtime=ERROR 阻断 / 守卫=INFO 非阻断）。
+    """
+    import py_compile
+    try:
+        py_compile.compile(path, cfile=cfile, doraise=True)
+        return (True, None, False)
+    except py_compile.PyCompileError as e:
+        msg = str(e).strip().splitlines()[-1] if str(e).strip() else "未知语法错误"
+        return (False, msg, True)
+    except Exception as e:  # noqa: BLE001
+        return (False, str(e), False)
+
+
 def resolve_exists(skill_dir, ref, scripts_dir, extra_roots=None):
     cand = ref.replace("/", os.sep).replace("\\", os.sep)
     paths = [

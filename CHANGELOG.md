@@ -5,6 +5,13 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.6 打磨明细（DEV_TOOLS 语法守卫 DRY 重构：复用 runtime 同款 py_compile）
+
+### 1. 抽出公共语法校验 helper，runtime 与守卫复用同一实现
+- **动机**：`_guard_dev_tools()` 与 `runtime` 检查器各自内联 `py_compile` 语法校验，实现近乎重复、存在漂移风险；用户指出「能复用现成检查器为何新建守卫」。结论：runtime 的 `py_compile` 手段本就是复用的——但 DEV_TOOLS 被 `collect_code` 的 `exclude` 结构性屏蔽，runtime 看不到这些文件，且 runtime 报 ERROR 阻断、守卫需 INFO 非阻断，故不能并入 runtime。折中：抽 `auditlib.core.compile_python_file(path, cfile=None) -> (ok, msg, is_syntax)` 单一真相源，两处都调它（手段复用），而「扫哪个集合 / 什么严重级 / 是否阻断」仍分开（入口独立）。
+- **做法**：`core.py` 新增 `compile_python_file`（PyCompileError→取末行 `msg` + `is_syntax=True`；其它异常→`str(e)` + `is_syntax=False`，runtime 据此降 WARN）；`runtime.check_runtime` 移除内联 `import py_compile` 与本编译循环、改调 helper（`is_syntax` 决定 ERROR/WARN）；`dev_self_audit._guard_dev_tools` 改调 helper 复用同一实现；两处文档措辞（dev_self_audit docstring 第 5 点 + 5c 注释）同步改为「复用 compile_python_file」。
+- **验证**：py_compile 全绿；self_validate 黄金快照无回归；dev_self_audit 发布面 `ERROR 0 / WARN 0`（守卫 `[dev-tools]` 一致 OK）；四处版本号一致 1.27.6。
+
 ## 1.27.5 打磨明细（开发期工具语法守卫：堵 DEV_TOOLS 盲区）
 
 ### 1. 新增开发期工具语法守卫（堵盲区，非阻断）

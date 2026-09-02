@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.27.6 | **DEV_TOOLS 语法守卫 DRY 重构（复用 runtime 同款 py_compile）**：抽出 `auditlib.core.compile_python_file` 公共 helper，`runtime` 检查器与 `_guard_dev_tools` 守卫复用同一 `py_compile` 语法校验实现——手段复用、入口独立（runtime 报 `py_syntax` ERROR 阻断发布面；守卫仅 INFO 非阻断，命中即提示 agent 复核）。`runtime.py` 移除内联 `py_compile`、改调 helper，`_guard_dev_tools` 同步复用；三处源码改动，行为不变、输出格式与错误摘要一致。四处版本号一致 1.27.6 |
 | 1.27.5 | **堵开发期工具盲区：新增 `dev_self_audit.py` 内置「DEV_TOOLS 语法守卫」**：全量审计只扫发布面、8 个 dev 工具被排除集剔除，成为唯一无自动化扫描的盲区；新增 `_guard_dev_tools()` 对每个 dev 工具单独 `py_compile` 兜底语法关，命中即打印 `[dev-tools] ⚠` 并追加 `[建议]` 非阻断项（不升退出码、不拦 push），把改坏 dev 工具的崩溃风险提前暴露。`[agent-todo]` 维持现状。部署自审 `ERROR 0 / WARN 0` |
 | 1.27.3 | **`[agent-todo]` 第 6 类触发条件修正（仅补丁号 z 变动）**：原第 6 类（doc + doc-llm 文档自审计）与第 5、7 类同在「次/主版本变动」触发块，存在重复——次/主版本已由第 7 类全量自审计（`--all-checks`，含 doc + doc-llm）覆盖。修正后第 6 类改为仅「补丁号（x.y.z 中 z）变动」触发，次/主版本不再重复提醒；`dev_market_bench.py check_bump` 与 `DEVELOPMENT.md` 指令清单、渲染样例同步。部署自审 `ERROR 0 / WARN 0` |
 | 1.27.2 | **checkers.md 新增 examples 检查器「功能与风险详解」综合篇幅 + 新增 `[agent-todo]` 第 10 类常驻提交提醒**：examples 检查器补充五类检查覆盖 / 三档模式与默认姿态 / 安全红线 / 风险与局限 / 误报抑制机制的完整说明；check-bump 新增不依赖版本变动的常驻提醒——检测到未提交改动即提示立即本地 commit（防长期开发记忆漂移使 src 与部署副本 / 版本号脱节），`[建议]` 不阻断、不升退出码。部署自审 `ERROR 0 / WARN 0` |
