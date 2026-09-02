@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.28.1 打磨明细（修正 1.28.0 安装路径偏差：ask 超时/非交互回退恢复「直接回退 ast、不安装」）
+
+- **问题（用户指正）**：v1.28.0 把「缺 vulture 先自动安装」错误地扩展到了 ask 默认路径的**非交互回退**与**交互超时**分支——违背顶层设计原则「默认零依赖、绝不替用户决定」的**用户侧语义**：ask 超时＝用户没有做决定，绝不替用户发起联网安装；ask 非交互＝无法询问，更应安全回退零依赖默认。v1.28.0 同时把 SKILL.md 顶层原则措辞改写为「默认零依赖可用」，属对原则的误读（原则本身从用户侧出发、原表述正确，与「显式要求时自动补齐」并不冲突）。
+- **修正**：① deadcode.py 恢复 ask 非交互与交互超时两路径为**直接回退零依赖 ast + degraded WARN**，绝不触发安装；自动安装收敛到「用户显式要求 vulture」的两条路径（显式 `--deadcode-mode vulture`、交互选 1）＋开发者模式默认请求（dev_self_audit 恒传 `vulture`，属开发者显式选择最大精度）；② SKILL.md 顶层原则恢复原文（补一句「用户显式要求高精度而缺库时先尝试自动补齐」以覆盖 1.28.0 的新能力），落地说明与「速答三问」「误区五」同步修正；③ checkers.md 安装策略段与参数速查表同步（安装路径=显式 vulture/交互选 1；ask 超时/非交互不安装）；④ `precision_degraded` message 措辞覆盖两类降级诱因。
+- **验证**：monkeypatch 单测 5 场景（ask 非交互缺库→直接 ast 不安装；显式 vulture 缺库安装失败→ast degraded；安装成功→vulture；显式 ast/skip 零联网；ask 已装 vulture→自动高精度）；`self_validate` 4/4 PASS；`dev_self_audit --strict` ERROR 0/WARN 0。四处版本号一致 1.28.1。
+
 ## 1.28.0 打磨明细（deadcode 缺库先自动安装 vulture，开发者模式能力最大化）
 
 - **deadcode 安装策略重构**：凡「需要 vulture 但缺失」的路径——显式 `--deadcode-mode vulture`、ask 交互选 1、**ask 非交互回退（此前直接回退 ast、不尝试安装）**、**交互超时（此前同样直接回退）**——均先自动 `pip install vulture`（最长 120s），成功即高精度；安装失败才回退零依赖 ast，并并发 WARN `precision_degraded` 显著反馈（message 明确「未安装且自动安装失败」+ user_decision 精度决策请求），绝不静默降级。显式 `--deadcode-mode ast/skip` 保持零联网（用户已显式决定低精度，绝不越权安装）。

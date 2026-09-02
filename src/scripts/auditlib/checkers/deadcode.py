@@ -56,18 +56,19 @@ def _resolve_deadcode_mode(args):
 
     返回 (mode, degraded)：
     - mode: "vulture" | "ast" | "skip"
-    - degraded: bool，表示本次是否「未经显式确认」地降低了精度。仅在以下情况为真：
-      未装 vulture 且自动安装失败、最终回退 ast——无论来源是显式 --deadcode-mode
-      vulture、ask 默认的非交互回退、还是交互超时。调用方（check_deadcode）在
-      degraded=True 时发出显著提示（precision_degraded WARN + user_decision），
-      使精度下降对自动化评测/调用方可见。
+    - degraded: bool，表示本次是否「未经用户显式确认」地降低了精度。仅在以下情况为真：
+      「用户显式要求 vulture」（显式 --deadcode-mode vulture 或交互选 1）但缺失且自动
+      安装失败、最终回退 ast。调用方（check_deadcode）在 degraded=True 时发出显著提示
+      （precision_degraded WARN + user_decision），使精度下降对自动化评测/调用方可见。
 
-    - 显式 --deadcode-mode vulture：缺失时先尝试自动安装，成功即高精度，失败回退
-      ast（degraded=True）；显式 ast / skip 直接用、绝不安装（用户已显式决定，零联网）。
+    - 显式 --deadcode-mode vulture：缺失时先尝试自动安装（用户已显式要求高精度），
+      成功即高精度，失败回退 ast（degraded=True）；显式 ast / skip 直接用、绝不安装
+      （用户已显式决定，零联网）。
     - 默认 ask：环境已装 vulture 则直接采用高精度 vulture 模式（不重复询问）；
-      未装 vulture 时：TTY 交互询问（选 1 会先尝试自动安装；超时 30s / 无输入 →
-      也先尝试自动安装）；非 TTY（被管道或 Agent 调用）→ 先尝试自动安装，
-      安装失败才回退零依赖 ast 并标记 degraded=True。
+      未装 vulture 时：TTY 交互询问（选 1 视为用户显式要求，先尝试自动安装；
+      超时 30s / 无输入 → 直接回退零依赖 ast，**不安装**——用户未做决定，
+      绝不替用户发起联网）；非 TTY（被管道或 Agent 调用）→ 直接回退零依赖 ast
+      并标记 degraded=True，同样**不安装**（零依赖、零联网）。
     """
     mode = getattr(args, "deadcode_mode", "ask") if args else "ask"
     if mode != "ask":
@@ -84,26 +85,24 @@ def _resolve_deadcode_mode(args):
         sys.stderr.write("[deadcode] 检测到 vulture 库，自动采用高精度模式（跳过询问）\n")
         return "vulture", False
     if not is_interactive():
-        # 非交互（管道/Agent/CI）且未装 vulture：先尝试自动安装（成功即高精度），
-        # 安装失败才回退零依赖 ast 并标记 degraded——绝不静默降级（precision_degraded
-        # WARN + user_decision 显著反馈）。完全不联网请显式 --deadcode-mode ast。
-        sys.stderr.write("[deadcode] 非交互环境未检测到 vulture 库，尝试自动安装 vulture……\n")
-        if _try_install_vulture() is not None:
-            sys.stderr.write("[deadcode] vulture 安装成功，采用高精度模式\n")
-            return "vulture", False
+        # 非交互（管道/Agent/CI）且未装 vulture：直接回退零依赖 ast 并标记 degraded。
+        # 不尝试自动安装——ask 默认路径属「用户未做决定」，绝不替用户发起联网
+        # （顶层原则「默认零依赖、绝不替用户决定」的落地）；需要高精度请显式
+        # --deadcode-mode vulture（该路径才会自动安装）。
         sys.stderr.write(
-            "[deadcode] ⚠ 未检测到 vulture 库且自动安装失败，回退零依赖 AST 模式"
-            "（精度较低、易误报）。如需完全不联网，请显式 --deadcode-mode ast。\n"
+            "[deadcode] ⚠ 非交互（自动化）环境且未检测到 vulture，回退零依赖 AST 模式"
+            "（精度较低、易误报）。如需高精度请安装 vulture 并以 --deadcode-mode vulture 显式指定。\n"
         )
         return "ast", True
     return _prompt_deadcode_mode()
 
 def _prompt_deadcode_mode():
-    """交互询问 deadcode 精度模式；30 秒超时/无输入先尝试自动安装 vulture，失败才默认 ast。
+    """交互询问 deadcode 精度模式；30 秒超时/无输入默认零依赖 ast（不安装）。
 
-    返回 (mode, degraded)：超时/无输入且安装失败、或交互选 1 但「选了 vulture 且安装失败」
-    视为降级（degraded=True），因为并非用户清醒选择的精度；显式选 2（ast）/3（skip）则
-    degraded=False 且绝不触发安装。
+    返回 (mode, degraded)：超时/无输入、或交互选 1 但「选了 vulture 且安装失败」
+    视为降级（degraded=True），因为并非用户清醒选择的精度；显式选 2（ast）/3（skip）
+    则 degraded=False 且绝不触发安装。超时/无输入同样**不安装**——用户未做决定，
+    绝不替用户发起联网，直接回退零依赖 ast。
     """
     key = prompt_choice(
         "[deadcode] 选择死代码检测精度模式：",
@@ -112,13 +111,7 @@ def _prompt_deadcode_mode():
          ("3", "本次跳过 deadcode")],
         timeout=30)
     if not key:
-        # 交互超时/无输入：同样先尝试自动安装（与其它「未显式决定」路径一致），
-        # 失败才回退 ast 并标记降级；成功即高精度。
-        sys.stderr.write("\n[deadcode] 超时/无输入，尝试自动安装 vulture……\n")
-        if _try_install_vulture() is not None:
-            sys.stderr.write("[deadcode] vulture 安装成功，采用高精度模式\n")
-            return "vulture", False
-        sys.stderr.write("[deadcode] ⚠ vulture 自动安装失败，默认零依赖 AST 模式（精度降级）\n")
+        sys.stderr.write("\n[deadcode] 超时/无输入，默认零依赖 AST 模式（精度降级）\n")
         return "ast", True
     if key == "1":
         if _vulture_module() is None:
@@ -143,7 +136,7 @@ def check_deadcode(ctx):
         # agent 据此确定性弹窗，不再依赖 SKILL.md 散文约定（见 report.build_json）。
         findings.append(finding(
             "deadcode", SEVERITY_WARN, "precision_degraded",
-            "deadcode 精度降级：vulture 库不可用（未安装且自动安装失败），已回退至零依赖 AST 模式（精度较低、易误报）。",
+            "deadcode 精度降级：vulture 库不可用（未安装；或用户未显式选择而回退，或自动安装失败），已回退至零依赖 AST 模式（精度较低、易误报）。",
             suggestion="修复网络/权限后重跑，或确认接受 ast 精度；JSON 输出 user_prompts 已含精度模式决策请求，请 agent 向用户确认后显式重跑。",
             user_decision=user_decision(
                 "deadcode",
