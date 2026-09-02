@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.28.1"
+version: "1.29.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -254,7 +254,7 @@ python scripts/audit_docs.py --check doc --skill <技能目录>
 
 ### 速答三问（30 秒）
 
-- **要装 vulture 吗？** 不用手动装。显式 `--deadcode-mode vulture`（或交互选 vulture）但环境缺库时，脚本会先自动 `pip install vulture`（装好即用高精度）；装不上才降级 `ast` 并标注精度降级。其它情形（ast/skip、ask 超时或非交互回退）不触发安装，缺库即零依赖 `ast`，其它检查器完全不受影响。
+- **要装 vulture 吗？** 不用手动装。显式 `--deadcode-mode vulture`（或交互选 vulture）但环境缺库时，脚本会先自动 `pip install vulture`（装好即用高精度）；装不上才降级 `ast` 并标注精度降级。其它情形（ast/off、ask 超时或非交互回退）不触发安装，缺库即零依赖 `ast`，其它检查器完全不受影响。
 - **审计远程技能要装 git / skillhub 吗？** 不用。用 `--source url --ref <SKILL.md 的 https 地址>` 即可，标准库直抓、零外部 CLI。
 - **报告里一堆 WARN/INFO 要不要全改？** 不要。只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是线索，需你/AI 读源码复核后再决定。
 
@@ -264,7 +264,7 @@ python scripts/audit_docs.py --check doc --skill <技能目录>
 - **误区二：以为远程审计必须 `--source github`。** 其实优先用 `--source url --ref <SKILL.md 的 https 地址>` 即可——标准库直抓、零外部 CLI、绕开 `git clone`，绝大多数远端技能都能审计。仅在需要完整克隆仓库（含嵌套子目录/多技能）时才用 `--source github` / `--source skillhub`。
 - **误区三：报了路径穿越 / 硬编码密钥就是真漏洞。** 多半是上下文盲误报。`security` 检查器对所有正则统一做上下文感知过滤，自动排除注释行、含 `://` 的文档 URL、含 `__file__`/`dirname`/`.asar` 的合法资源上溯；真实漏洞（外部可控字符串拼入落盘路径、文档里真写死密钥）才会保留。
 - **误区四：文档列了退出码但代码从不返回，就是文档错了。** 未必。若标注「已弃用」，那是刻意的向后兼容说明，保留不要删。
-- **误区五：没装 vulture 就跑不了死代码检测 / 整工具用不了。** 不是。没装时 `deadcode` 仍可用且会先尝试自动安装 vulture（显式 vulture 与 ask 默认路径均如此）；装不上或显式选 `ast`/`skip` 才以零依赖 `ast` 运行（仅死代码精度略低），其余检查器完全不受影响。
+- **误区五：没装 vulture 就跑不了死代码检测 / 整工具用不了。** 不是。没装时 `deadcode` 仍可用且会先尝试自动安装 vulture（显式 vulture 与 ask 默认路径均如此）；装不上或显式选 `ast`/`off` 才以零依赖 `ast` 运行（仅死代码精度略低），其余检查器完全不受影响。
 
 ### 避坑要点
 

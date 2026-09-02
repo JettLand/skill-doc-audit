@@ -5,6 +5,15 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.29.0 打磨明细（deadcode 关闭档统一为 `off`，移除 `skip` 别名）
+
+- **接口一致性（用户要求）**：deadcode 检查器的「本次跳过」档原用 `skip`，与 doc-llm/examples 的关闭档 `off` 命名不一致（属本技能自身要抓的「接口漂移」类）。统一为 `off` 且**不保留 `skip` 别名**（移除枚举值＝破坏性接口变更 → 升次版本）：
+  - `DEADCODE_MODES` 权威集合 `("ask","vulture","ast","skip")` → `("ask","vulture","ast","off")`；`DOC_MODE_BRACE_RE` / `DOC_MODE_SLASH` 注释枚举同步更新；
+  - `deadcode.py`：`_resolve_deadcode_mode` docstring、`_prompt_deadcode_mode` 交互选 3 返回值 `return "skip"` → `return "off"`、`check_deadcode` 的 `mode=="skip"` 判定 → `mode=="off"`、菜单项「本次跳过 deadcode」→「本次不运行 deadcode」、`precision_degraded` 的 rerun_hint 改为 `--deadcode-mode ... / ast / off`；
+  - `cli.py` / `dev_self_audit.py` 参数 help、`core.py` 模块注释、`SKILL.md`（L185 精度档速览 / L257 速答三问 / L267 误区五）/ `checkers.md`（错误码表 `DOC_ENUM_DRIFT` 示例 / 安装策略段 / 参数速查表）全部 `skip`→`off`。
+- **语义不变**：`off` ≡ 原 `skip`（用户显式跳过 deadcode，`degraded=False` 不弹 `precision_degraded`）；`ast`/`off` 仍为零联网；交互菜单第 3 项措辞与 off 语义对齐。无代码/fixture/CI 依赖原 `skip` 值（`dev_market_bench.AUDIT_FLAGS` 与 `self_validate` fixture 均用 `vulture`/默认 `ask`），破坏性仅影响手写命令行历史用法。
+- **验证**：`py_compile` 通过；按次版本约定跑 `--all-checks` 全量审计（含 doc 检查器对 `DOC_ENUM_DRIFT` 的枚举一致性校验，确认文档 `{ask,vulture,ast,off}` 与 `DEADCODE_MODES` 一致）ERROR 0/WARN 0；`self_validate` 4/4 PASS；四处版本号一致 1.29.0。
+
 ## 1.28.1 打磨明细（修正 1.28.0 安装路径偏差：ask 超时/非交互回退恢复「直接回退 ast、不安装」）
 
 - **问题（用户指正）**：v1.28.0 把「缺 vulture 先自动安装」错误地扩展到了 ask 默认路径的**非交互回退**与**交互超时**分支——违背顶层设计原则「默认零依赖、绝不替用户决定」的**用户侧语义**：ask 超时＝用户没有做决定，绝不替用户发起联网安装；ask 非交互＝无法询问，更应安全回退零依赖默认。v1.28.0 同时把 SKILL.md 顶层原则措辞改写为「默认零依赖可用」，属对原则的误读（原则本身从用户侧出发、原表述正确，与「显式要求时自动补齐」并不冲突）。

@@ -123,7 +123,7 @@ def main():
     ap.add_argument("--no-sync-check", action="store_true",
                     help="跳过「部署副本 ↔ 源码」同步校验")
     ap.add_argument("--deadcode-mode", default=None,
-                    help="deadcode 精度模式（默认 vulture 最大精度：缺失时自动安装，安装失败回退 ast 并显著告警；显式 ast/skip 不联网）")
+                    help="deadcode 精度模式（默认 vulture 最大精度：缺失时自动安装，安装失败回退 ast 并显著告警；显式 ast/off 不联网）")
     args = ap.parse_args()
 
     if not os.path.isdir(SRC):
@@ -156,7 +156,7 @@ def main():
     # ---- 3) 审计最新源码发布面 + dev 文档 ----
     # 开发者模式能力最大化：deadcode 始终请求 vulture 最大精度——缺失时由检查器
     # _resolve_deadcode_mode 先尝试自动安装，安装失败才回退 ast 并发 precision_degraded
-    # WARN（--strict 下即失败，低精度绝不静默）；显式 --deadcode-mode ast/skip 可
+    # WARN（--strict 下即失败，低精度绝不静默）；显式 --deadcode-mode ast/off 可
     # 完全不联网。开发者模式其余能力同样拉满：doc-llm agent 接手、examples run+consent。
     deadcode_mode = args.deadcode_mode or "vulture"
     cli_args = SimpleNamespace(

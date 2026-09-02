@@ -19,7 +19,7 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
       deadcode   死代码检测（未使用定义/导入、不可达代码、孤儿资源文件；运行前询问精度模式）
       portability 跨平台可移植性（硬编码绝对路径/cwd依赖/平台专属shell/解释器锁/编码分隔符假设/Agent平台耦合；按 SKILL.md 的 target_platform 字段豁免对应平台项）
   - --all-checks  启用全部检查器（含 deadcode 与 doc-llm：deadcode 已装 vulture 则自动高精度，否则询问
-                  vulture/ast/skip；doc-llm 弹菜单询问是否启用 LLM 语义检测，30 秒超时默认不启用，绝不自动联网）
+                  vulture/ast/off；doc-llm 弹菜单询问是否启用 LLM 语义检测，30 秒超时默认不启用，绝不自动联网）
   检查器只扫描不改写；description 四要素、制作质量评分等需语义判断的项仅给提示(INFO)。
 
 退出码：0=未发现 ERROR（--strict 下还需无 WARN）；1=发现 ERROR 或（--strict 下）WARN；2=参数或路径错误
@@ -258,7 +258,7 @@ CATEGORY_LABELS = {
 # Vector 1 (v1.21.0)：doc 检查器「内容漂移」结构化声明交叉校验用常量
 # --------------------------------------------------------------------------- #
 # deadcode 精度模式权威集合：同时供 argparse choices 与 doc 漂移校验使用（单一真相源）
-DEADCODE_MODES = ("ask", "vulture", "ast", "skip")
+DEADCODE_MODES = ("ask", "vulture", "ast", "off")
 # doc-llm 语义漂移检测模式权威集合（Vector 2）：
 # off=不运行；ask=交互终端弹菜单征得同意后由 agent 接手；agent=直接由 agent 用自身能力接手检测。
 # v1.24.0 起：语义漂移检测一律由 agent 直接接手（使用 agent 自身能力），不再依赖外部 LLM 端点；
@@ -271,9 +271,9 @@ DOCLLM_MODES = ("off", "agent", "ask")
 EXAMPLES_MODES = ("static", "ask", "run", "off")
 # 文档声称的检查器数量："(N) 个检查器"
 DOC_CHECKER_COUNT_RE = re.compile(r"(\d+)\s*个\s*检查器")
-# 文档以大括号枚举 deadcode 模式：{ask,vulture,ast,skip}
+# 文档以大括号枚举 deadcode 模式：{ask,vulture,ast,off}
 DOC_MODE_BRACE_RE = re.compile(r"\{([a-z]+(?:,[a-z]+)*)\}")
-# 文档以斜杠枚举 deadcode 模式：`ask/vulture/ast/skip`
+# 文档以斜杠枚举 deadcode 模式：`ask/vulture/ast/off`
 DOC_MODE_SLASH_RE = re.compile(r"`([a-z]+(?:/[a-z]+){1,})`")
 # 能力声明动词（文档声称提供/支持/默认/自动/移除/弃用/停用/废弃/新增/包含某能力）
 CAP_VERB_RE = re.compile(r"提供|支持|默认|自动|移除|弃用|停用|废弃|新增|包含")

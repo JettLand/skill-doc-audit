@@ -22,7 +22,7 @@ def main():
     ap.add_argument("--max-file-size", type=int, default=MAX_FILE_SIZE,
                     help="单文件超过此字节数跳过扫描（默认 %d）" % MAX_FILE_SIZE)
     ap.add_argument("--deadcode-mode", default="ask", choices=list(DEADCODE_MODES),
-                    help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / skip(本次跳过)")
+                    help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / off(本次不运行)")
     ap.add_argument("--doc-llm-mode", default=None, choices=list(DOCLLM_MODES),
                     help="doc-llm 语义漂移检测模式（v1.24.0 起由 agent 直接接手，不再依赖外部 LLM；v1.24.1 起移除 preview 选项）：ask(默认,交互终端呈现实选项：1)默认模式 2)agent接手(会占用 agent 推理 token，但不向外部 LLM 付费)，30 秒超时自动回退默认模式) / off(不运行) / agent(直接由 agent 接手：脚本写 dossier + 打印 AGENT_TAKEOVER 哨兵，agent 读取后自行比对)。Agent 经 AskUserQuestion 收到用户选择后显式传入")
     ap.add_argument("--examples-mode", default="ask", choices=list(EXAMPLES_MODES),

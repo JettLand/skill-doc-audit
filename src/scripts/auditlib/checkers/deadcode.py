@@ -38,7 +38,7 @@ def _try_install_vulture():
     由调用方按「降级」逻辑处理（回退零依赖 ast 并触发 precision_degraded 显著提示）。
     覆盖所有「需要 vulture 但缺失」的路径：显式 --deadcode-mode vulture、交互选 1、
     以及 ask 默认路径的非交互回退与交互超时——唯一不触发安装的是用户显式选择
-    ast / skip（用户已显式决定低精度，绝不联网）。
+    ast / off（用户已显式决定低精度，绝不联网）。
     """
     import subprocess
     try:
@@ -55,14 +55,14 @@ def _resolve_deadcode_mode(args):
     """决定 deadcode 运行模式与是否「降级」。
 
     返回 (mode, degraded)：
-    - mode: "vulture" | "ast" | "skip"
+    - mode: "vulture" | "ast" | "off"
     - degraded: bool，表示本次是否「未经用户显式确认」地降低了精度。仅在以下情况为真：
       「用户显式要求 vulture」（显式 --deadcode-mode vulture 或交互选 1）但缺失且自动
       安装失败、最终回退 ast。调用方（check_deadcode）在 degraded=True 时发出显著提示
       （precision_degraded WARN + user_decision），使精度下降对自动化评测/调用方可见。
 
     - 显式 --deadcode-mode vulture：缺失时先尝试自动安装（用户已显式要求高精度），
-      成功即高精度，失败回退 ast（degraded=True）；显式 ast / skip 直接用、绝不安装
+      成功即高精度，失败回退 ast（degraded=True）；显式 ast / off 直接用、绝不安装
       （用户已显式决定，零联网）。
     - 默认 ask：环境已装 vulture 则直接采用高精度 vulture 模式（不重复询问）；
       未装 vulture 时：TTY 交互询问（选 1 视为用户显式要求，先尝试自动安装；
@@ -100,7 +100,7 @@ def _prompt_deadcode_mode():
     """交互询问 deadcode 精度模式；30 秒超时/无输入默认零依赖 ast（不安装）。
 
     返回 (mode, degraded)：超时/无输入、或交互选 1 但「选了 vulture 且安装失败」
-    视为降级（degraded=True），因为并非用户清醒选择的精度；显式选 2（ast）/3（skip）
+    视为降级（degraded=True），因为并非用户清醒选择的精度；显式选 2（ast）/3（off）
     则 degraded=False 且绝不触发安装。超时/无输入同样**不安装**——用户未做决定，
     绝不替用户发起联网，直接回退零依赖 ast。
     """
@@ -108,7 +108,7 @@ def _prompt_deadcode_mode():
         "[deadcode] 选择死代码检测精度模式：",
         [("1", "vulture 高精度（推荐，需已安装 vulture）"),
          ("2", "零依赖 AST（易误报，无需安装）"),
-         ("3", "本次跳过 deadcode")],
+         ("3", "本次不运行 deadcode")],
         timeout=30)
     if not key:
         sys.stderr.write("\n[deadcode] 超时/无输入，默认零依赖 AST 模式（精度降级）\n")
@@ -123,7 +123,7 @@ def _prompt_deadcode_mode():
             return "ast", True
         return "vulture", False
     if key == "3":
-        return "skip", False
+        return "off", False
     return "ast", False
 
 def check_deadcode(ctx):
@@ -145,10 +145,10 @@ def check_deadcode(ctx):
                  ("2", "零依赖 AST（易误报，无需安装）"),
                  ("3", "跳过 deadcode 检查")],
                 default="2",
-                rerun_hint="python audit_docs.py --skill <技能目录> --deadcode-mode vulture   # 或 ast / skip",
+                rerun_hint="python audit_docs.py --skill <技能目录> --deadcode-mode vulture   # 或 ast / off",
             ),
         ))
-    if mode == "skip":
+    if mode == "off":
         return findings
     skill_dir = ctx["skill_dir"]
     doc = ctx["doc"]
