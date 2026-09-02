@@ -5,6 +5,15 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.10 打磨明细（examples ask 模式与 deadcode/doc-llm 统一「非交互降级」行为）
+
+- **动机**：用户要求确保 agent 在调用 examples 检查器 ask 模式时**一定会对用户弹窗提问**。此前 examples 虽在非 TTY 发过 INFO finding，但建议文本未明确「agent 须问用户」，且 SKILL.md 无强制约定，导致 agent 不会可靠弹窗。用户指示「参考 deadcode 与 doc-llm 检查器的做法，统一功能行为」——二者在非交互下均降级并发结构化 finding（deadcode WARN `precision_degraded`、doc-llm INFO `doc_llm_skipped`），examples 应对齐。
+- **做法**：
+  1. `_resolve_examples_mode` 改为与 `_resolve_doc_llm_mode` 同构的 3 元组 `(mode, degraded, reason)`（原 2 元组），`_prompt_examples_mode` 同步返回 3 元组，承载降级原因。
+  2. `check_examples` 降级分支的 `examples_degraded` INFO finding 建议文本重写——明确指令 **agent 用提问工具向用户确认**（选项：允许沙箱试运行 / 仅静态检查），再按用户选择以显式 `--examples-mode run`/`--examples-mode static` 重跑；强调「是否执行技能内脚本」属安全决策、须由用户拍板、严禁 agent 静默代决。finding 代码 `examples_degraded` 与严重级 INFO 保持不变（不破坏 self_validate 黄金快照）。
+  3. `SKILL.md` examples 章节新增「**agent 操作约定（ask 模式非交互必须弹窗）**」：非 TTY 时 ask 降级并发 `examples_degraded` finding（与 doc-llm `doc_llm_skipped` 同构），agent 必须据此弹窗问用户、按选择显式重跑；显式传 `--examples-mode` 视为已授权、不触发此约定。
+- **性质**：功能行为对齐 + agent 约定增强；finding 代码/严重级未变，无 self_validate 回归；补丁号变动。四处版本号一致 1.27.10。
+
 ## 1.27.9 打磨明细（examples ask 模式选项 2 文本增强：补「绝不执行任意 shell」+ 风险提示）
 
 - **动机**：用户确认 ask 模式选项文本为代码硬编码预设（`examples.py` `_prompt_examples_mode`，运行时写 stderr）后，要求补强选项 2（受限沙箱试运行）的透明度——明确「绝不执行任意 shell / 外部命令」，并补一行简明风险提示，避免用户误以为 run 档是操作系统级安全隔离。

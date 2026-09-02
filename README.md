@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.27.10 | **examples ask 模式与 deadcode/doc-llm 统一「非交互降级」行为**：`_resolve_examples_mode` 改为与 `_resolve_doc_llm_mode` 同构的 3 元组 `(mode, degraded, reason)`；非 TTY 降级时 `check_examples` 发 INFO finding `examples_degraded`，建议文本明确指令 **agent 用提问工具向用户确认**后按选择显式重跑（呼应 doc-llm 的「agent 接手」约定，非交互决策须交用户，不静默代决）。`SKILL.md` 新增「agent 操作约定（ask 模式非交互必须弹窗）」。finding 代码/严重级(INFO)不变，不破坏 self_validate 黄金快照。四处版本号一致 1.27.10 |
 | 1.27.9 | **examples 检查器 ask 模式选项 2 文本增强**：补「绝不执行任意 shell / 外部命令」并新增一行「⚠ 风险提示」（沙箱非操作系统级容器，脚本仍以当前用户权限运行，可能读写本地文件或发起网络访问；请仅对信任的技能选择此档）。仅用户可见提示文本变更，`_sandbox_reject_reason` 白名单网关与执行语义未改。四处版本号一致 1.27.9 |
 | 1.27.8 | **展示名更名：`技能文档审计` → `技能体检助手`**：仅改用户可见 `displayName`、文档标题与描述首句、README 提及；技术标识 `name`/`slug` 维持 `skill-doc-audit` 不变（避免破坏部署副本路径与检查器注册）。纯表述类变更，无功能改动。四处版本号一致 1.27.8 |
 | 1.27.7 | **examples 默认值改为 ask（非交互/超时回退 static）+ 开发者模式 examples 默认 run**：`cli.py` 的 `--examples-mode` 默认 `static`→`ask`；`dev_self_audit.py` `cli_args` 新增 `examples_mode="run"`（审计自家源码、执行自家带 expected 标注示例受控安全）。同步 SKILL.md / checkers.md / cli 帮助文本 / examples.py docstring 中「默认 static」措辞。评估确认：改为 run 后参数校验（第 3 步）仍由 `core_doc=(doc_name=="SKILL.md")` 控制，仅限 SKILL.md、未扩大范围。四处版本号一致 1.27.7 |

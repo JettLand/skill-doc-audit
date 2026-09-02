@@ -275,21 +275,28 @@ def _declared_flags(script_path, skill_dir):
 # 模式解析（static / ask / run / off）
 # --------------------------------------------------------------------------- #
 def _resolve_examples_mode(args):
-    """返回 (mode, degraded)。degraded=True 表示「未经用户明示」地停留在静态档。
+    """决定 examples 模式与是否「非交互降级」。
 
-    与 deadcode 的 ask 惯例一致：非交互环境（管道 / Agent 自动化）绝不卡住等待输入，
-    直接回退最保守档并由调用方发出显著 INFO，杜绝「静默降级」。
+    返回 (mode, degraded, reason)，与 _resolve_doc_llm_mode 同构：
+    - mode: "static" | "run" | "off"
+    - degraded: bool，本次是否因「非交互环境未经用户确认」而停留在静态档（未沙箱试运行）
+    - reason: str|None，降级原因（供 check_examples 发结构化 finding，让 agent 可读到并转交用户）
+
+    与 deadcode / doc-llm 的 ask 惯例一致：非交互环境（管道 / Agent 自动化）绝不卡住等待输入，
+    直接回退最保守档（static）并标记 degraded=True，由 check_examples 发出显著 INFO finding
+    （含「请 agent 向用户确认后显式重跑」的建议），杜绝「静默降级」——agent 读到该 finding 须
+    用提问工具向用户确认，而非静默代用户决定。
     """
     mode = getattr(args, "examples_mode", "static") if args else "static"
     if mode not in EXAMPLES_MODES:
         mode = "static"
     if mode != "ask":
-        return mode, False
+        return mode, False, None
     if not sys.stdin.isatty():
         sys.stderr.write(
             "[examples] 非交互（自动化）环境，未获授权执行示例命令，"
             "采用纯静态检查（如需试运行请显式指定 --examples-mode run）。\n")
-        return "static", True
+        return "static", True, "ask 模式处于非交互（自动化）环境，无法向用户询问，已回退默认（纯静态）模式"
     return _prompt_examples_mode()
 
 
@@ -315,11 +322,11 @@ def _prompt_examples_mode():
     choice = buf.get("v", "")
     if choice == "2":
         sys.stderr.write("\n[examples] 已授权受限沙箱试运行。\n")
-        return "run", False
+        return "run", False, None
     if not choice:
         sys.stderr.write("\n[examples] 超时/无输入，采用纯静态检查。\n")
-        return "static", True
-    return "static", False
+        return "static", True, "超时/无输入，采用纯静态检查"
+    return "static", False, None
 
 
 # --------------------------------------------------------------------------- #
@@ -401,15 +408,19 @@ def _compare_expectation(spec, rc, out, err):
 def check_examples(ctx):
     findings = []
     args = ctx.get("args")
-    mode, degraded = _resolve_examples_mode(args)
+    mode, degraded, reason = _resolve_examples_mode(args)
     if mode == "off":
         return findings
     if degraded:
         findings.append(finding(
             "examples", SEVERITY_INFO, "examples_degraded",
-            "示例执行验证已降级：当前为非交互环境且未显式授权，仅做纯静态检查"
-            "（如需试运行带 expected 标注的示例，请显式指定 --examples-mode run）。",
-            suggestion="本检查器默认零执行 / 零网络 / 零 token；执行属需授权的可选能力。"))
+            "示例执行验证已降级（examples_degraded）：当前为非交互（agent/自动化）环境、ask 模式"
+            "无法向用户弹窗确认，已仅做纯静态检查。是否允许受限沙箱试运行属安全确认，须由用户决定——"
+            "请 agent 用提问工具向用户确认（选项：允许沙箱试运行 / 仅静态检查），再按用户选择以显式"
+            " --examples-mode run（允许）或 --examples-mode static（拒绝）重新调用本检查器；切勿静默代用户默认。",
+            suggestion="run 模式为白名单软沙箱（非 OS 级隔离），执行的技能内脚本仍以当前用户权限运行，"
+                       "可能读写本地文件或发起网络访问；仅对信任的技能选 run。与 doc-llm 的 agent 接手约定一致："
+                       "非交互环境的决策须交由用户确认，而非脚本静默替决。"))
 
     skill_dir = ctx["skill_dir"]
     scripts_dir = ctx["scripts_dir"]
