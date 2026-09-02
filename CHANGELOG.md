@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.18 打磨明细（dev_commit 回显 post-commit 钩子同步回执，dev 工具增强）
+
+- **问题**：`dev_commit.py` 以 `capture_output=True` 吞掉 `git commit` 的全部输出——post-commit 钩子打印的 `[sync_deploy] ... verify: OK/MISMATCH` 同步回执仅在失败分支回显；成功分支打出模糊措辞「钩子应已自动同步（如失败请检查）」，使 agent/维护者拿不到确定性同步结果，只能提交后手动核验部署副本（本会话多次手动 grep 版本号的根因）。
+- **修复**：成功分支原样回显钩子输出（含 `verify: OK` 终局回执）；钩子无输出时显式提示「同步可能未触发，请检查 core.hooksPath」。dev-only 工具改动，不影响发布面。
+- **验证**：本版本提交自身即走修复后的回显路径——钩子输出（含 verify: OK）当场可见。四处版本号一致 1.27.18。
+
 ## 1.27.17 打磨明细（全量文档↔代码交叉校对收口，纯文档修正）
 
 - **校对方法**：`--all-checks --doc-llm-mode agent` 全量审计 + dossier 语义比对 + 人工核对版本/CLI 参数/错误码/检查器清单/退出码与 DEVELOPMENT.md。机械层 3 ERROR / 8 WARN 全部溯源为 DEV_TOOLS 文件的已知误报类（dev 工具端点与 fixture 配方、审计目录名假象 `name_mismatch`），发布面用户文档零 ERROR。

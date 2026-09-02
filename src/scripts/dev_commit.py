@@ -66,11 +66,19 @@ def main():
               file=sys.stderr)
         return 2
 
-    # 4) 回显结果
+    # 4) 回显结果。post-commit 钩子的同步回执（[sync_deploy] ... verify: OK/MISMATCH）
+    #    随 git commit 输出被 capture 吞掉，必须在此原样回显——否则 agent/维护者看不到
+    #    同步校验结果，只能退化成手动核验部署副本（本修复的动机）。
     sha = _run(["git", "rev-parse", "--short", "HEAD"]).stdout.strip()
     print("[dev_commit] 已提交 %s" % sha)
     print("  message: %s" % args.message)
-    print("  post-commit 钩子应已自动同步部署副本（如失败请检查 hooks/post-commit）。")
+    hook_out = ((cm.stdout or "") + (cm.stderr or "")).strip()
+    if hook_out:
+        print("  post-commit 钩子输出：")
+        for line in hook_out.splitlines():
+            print("    " + line)
+    else:
+        print("  post-commit 钩子无输出（同步可能未触发；请检查 git config core.hooksPath）。")
     return 0
 
 
