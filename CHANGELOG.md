@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.30.0 打磨明细（根治 Agent 非交互环境静默替用户决定 deadcode 精度）
+
+- **问题**：用户开新对话由 Agent 全量检测技能时，全程无弹窗、Agent 替用户做了所有决定，违反「绝不替用户决定」核心原则。根因：`deadcode` 检查器 `ask` 模式在非 TTY（Agent 子进程 stdin 非终端）下，若环境已装 `vulture` 会**静默自动采用高精度**（无提示、无 `user_decision`），而 Agent 所用托管 Python 恰好装有 `vulture 2.16` → 精度档被脚本替用户决定；`doc-llm` / `examples` 虽挂载结构化 `user_prompts` + 「⚠ 需用户决策」报告块，但 SKILL.md 仅建议 Agent 回交、未强制，Agent 直接给结论把决策点吞掉。
+- **修复**：① `deadcode.py` 重排 `ask` 模式判定——**非 TTY 下无论 `vulture` 是否安装都绝不自动采用高精度**，一律透明回退零依赖 `ast` 并挂载精度 `user_decision`（交由 Agent 弹窗确认后以显式 `--deadcode-mode` 重跑）；交互终端（真人）已装 `vulture` 仍免询问直走高精度（行为不变）。② SKILL.md 新增「Agent 非交互运行须知」：Agent 运行前须用提问工具向用户确认 deadcode/doc-llm/examples 三档取舍并以显式旗标传入；运行后若报告「⚠ 需用户决策」或 `--json` 的 `user_prompts` 非空必须逐项弹窗确认再终稿，禁止静默代决。四处版本号一致 1.30.0（SKILL.md / sources.py User-Agent / CHANGELOG / README）。
+- **验证**：托管 Python（含 `vulture 2.16`）下以非 TTY 跑 `audit_docs.py --all-checks`，确认 deadcode 不再自动 `vulture`、转回 `ast` 并产出 `precision_degraded` WARN + `user_decision`；`dev_self_audit --strict` 9/9 检查器 ERROR 0/WARN 0/INFO（含 doc + doc-llm agent，覆盖 dev 文档）。
+
 ## 1.29.5 打磨明细（补记 v1.29.0 漏改的 SKILL.md L185 deadcode 注释 skip，纯文档单点修正）
 
 - **问题**：TRACE 高精度评测（2026-09-02）核对部署副本时发现 SKILL.md L185 命令行示例注释仍写「`ast` 零依赖 / `skip` 跳过」，但 v1.29.0 已把 deadcode 关闭档从 `skip` 统一为 `off`（代码 `DEADCODE_MODES=("ask","vulture","ast","off")`，`skip` 已被 argparse `choices` 拒绝）。用户照此注释敲 `--deadcode-mode skip` 会直接报错。这是 v1.29.0 `skip→off` 时的**单点文档遗漏**（误区五 L267、checkers.md 参数表均已改对，仅此注释行漏改），构成文档↔代码不一致（本技能自身要抓的漂移型）。

@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.29.5"
+version: "1.30.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -59,6 +59,17 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - **透明兜底**：无法询问（自动化 / Agent / 非 TTY）时，宁可在报告中显著标注「已跳过 / 已降级」（INFO / WARN），也不静默代决。
 
 该原则已在 doc-llm（`--doc-llm-mode` 默认问询、菜单含代价、超时回退默认）与 deadcode（`--deadcode-mode ask` 交互询问精度、非 TTY 显著告警；仅用户显式要求 vulture 时才自动安装）中落地。
+### Agent 非交互运行须知（决策必须回交用户，禁止静默代决）
+
+本技能被 Agent 经子进程调用时，**stdin 不是 TTY**，交互菜单无法弹出。此时 `ask` 默认档只会「透明回退 + 挂载 `user_decision`」，但回退本身不构成「已征得用户同意」。Agent 必须主动把决策交还用户：
+
+1. **运行前先问**：在调用 `audit_docs.py --all-checks` 之前，用提问工具（如 AskUserQuestion）向用户确认三档取舍，再以显式旗标传入，不要把决定留给自己：
+   - deadcode 精度：`vulture`（高精度，需装 vulture）/ `ast`（零依赖）/ `off`（不运行）；
+   - doc-llm 模式：`agent`（由你接手语义比对）/ `off`（跳过）；
+   - examples 模式：`run`（沙箱试运行，须 `--examples-consent`）/ `static`（纯静态）/ `off`（跳过）。
+2. **运行后必查回交**：若报告出现「⚠ 需用户决策」块，或 `--json` 输出 `user_prompts` 非空，必须逐项向用户弹窗确认，再按用户选择以显式 `--X-mode` 重跑。**绝不允许直接给出结论、把决策点悄悄吞掉。**
+3. 代码层兜底：非 TTY 下 `deadcode` 的 `ask` 默认**绝不**自动采用 vulture（即便环境已装），一律回退 `ast` 并挂载精度决策请求，交由你弹窗确认——这正是为了不让脚本替用户决定精度。
+
 
 > **跨平台、跨 Agent 适配，不写死宿主假设。**
 
@@ -182,7 +193,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --strict
 python scripts/audit_docs.py --skill <目录> --all-checks --timeout 60
 # 超大文件跳过阈值（字节）；超过则跳过并报告，避免拖慢
 python scripts/audit_docs.py --skill <目录> --all-checks --max-file-size 2000000
-# deadcode 精度模式：ask(已装 vulture 则自动高精度,不询问) / 显式 vulture 高精度 / ast 零依赖 / off 不运行；Agent/CI 用 --deadcode-mode 跳过交互询问
+# deadcode 精度模式：ask(交互终端已装 vulture 则自动高精度;非交互环境绝不自动采用,回退 ast 并交还用户决策) / 显式 vulture 高精度 / ast 零依赖 / off 不运行；Agent/CI 须显式 --deadcode-mode 跳过交互询问
 python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture
 # 先预览将运行哪些检查器、将扫描哪些文件（不产出发现，退出码 0）
 python scripts/audit_docs.py --skill <目录> --all-checks --preview

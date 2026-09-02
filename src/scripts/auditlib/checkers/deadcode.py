@@ -80,20 +80,21 @@ def _resolve_deadcode_mode(args):
             sys.stderr.write("[deadcode] ⚠ 未检测到 vulture 库且自动安装失败，回退零依赖 AST 模式（精度降级）\n")
             return "ast", True
         return mode, False
-    # ask 模式：已装 vulture 直接走高精度，避免重复询问
+    # ask 模式
+    if not is_interactive():
+        # 非交互（管道 / Agent / CI）：绝不替用户决定精度档。
+        # 不论 vulture 是否已安装，都不自动采用高精度——透明回退零依赖 ast 并挂载
+        # user_decision（build_json 提升为 user_prompts），交由 agent 向用户弹窗确认后
+        # 以显式 --deadcode-mode 重跑。需高精度请用户显式选择 vulture（该路径才会自动安装）。
+        sys.stderr.write(
+            "[deadcode] ⚠ 非交互（自动化）环境，deadcode 精度档须由用户决定，不自动采用 vulture；"
+            "回退零依赖 AST 模式（精度较低、易误报）。如需高精度请显式 --deadcode-mode vulture。\n"
+        )
+        return "ast", True
+    # 交互终端：已装 vulture 直接走高精度（用户已主动安装，免重复询问）；否则弹菜单
     if _vulture_module() is not None:
         sys.stderr.write("[deadcode] 检测到 vulture 库，自动采用高精度模式（跳过询问）\n")
         return "vulture", False
-    if not is_interactive():
-        # 非交互（管道/Agent/CI）且未装 vulture：直接回退零依赖 ast 并标记 degraded。
-        # 不尝试自动安装——ask 默认路径属「用户未做决定」，绝不替用户发起联网
-        # （顶层原则「默认零依赖、绝不替用户决定」的落地）；需要高精度请显式
-        # --deadcode-mode vulture（该路径才会自动安装）。
-        sys.stderr.write(
-            "[deadcode] ⚠ 非交互（自动化）环境且未检测到 vulture，回退零依赖 AST 模式"
-            "（精度较低、易误报）。如需高精度请安装 vulture 并以 --deadcode-mode vulture 显式指定。\n"
-        )
-        return "ast", True
     return _prompt_deadcode_mode()
 
 def _prompt_deadcode_mode():
