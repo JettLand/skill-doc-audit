@@ -54,4 +54,11 @@ fi
 "$PY" "$REPO_ROOT/src/scripts/sync_deploy.py" \
   || echo "[post-commit] deploy sync reported issues (non-fatal; commit already succeeded)"
 
+# 版本 bump 自动审计：本次提交若改变了 src/SKILL.md 的 version（补丁/次/主任一 bump），
+# 自动跑 dev_self_audit（全量含 doc + doc-llm agent 模式 + dev 文档 README/CHANGELOG），
+# 结果回显到 commit 输出，agent 无需靠记忆手动跑。非版本提交静默跳过。
+# 仅作早期反馈、不阻断 commit（最终门禁为 push 时 pre-push 的 dev_self_audit --strict）；
+# bump_audit 恒返回 0，故此处不改变 post-commit 退出码。
+"$PY" "$REPO_ROOT/src/scripts/bump_audit.py"
+
 exit 0

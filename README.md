@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.29.2 | **post-commit 版本 bump 自动审计（dev 工具增强）**：新增 `bump_audit.py`，post-commit 同步后检测本次提交是否 bump 版本号，变了即自动跑 `dev_self_audit`（全量含 doc + doc-llm agent + dev 文档 README/CHANGELOG）作早期反馈、回显给 agent，版本未变静默——消除「补丁号跑审计靠记忆」；不阻断 commit（最终门禁仍为 pre-push --strict）。`bump_audit` 列入 DEV_TOOLS。四处版本号一致 1.29.2 |
 | 1.29.1 | **补修 v1.29.0 checkers.md 残留 `skip`（纯文档枚举同步，补丁级）**：v1.29.0 的 `skip`→`off` 统一中，checkers.md L44（`DOC_ENUM_DRIFT` 示例）与 L205（安装策略段）两处编辑因工具写入假成功未落盘，磁盘仍 `skip`，与代码 `DEADCODE_MODES` 形成 DOC_ENUM_DRIFT 型不一致；用字节级替换根治，全项目 deadcode 语境 skip 清零。doc `--all-checks` ERROR/WARN 0、self_validate 4/4 PASS。四处版本号一致 1.29.1 |
 | 1.29.0 | **deadcode 关闭档统一为 `off`（移除 `skip` 别名，次版本接口变更）**：与 doc-llm/examples 的 `off` 命名对齐，消除接口漂移；`DEADCODE_MODES` 元组、cli/dev_self_audit 参数 help、deadcode 逻辑判定、SKILL.md/checkers.md 枚举描述全部 `skip`→`off`。语义不变（off≡原 skip，用户显式跳过），无代码依赖原值。四处版本号一致 1.29.0 |
 | 1.28.1 | **修正 1.28.0 安装路径偏差（补丁级）**：ask 超时/非交互回退恢复「直接回退 ast、不安装」——顶层原则「默认零依赖、绝不替用户决定」从用户侧出发，ask 超时＝用户未做决定，绝不替用户联网安装；自动安装收敛至「用户显式要求 vulture」路径（显式参数/交互选 1/开发者模式默认请求）。SKILL.md 顶层原则恢复原文，checkers.md 与 `precision_degraded` 措辞同步。四处版本号一致 1.28.1 |

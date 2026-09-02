@@ -5,6 +5,24 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.29.2 打磨明细（post-commit 版本 bump 自动审计：bump_audit.py，dev 工具增强）
+
+- **动机（用户要求消除「补丁号跑审计靠 agent 记忆」）**：pre-push 钩子只在推 main 时跑
+  `dev_self_audit`，本项目 push 低频且手动；agent 在多次 commit（每次 bump 版本）阶段没有早期
+  自动审计反馈，只能靠记忆主动去跑。用户明确：补丁号变动也要跑 doc + doc-llm（含开发者文件），
+  应加入自动化流程而非依赖 agent 记忆。
+- **实现**：新增 dev-only `src/scripts/bump_audit.py`——post-commit 钩子在同步部署副本后调用它，
+  检测「本次提交是否改变 `src/SKILL.md` 的 version」（HEAD^ vs HEAD），变了（补丁/次/主任一 bump）
+  即自动调 `dev_self_audit.py --no-sync-check`（全量含 doc + doc-llm agent 模式 dossier + dev 文档
+  README/CHANGELOG），审计结果回显到 commit 输出；版本未变则静默跳过。带 `--no-sync-check`（post-commit
+  已先 sync），不含 `--strict`（作早期反馈、不阻断 commit，`bump_audit` 恒返回 0；最终阻断门禁仍为
+  push 时 pre-push 的 `dev_self_audit --strict`）。
+- **配套**：`bump_audit.py` 列入 `auditlib.core.DEV_TOOLS`（避免 orphan_asset 误报）；DEVELOPMENT.md
+  dev 工具清单 / post-commit 职责说明 / 刻意不做清单同步更新；用户级记忆分级约定补「已自动化」说明。
+- **验证**：`py_compile` 通过；`sh -n` post-commit 语法 OK；bump_audit 单测（HEAD 1.29.1→1.29.2 判
+  patch bump、相等静默、patch/minor/major 判定）全过；**本次提交自身即触发 bump_audit 自动审计
+  （端到端自证新链路）**。四处版本号一致 1.29.2。
+
 ## 1.29.1 打磨明细（补修 v1.29.0 收口遗漏：checkers.md 残留 `skip`）
 
 - **问题（真实缺陷，v1.29.0 自身引入）**：v1.29.0 的 `skip`→`off` 统一改动中，`checkers.md` 的 L44（`DOC_ENUM_DRIFT` 错误码表示例 `{ask,vulture,ast,skip}`）与 L205（安装策略段「选 `ast`/`skip` 或 ask 自动回退」）两处编辑因**编辑工具写入假成功（phantom success）未落盘**，磁盘仍是旧 `skip` 枚举——与代码 `DEADCODE_MODES=("ask","vulture","ast","off")` 形成 `DOC_ENUM_DRIFT` 型文档↔代码不一致（恰是本技能自己要抓的漂移）。其余文件（SKILL.md/DEVELOPMENT.md/L261 参数表/deadcode.py/core.py/cli.py）均已正确改为 `off`。

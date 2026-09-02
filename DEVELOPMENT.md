@@ -8,7 +8,7 @@
 |---|---|---|
 | 文档 | `src/SKILL.md` + `src/references/checkers.md` | 本文件 |
 | 受众 | 任何安装并使用本技能审计自己技能的人 | 本技能的开发者 / 贡献者 |
-| 工具 | `scripts/audit_docs.py`（随技能发布） | `dev_self_audit.py` / `dev_market_bench.py`（两套辅助开发工具）/ `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `_devcommon.py`（dev-only 共享样板；均已被 `sync_deploy.py` 排除在部署副本外，且列入 `dev_self_audit.py` 的 `DEV_TOOLS` 排除集避免 orphan_asset 误报） |
+| 工具 | `scripts/audit_docs.py`（随技能发布） | `dev_self_audit.py` / `dev_market_bench.py`（两套辅助开发工具）/ `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `_devcommon.py` / `bump_audit.py`（dev-only 共享样板；均已被 `sync_deploy.py` 排除在部署副本外，且列入 `dev_self_audit.py` 的 `DEV_TOOLS` 排除集避免 orphan_asset 误报） |
 | 关键动作 | 跑 `--all-checks` 审计目标技能 | 审计最新源码 `src/`、自校验 fixtures、把 `src/` 同步到部署副本、走「未发布改动」累积发布 |
 
 **设计边界**：技术隔离已存在——dev 工具根本不进部署副本，终端用户拿不到。本文件是把「哪些是给用户、哪些是给维护者」的叙事显式二分，避免读者混淆；并明确 dev-only CLI 旗标仅在本仓库内有效。
@@ -22,7 +22,7 @@
 | 源码自审计器 | `src/scripts/dev_self_audit.py` | 守**发布质量**：同步校验（副本↔src）+ 审计最新源码发布面 + dev 文档漂移 + 发布就绪检查（`[agent-todo]`） | 每次 `git commit`（post-commit 仅同步、不跑它）/ `git push`（pre-push 门禁）/ 推 PR（dev-qa CI）；也手动跑 |
 | 市场质量基准实测器 | `src/scripts/dev_market_bench.py` | 守**「规模化真实世界」**：按 TRACE 质量分抽样、批量跑全量检查，验证检查器在长尾技能上的稳定性与 doc-llm 真实执行 | **不进自动调度**：仅人工要求时启用；或 `dev_self_audit` 监测到次/主版本变动时打印 `[agent-todo]` 建议、由 agent 评估后决定是否运行 |
 
-> 其余 `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `_devcommon.py` 为检查器回归护栏、fixture 生成、副本同步、发布就绪检查、共享样板等基础设施，不属于「两套辅助开发工具」本身，但支撑前述两套工具运转。
+> 其余 `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `_devcommon.py` / `bump_audit.py` 为检查器回归护栏、fixture 生成、副本同步、发布就绪检查、共享样板等基础设施，不属于「两套辅助开发工具」本身，但支撑前述两套工具运转。
 
 ### 源码自审计器（dev_self_audit.py）
 
@@ -78,7 +78,7 @@ python src/scripts/dev_market_bench.py check-bump       # 版本监测（由 dev
 1. **同步校验**：复用 `sync_deploy._verify()` 确认「部署副本 ↔ 最新源码 `src/`」字节一致；不一致说明有未提交改动或钩子未触发，明确告警。
 2. **审计最新源码**：一律对 `src/`（最新提交）跑全量检查器，而非部署副本——避免审计过时产物。
 3. **开发文档纳入漂移**：`--dev-docs` 递归扫描 `src/` 内全部 `.md` 描述性文档（含 `README.md` / `CHANGELOG.md` / `references/*.md` / `examples` 等）交 `doc`（A1 裸文件名 `EXTERNAL_REF` 提示）+ `doc-llm`（语义漂移 dossier）扫描；默认（不带此旗标）仅扫 `SKILL.md` + `references/*.md`。
-4. **只扫发布面**：排除 `DEV_TOOLS`（`sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `release_check.py` / `dev_commit.py`），使结果与发布质量对齐，不被 dev 工具噪音干扰。
+4. **只扫发布面**：排除 `DEV_TOOLS`（`sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `release_check.py` / `dev_commit.py` / `bump_audit.py`），使结果与发布质量对齐，不被 dev 工具噪音干扰。
 5. **开发期工具语法守卫**：`DEV_TOOLS` 不进发布面扫描，故 `_guard_dev_tools()` 对每个 dev 工具单独 `py_compile` 兜底语法关（改坏 dev 工具会立刻崩、却逃过检查器）；命中即打印 `[dev-tools] ⚠` 并追加一条 `[建议]` 非阻断项，不升退出码、不拦 push。
 
 退出码：`0` = 无 ERROR（`--strict` 下还需无 WARN）；`1` = 发现 ERROR（或 `--strict` 下 WARN）；`2` = 参数/路径错误。
@@ -149,7 +149,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 ### 同步钩子（`post-commit` → `sync_deploy.py`）自动执行命令表
 
-`post-commit` 钩子（`hooks/post-commit`）**只调用 `sync_deploy.py` 一个命令**——职责单一：把 `src/` 发布面字节级同步到部署副本。**它不发 `[agent-todo]`、不做质量门禁、不跑检查器、不构建任何制品**，只打印同步状态行。
+`post-commit` 钩子（`hooks/post-commit`）同步 `src/` 发布面到部署副本后，**再调 `bump_audit.py`**：若本次提交 bump 了版本号，自动跑 `dev_self_audit.py`（全量含 doc + doc-llm agent 模式 + dev 文档）作早期反馈。**它不发 `[agent-todo]`、不做质量门禁、不构建任何制品**，只同步 + 打印同步状态行；版本未变则静默跳过。
 
 **钩子自身的两步前置**（`hooks/post-commit`，shell）：
 
@@ -170,12 +170,12 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 > **刻意不做的事**（职责边界，避免膨胀）：
 > - **不构建 `dist/` 制品**——SkillHub 上架时自行重打包，本地 zip 无用且有害（见上表）；
 > - 不发 `[agent-todo]`（由 `pre-push` / `dev-qa` 的 `dev_self_audit` 负责）；
-> - 不跑检查器、不做质量门禁；
+> - 不跑检查器、不做质量门禁（版本 bump 提交会由 `bump_audit.py` 自动跑一次 `dev_self_audit` 作**早期反馈**，但 `bump_audit` 恒返回 0、**不阻断 commit**；最终阻断门禁仍为 `pre-push` 的 `dev_self_audit --strict`）；
 > - **绝不删除副本内发布面之外的任何文件（只增不删）**：陈旧 dev 文件需人工复核，不自动删；`dist/` 也从不产生，故无需任何清理例外（若旧副本残留 `dist/`，手动 `rm -rf <deploy>/dist` 一次即可）。
 
 **刻意排除、不进副本的内容**（dev-only，避免污染用户技能）：
 
-- dev 工具：`make_fixtures.py` / `self_validate.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `sync_deploy.py` / `release_check.py`（原 `build_dist.py` 制品构建脚本已随「市场自行重打包」移除）
+- dev 工具：`make_fixtures.py` / `self_validate.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `sync_deploy.py` / `release_check.py` / `bump_audit.py`（原 `build_dist.py` 制品构建脚本已随「市场自行重打包」移除）
 - `src/tests/`（fixtures + 黄金快照）、`__pycache__` / `*.pyc`
 
 **真实打印样例**（本机一次提交后）：

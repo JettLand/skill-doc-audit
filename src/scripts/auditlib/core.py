@@ -106,7 +106,7 @@ def extract_code_exit_codes(blob):
 # （原 build_dist.py 制品构建脚本已随「市场自行重打包」移除，不再列此。）
 DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
              "dev_self_audit.py", "_devcommon.py", "release_check.py",
-             "dev_market_bench.py", "dev_commit.py"}
+             "dev_market_bench.py", "dev_commit.py", "bump_audit.py"}
 
 VERSION_RE = re.compile(r"^version:\s*[\"']?([0-9][0-9A-Za-z.\-]*)[\"']?\s*$", re.M)
 
