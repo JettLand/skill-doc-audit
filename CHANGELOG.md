@@ -5,6 +5,19 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.1 打磨明细（用户文档版本叙述收敛 + 发布门禁强化）
+
+### 用户文档版本叙述收敛（doc / dev 职责分离）
+- **问题**：v1.26.0 实现 examples 检查器时，在 SKILL.md 能力项与章节标题写入「v1.26.0 新增」类内联版本里程碑叙述，违反 1.25.4 定下的「内联版本号收敛：保留行为解释型、删纯里程碑」约定（此前已清理、本次为回归）。
+- **修复**：`src/SKILL.md` 移除两处「v1.26.0 新增」——能力项（`examples`（**检查器 #9**））与章节标题（`## examples 检查器：文档示例静态校验（检查器 #9）`）；`src/references/checkers.md` 移除两处纯里程碑标题标记（`### 检查器执行回执（身份代号 + 调用结果，v1.25.5）`、`## examples 检查器误报抑制（v1.26.0）`）。保留「自 v1.x 起」类行为演进说明（解释当前能力，非里程碑）。
+- **原则固化**：用户文档（SKILL.md / references/*）只描述当前能力本身，不得写入「vX.Y.Z 新增 / 升级」类版本变动叙述；版本变动说明属开发者文档（CHANGELOG.md）职责。
+
+### 新增 `[agent-todo]` 第 9 类：版本变动时用户文档不写版本叙述
+- `dev_market_bench.py check-bump` 在 `if cur != last:`（任何版本变化，含补丁号）块内新增第 9 类提示（`[建议]`，非阻断）：提醒 agent 发版前复核 SKILL.md / references 是否混入版本号里程碑叙述，有则删除、仅留行为/能力描述。
+- `DEVELOPMENT.md` 指令清单加第 9 行，「第 5–8 类」相关叙述同步为「第 5–9 类」、渲染样例补第 9 类。
+- 验证：`py_compile` 通过；四处版本号（SKILL.md / sources.py User-Agent / README 版本摘要 / CHANGELOG 最高节）一致 1.27.1；`self_validate` 黄金快照全 PASS；`dev_self_audit` 发布面 `ERROR 0 / WARN 0`。
+
+
 ## 1.27.0 打磨明细（正向能力覆盖检查器 DOC_CAPABILITY_MISSING + 开发套件收口）
 
 ### 正向能力覆盖检查器 `DOC_CAPABILITY_MISSING`（doc 检查器增强，v1.27.0）

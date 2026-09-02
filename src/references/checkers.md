@@ -16,7 +16,7 @@
 - `doc-llm`（**独立检查器**，v1.23.0 起纳入 `--all-checks` 全量集，v1.24.0 起由 agent 直接接手）：语义漂移增强检测——覆盖 `doc` 触及不到的自由散文语义漂移，由 agent 用自身能力判定（不再调用外部 LLM）；默认 `ask` 问询、非交互记 INFO `doc_llm_skipped`。错误码见下方明细 `DOC_LLM_DRIFT` / `doc_llm_agent_handoff` / `doc_llm_skipped`
 - `examples`（**新增检查器 #9**，v1.26.0 起纳入 `--all-checks` 全量集）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 参数是否声明 / 外部 CLI 是否声明 / 是否含危险命令）。默认 `static`（纯静态、零执行 / 零网络 / 零 token）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。错误码见下方明细 `EXAMPLE_TARGET_MISSING` / `EXAMPLE_DANGEROUS` / `EXAMPLE_FLAG_UNKNOWN` / `EXAMPLE_EXT_CMD` / `EXAMPLE_UNVERIFIED` 等
 
-### 检查器执行回执（身份代号 + 调用结果，v1.25.5）
+### 检查器执行回执（身份代号 + 调用结果）
 任一检查器被调用时，引擎（`auditlib/model.py` 的 dispatch 循环）都会为它生成一条**执行回执**，明确告知 agent / 使用者「这个检查器到底有没有真跑过」——杜绝 doc-llm 类「静默落空却显示通过」的隐患。
 
 - **身份代号（数字，单一真相源 `CHECKER_CODES`）**：doc=#01、structure=#02、security=#03、runtime=#04、deps=#05、deadcode=#06、portability=#07、doc-llm=#08、examples=#09。选用数字而非缩写名作权威身份：注册键拼写漂移（连字符/下划线不一致）是 doc-llm 静默休眠的根因，数字代号集中登记、绝不会与注册键拼写漂移。回执同时打印 `#编号 名称` 兼顾机读与人读。
@@ -206,7 +206,7 @@
 
 **两种精度模式的分工（避免重复报告）**：`ast` 模式由 AST 负责未使用导入 / 未使用定义 / 不可达代码 + 孤儿资源；`vulture` 模式由 vulture 负责导入 / 定义 / 类 / 方法 / 变量检测（高精度、低噪声），并叠加 AST 独有的不可达代码与孤儿资源检测，**不再重复报告 AST 的导入/定义项**。两种模式均支持 `# keep` 内联白名单（vulture 分支同样按定义行/上一行判定 `# keep` 并跳过）。vulture 分析若异常（如版本 API 不兼容），会在 stderr 打印告警并跳过该步、不影响其余检查器。
 
-## examples 检查器误报抑制（v1.26.0）
+## examples 检查器误报抑制
 
 文档示例本质是「给人看的例子」，天然含占位 / 说明性路径，故本检查器做了多重保守设计，只报高置信缺陷、绝不把说明性内容当缺失文件：
 

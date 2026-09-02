@@ -758,6 +758,10 @@ def check_bump():
         print("  SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish")
         print("  → 先询问用户取得授权；获准后：skillhub publish <技能目录> --changelog \"...\" --json")
         print("  （发布目录内不得含 dist/ 或任何 .zip：市场自行重打包，目录内含 zip 会返回 400「不允许的文件类型」）")
+        print("")
+        print("  [agent-todo][建议] 版本变动时，用户文档（SKILL.md / references/*）无需写入版本变动叙述")
+        print("  如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身")
+        print("  → 发版前复核：SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除、仅留行为/能力描述")
     try:
         os.makedirs(CACHE, exist_ok=True)
         open(LAST_VERSION, "w", encoding="utf-8").write(cur)
