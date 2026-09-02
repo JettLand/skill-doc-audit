@@ -44,14 +44,14 @@ skillhub publish <技能目录> --changelog "..." --json
 ```
 
 - 典型目录为已同步的部署副本（本机 `~/.workbuddy/skills/skill-doc-audit`；由 `sync_deploy` 经 `resolve_deploy_dir()` 解析，勿写死路径）。
-- ⚠ 被发布目录内**不得含 `dist/` 或任何 `.zip`**，否则市场返回 `400 不允许的文件类型`；历史残留跑一次 `sync_deploy.py` 即会清除。
+- ⚠ 被发布目录内**不得含 `dist/` 或任何 `.zip`**，否则市场返回 `400 不允许的文件类型`；若部署副本残留旧 `dist/`，手动 `rm -rf <deploy>/dist` 一次（新 `sync_deploy.py` 不再生成，无需清理逻辑）。
 - ⚠ 上架属对外公开动作，**须先取得用户明确授权**，不得自动 `publish`（版本变动时本地 CI 会就此发出 `[agent-todo]` 提示）。
 
 ## 部署副本同步（已纳入提交流程）
 
 已安装的部署副本 `~/.workbuddy/skills/skill-doc-audit/` 必须与 `src/` 的提交态保持一致，否则会出现「源码改了、线上技能没更新」的漂移。本项目已把同步**自动化进 git 提交流程**：
 
-- `src/scripts/sync_deploy.py`（dev-only）：把 `src/` 的发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md）字节级同步到部署副本，清理部署副本内的 `__pycache__` 与历史 `dist/` 残留，最后校验一致性。刻意**排除** dev 工具（make_fixtures.py / self_validate.py）与 `tests/`。
+- `src/scripts/sync_deploy.py`（dev-only）：把 `src/` 的发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md）字节级同步到部署副本，清理部署副本内的 `__pycache__`，最后校验一致性（**绝不删除发布面之外的文件**）。刻意**排除** dev 工具（make_fixtures.py / self_validate.py）与 `tests/`。
 - `hooks/post-commit` + `git config core.hooksPath "D:/Agent Work/skill-doc-audit技能项目管理/hooks"`（**务必绝对路径**：相对 `../hooks` 会被 git 解析到仓库外的 `D:/Agent Work/hooks`，钩子永不触发）：每次 `git commit` 后自动运行 `sync_deploy.py`，提交即同步，无需手动记这一步。
 - 手动触发（如换机器或 hook 未装）：`python src/scripts/sync_deploy.py`；可用环境变量 `SKILL_DEPLOY_DIR` 覆盖目标路径。
 

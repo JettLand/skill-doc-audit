@@ -10,7 +10,7 @@
 ### 同步钩子不再自动打包，发布改为「市场自行重打包」（dev-only）
 - **动机**：`skillhub publish <技能目录>` 时市场会自行重打包，本地 `dist/*.zip` 无用；更糟的是被发布目录内若含 `.zip` 会被市场拒收（`400 不允许的文件类型: dist/skill-doc-audit.zip`）——v1.26.0 上架时实测踩到，当时只能临时复制一份排除 `dist/` 的副本来绕开。
 - **`sync_deploy.py` 移除自动打包**：删除 `import build_dist` 与 `build_dist.ensure_fresh()` 调用；`SYNC_FILES` 移除 `dist/skill-doc-audit.zip`；`_verify()` 移除 zip 的 sha256 比对（随之删除已无用的 `_sha256()` 与 `hashlib` 导入，避免留死代码）。
-- **新增自愈清理**：`_clean_stale_dist()` 在每次同步时删掉部署副本里的历史 `dist/` 残留——旧安装遗留的过时 zip 无需手工清理，下次提交即自愈。`dist/` 是同步环节唯一会删除的目录（其余一律只增不删，避免误删用户文件）。
+- **不再反复清理 dist**（移除 `_clean_stale_dist()`）：第 34372b2 已移除自动打包，但当时保留了每次同步删历史 `dist/` 残留——因 sync_deploy 不再产生 dist、本机副本已清，这步纯属永远空操作（幂等无副作用但冗余）。本轮移除该函数与调用，sync_deploy 回归「只同步、只增不删」纯净职责（与「刻意不做的事」一致）；若旧副本残留 `dist/`，手动 `rm -rf <deploy>/dist` 一次即可，无需保留清理逻辑。
 - **删除 `src/scripts/build_dist.py`**（制品构建脚本，dev-only）：市场自行重打包后已无用途；`dev_self_audit.py` 的 `DEV_TOOLS` 移除该条目；`.gitignore` 移除 `src/dist/skill-doc-audit.zip` 条目并注明不再产出制品；本地 `src/dist/` 与部署副本 `dist/` 均已清除。
 - **`release_check.py` 移除 dist 过期守卫**：不再自动打包后，该守卫会恒误报「制品过期」，故删除 `check_dist_staleness()` 并移出 `CHECKS`，模块 docstring 同步更新。
 - 验证：`py_compile` 通过；`sync_deploy.py` 实测删除副本 `dist/` 残留并 `verify: OK`；`self_validate` 4 项全 PASS；`dev_self_audit --strict` ERROR 0 / WARN 0 / INFO 35。

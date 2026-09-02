@@ -112,13 +112,13 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 ## 触发条件（何时运行各 dev 工具）
 
-消除「不知何时跑某 dev 工具」的困惑——下面是精确触发表。核心原则：**`dev_self_audit` 守发布质量、`self_validate` 守检查器行为，两条流水线刻意不串**（前者全量含 vulture/doc-llm、随环境可变；后者只用 `DETERMINISTIC=[doc,structure,security,runtime,deps]` 确定性子集、保证可复现）。
+消除「不知何时跑某 dev 工具」的困惑——下面是精确触发表。核心原则：**`dev_self_audit` 守发布质量、`self_validate` 守检查器行为，两条流水线刻意不串**（前者全量含 vulture/doc-llm、随环境可变；后者只用 `DETERMINISTIC=[doc,structure,security,runtime,deps,examples]` 确定性子集、保证可复现）。
 
 | 你改动了什么 | 该跑 | 不该跑 | 说明 |
 |---|---|---|---|
 | `src/` 任意发布面文件（SKILL.md / scripts/audit_docs.py / scripts/auditlib/ / references/checkers.md / dist） | `dev_self_audit.py`（建议 `--strict`） | — | 发布质量门禁：审计最新源码 + 验证「部署副本 ↔ src」一致 + 开发文档漂移 |
 | `README.md` / `CHANGELOG.md` / `references/*.md` / 任意 `.md` | `dev_self_audit.py`（默认即 `--dev-docs`，递归扫描 `src/` 内全部 `.md`） | — | 把开发文档纳入漂移扫描 |
-| `src/scripts/auditlib/checkers/{doc,structure,security,runtime,deps}.py` 或公共层 `model` / `report` / `core` | `self_validate.py` | — | 检查器行为回归护栏：对 fixtures 跑确定性检查器、比对 `tests/examples/*.expected.json` 黄金快照 |
+| `src/scripts/auditlib/checkers/{doc,structure,security,runtime,deps,examples}.py` 或公共层 `model` / `report` / `core` | `self_validate.py` | — | 检查器行为回归护栏：对 fixtures 跑确定性检查器（含 examples）、比对 `tests/examples/*.expected.json` 黄金快照 |
 | `src/scripts/auditlib/checkers/{deadcode,doc_llm,portability}.py` 或 fixtures / 文档自身 | `dev_self_audit.py`（视情况） | `self_validate.py` | deadcode/doc_llm/portability 不在 `DETERMINISTIC` 子集，跑 `self_validate` 无回归捕捉价值、反引入噪音 |
 | dev 工具自身（sync_deploy / self_validate / make_fixtures / dev_self_audit / `_devcommon`） | 仅 `dev_self_audit.py` 复查 | `self_validate.py` | dev 工具不进发布面，`self_validate` 审计的是用户技能行为、与 dev 工具改动无关 |
 | 发布前（统一动作） | `dev_self_audit.py --strict` **+** `self_validate.py` | — | 一键全量：先质量门禁、再检查器回归（也可靠 CI 钩子自动覆盖） |
@@ -160,18 +160,17 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | # | 自动执行的动作 | 实现 / 调用 | 作用 | 失败后果 |
 |---|---|---|---|---|
 | 1 | 解析部署目录 | `_devcommon.resolve_deploy_dir()` → `(path, how)` | 定位要同步的目标副本（跨平台 / 跨 Agent 探测，见本文「部署目录跨平台 / 跨 Agent 解析」节） | 未找到 → 打印 `deploy dir not found ... skip` 并 `exit 0`，**不阻塞 commit** |
-| 2 | 清理历史 `dist/` 残留 | `_clean_stale_dist()` → `shutil.rmtree(<deploy>/dist)` | 删掉旧版自动打包遗留的 zip——市场**拒收**被发布目录内的 `.zip`（400「不允许的文件类型」） | 无（幂等；本就干净则跳过、不打印） |
-| 3 | 复制发布面文件 | `_sync_file()`（**仅当目标缺失或字节不一致**才复制） | `SKILL.md`、`scripts/audit_docs.py`、`references/checkers.md` | 源缺失 → 打印 `WARN src missing` |
-| 4 | 递归复制发布面目录 | `_sync_tree()`（跳过 `__pycache__` / `*.pyc`） | `scripts/auditlib/**` | 源目录缺失 → 打印 `WARN src dir missing` |
-| 5 | 清理副本内 `__pycache__` | `_clean_pycache(<deploy>/scripts)` | 避免旧字节码污染已安装技能 | 无 |
-| 6 | 字节一致性校验 | `_verify()`（`filecmp` 逐文件比对） | 核对发布面 ↔ 副本是否一致 | `MISMATCH` → `exit 1`（仅告警，**commit 已成功**） |
-| 7 | 打印结果行 | — | `synced N file(s); verify: OK` / `already up-to-date; verify: OK` | — |
+| 2 | 复制发布面文件 | `_sync_file()`（**仅当目标缺失或字节不一致**才复制） | `SKILL.md`、`scripts/audit_docs.py`、`references/checkers.md` | 源缺失 → 打印 `WARN src missing` |
+| 3 | 递归复制发布面目录 | `_sync_tree()`（跳过 `__pycache__` / `*.pyc`） | `scripts/auditlib/**` | 源目录缺失 → 打印 `WARN src dir missing` |
+| 4 | 清理副本内 `__pycache__` | `_clean_pycache(<deploy>/scripts)` | 避免旧字节码污染已安装技能 | 无 |
+| 5 | 字节一致性校验 | `_verify()`（`filecmp` 逐文件比对） | 核对发布面 ↔ 副本是否一致 | `MISMATCH` → `exit 1`（仅告警，**commit 已成功**） |
+| 6 | 打印结果行 | — | `synced N file(s); verify: OK` / `already up-to-date; verify: OK` | — |
 
 > **刻意不做的事**（职责边界，避免膨胀）：
-> - **不构建 `dist/` 制品**——SkillHub 上架时自行重打包，本地 zip 无用且有害（见上表第 2 行）；
+> - **不构建 `dist/` 制品**——SkillHub 上架时自行重打包，本地 zip 无用且有害（见上表）；
 > - 不发 `[agent-todo]`（由 `pre-push` / `dev-qa` 的 `dev_self_audit` 负责）；
 > - 不跑检查器、不做质量门禁；
-> - 不删除副本内发布面之外的文件（陈旧 dev 文件需人工复核，不自动删）——**`dist/` 是唯一例外**，因为它是本仓库自己造出来的过时产物。
+> - **绝不删除副本内发布面之外的任何文件（只增不删）**：陈旧 dev 文件需人工复核，不自动删；`dist/` 也从不产生，故无需任何清理例外（若旧副本残留 `dist/`，手动 `rm -rf <deploy>/dist` 一次即可）。
 
 **刻意排除、不进副本的内容**（dev-only，避免污染用户技能）：
 
