@@ -140,7 +140,7 @@ class UrlSource(SkillSource):
         return ref
 
     def _fetch(self, url):
-        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.29.3"})
+        req = urllib.request.Request(url, headers={"User-Agent": "skill-doc-audit/1.29.4"})
         try:
             resp = urllib.request.urlopen(req, timeout=30)
         except Exception as e:
