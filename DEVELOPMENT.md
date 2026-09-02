@@ -192,6 +192,8 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 `pre-push` 钩子（`hooks/pre-push`）在 `git push origin main` 前调用 `dev_self_audit.py --strict` + `self_validate.py`。其中 `dev_self_audit` 在汇总后调用 `release_check.run_release_checks()` 产出提示块，并在末尾 best-effort 调用 `dev_market_bench.py check-bump` 产出版本变动提示——**本地 CI 是这些 `[agent-todo]` 仅有的两个发出方之一（另一个是远程 `dev-qa`；`post-commit` 同步钩子不发提示）**。
 
+> **v1.27.19 起 pre-push 增强「回传 agent 分析」通道**：`dev_self_audit --strict` 输出 tee 落盘 `bench/agent_audit_report.md`（gitignore），钩子终行打印报告路径，agent 主动读取分析（不受谁 push 影响）；agent 读后删除避免残留。另加 doc-llm 确定性门禁——`dev_self_audit` 硬编码 agent 模式写 dossier（含「正向覆盖缺口」段），钩子 `grep` 该段，列出缺口则拦 push 并打印 dossier 路径（须 agent 接手判读后才放行，挡住「doc-llm 静默通过」）；设 `SKILL_AUDIT_SKIP_DOC_LLM_GATE=1` 可放行 agent 已确认的有意缺口。详见 `hooks/pre-push`。
+
 > 下列「指令清单」汇总本地 CI **所有可能发出的 `[agent-todo]`**，逐项给出：触发条件、发出的指令（可照做动作）、严重度与是否阻断。其中第 1–4 类来自 `release_check.py`，第 5–10 类来自 `dev_market_bench.py check-bump`（第 5–7 类仅在次/主版本变动时打印；**第 8–9 类在任何版本变化时都打印**，含补丁号——因为任何版本都可能需要上架；**第 10 类为常驻通用提示，检测未提交改动、不依赖版本变动**）。
 
 | # | 标识 / 严重度 | 触发条件 | 发出的 `[agent-todo]` 指令（原文要点） | 阻断 |

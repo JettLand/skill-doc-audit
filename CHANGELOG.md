@@ -5,6 +5,14 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.19 打磨明细（pre-push 承接 [agent-todo] #6/#7：落盘审计报告 + doc-llm 确定性缺口门禁）
+
+- **问题**：[agent-todo] #6（补丁号）/ #7（次主版本）要求 agent 跑 `audit_docs` / `dev_self_audit` 自审计并接手 doc-llm 语义判读，但原流程依赖 agent 手动敲命令看输出，且「报告回传 agent」无可靠通道——因项目硬约定 push 由用户手动执行（agent 不 push），pre-push 钩子输出只落在用户终端，agent 看不到。
+- **修复（dev 工具 `hooks/pre-push`，不进部署副本）**：
+  1. `dev_self_audit.py --strict` 输出 tee 到 `bench/agent_audit_report.md`（已 gitignore），终行打印报告路径——agent 主动读取分析，不受谁 push 影响；agent 读后删除，避免残留。
+  2. doc-llm 语义漂移门禁：`dev_self_audit` 硬编码 agent 模式写 dossier（内含确定性「正向覆盖缺口」段），钩子 `grep` 该段——若列出缺口（代码有、文档未写）则拦 push 并打印 dossier 路径，须 agent 接手判读后才放行；缺口为空则放行。设 `SKILL_AUDIT_SKIP_DOC_LLM_GATE=1` 可放行（agent 已确认缺口有意、非漏改）。
+- **验证**：当前干净代码 `dev_self_audit --strict` ERROR 0 / WARN 0 / INFO 38、9/9 OK；dossier 覆盖段为「未发现代码有、文档缺的正向覆盖缺口」→ 门禁对干净代码不误拦。dev 工具增强，符合 2026-09-01「版本号改动后直接升」约定；四处版本号一致 1.27.19。
+
 ## 1.27.18 打磨明细（dev_commit 回显 post-commit 钩子同步回执，dev 工具增强）
 
 - **问题**：`dev_commit.py` 以 `capture_output=True` 吞掉 `git commit` 的全部输出——post-commit 钩子打印的 `[sync_deploy] ... verify: OK/MISMATCH` 同步回执仅在失败分支回显；成功分支打出模糊措辞「钩子应已自动同步（如失败请检查）」，使 agent/维护者拿不到确定性同步结果，只能提交后手动核验部署副本（本会话多次手动 grep 版本号的根因）。
