@@ -1,6 +1,6 @@
 # skill-doc-audit 技能工程仓库
 
-本仓库是 SkillHub 技能 **skill-doc-audit（技能文档审计）** 的源管理与发布工程仓库，并非技能本身。正式上架版本发布于 SkillHub（slug：`skill-doc-audit`）。
+本仓库是 SkillHub 技能 **skill-doc-audit（技能体检助手）** 的源管理与发布工程仓库，并非技能本身。正式上架版本发布于 SkillHub（slug：`skill-doc-audit`）。
 
 ## 仓库布局
 - `src/`：技能根目录（即发布包内容）
@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.27.8 | **展示名更名：`技能文档审计` → `技能体检助手`**：仅改用户可见 `displayName`、文档标题与描述首句、README 提及；技术标识 `name`/`slug` 维持 `skill-doc-audit` 不变（避免破坏部署副本路径与检查器注册）。纯表述类变更，无功能改动。四处版本号一致 1.27.8 |
 | 1.27.7 | **examples 默认值改为 ask（非交互/超时回退 static）+ 开发者模式 examples 默认 run**：`cli.py` 的 `--examples-mode` 默认 `static`→`ask`；`dev_self_audit.py` `cli_args` 新增 `examples_mode="run"`（审计自家源码、执行自家带 expected 标注示例受控安全）。同步 SKILL.md / checkers.md / cli 帮助文本 / examples.py docstring 中「默认 static」措辞。评估确认：改为 run 后参数校验（第 3 步）仍由 `core_doc=(doc_name=="SKILL.md")` 控制，仅限 SKILL.md、未扩大范围。四处版本号一致 1.27.7 |
 | 1.27.6 | **DEV_TOOLS 语法守卫 DRY 重构（复用 runtime 同款 py_compile）**：抽出 `auditlib.core.compile_python_file` 公共 helper，`runtime` 检查器与 `_guard_dev_tools` 守卫复用同一 `py_compile` 语法校验实现——手段复用、入口独立（runtime 报 `py_syntax` ERROR 阻断发布面；守卫仅 INFO 非阻断，命中即提示 agent 复核）。`runtime.py` 移除内联 `py_compile`、改调 helper，`_guard_dev_tools` 同步复用；三处源码改动，行为不变、输出格式与错误摘要一致。四处版本号一致 1.27.6 |
 | 1.27.5 | **堵开发期工具盲区：新增 `dev_self_audit.py` 内置「DEV_TOOLS 语法守卫」**：全量审计只扫发布面、8 个 dev 工具被排除集剔除，成为唯一无自动化扫描的盲区；新增 `_guard_dev_tools()` 对每个 dev 工具单独 `py_compile` 兜底语法关，命中即打印 `[dev-tools] ⚠` 并追加 `[建议]` 非阻断项（不升退出码、不拦 push），把改坏 dev 工具的崩溃风险提前暴露。`[agent-todo]` 维持现状。部署自审 `ERROR 0 / WARN 0` |
