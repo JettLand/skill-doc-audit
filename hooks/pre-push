@@ -64,15 +64,20 @@ if [ -z "$PY" ]; then
 fi
 
 # 审计报告落盘：供 agent 接手分析（不依赖谁执行 push，守住「push 手动」约定）。
-# agent 读取分析后删除该文件，避免残留。
+# 生命周期由本钩子自管理（代码强制删除，不依赖 agent 记忆）：
+#   - 每次运行开始时先 rm -f 上一轮报告 → 杜绝跨 push 残留；
+#   - 文件位于 bench/（已 gitignore），即便意外残留也不进版本库；
+#   - doc-llm dossier 写在系统临时目录，由 OS 清理。
+# agent 只需在需要时读取，无需、也不应手动删除（删除由钩子负责）。
 REPORT_DIR="$REPO_ROOT/bench"
 REPORT="$REPORT_DIR/agent_audit_report.md"
+rm -f "$REPORT" 2>/dev/null || true   # 自清理上一轮报告（代码强制，非约定）
 mkdir -p "$REPORT_DIR" 2>/dev/null || true
 ERR_TMP=$(mktemp 2>/dev/null || echo "$REPORT_DIR/.prepush_stderr")
 
 echo "[pre-push] ① 开发模式自审计（发布质量 + 同步门禁）；报告落盘: $REPORT"
 "$PY" "$REPO_ROOT/src/scripts/dev_self_audit.py" --strict > "$REPORT" 2> "$ERR_TMP" \
-  || { echo "[pre-push] ✗ 自审计未通过，已拦截 push。报告: $REPORT（agent 读取分析后删除）"; cat "$ERR_TMP"; exit 1; }
+  || { echo "[pre-push] ✗ 自审计未通过，已拦截 push。报告: $REPORT（钩子下次运行自动清理，无需手动删）"; cat "$ERR_TMP"; exit 1; }
 
 # doc-llm 语义漂移门禁（item 6/7 的「回传 agent 分析」通道）：
 # dev_self_audit 以硬编码 agent 模式写 dossier，内含确定性的「正向覆盖缺口」段；
@@ -85,7 +90,7 @@ if [ -z "$SKILL_AUDIT_SKIP_DOC_LLM_GATE" ]; then
       echo "[pre-push] ✗ doc-llm 检测到确定性「正向覆盖缺口」，已拦截 push（须 agent 接手判读）。"
       echo "[pre-push]   dossier: $DOSSIER"
       echo "[pre-push]   agent 读取 dossier 完成语义比对：补文档，或确认代码能力应保留；"
-      echo "[pre-push]   处理后删除 dossier 与报告($REPORT) 再 push；若确属有意缺口，设 SKILL_AUDIT_SKIP_DOC_LLM_GATE=1 放行。"
+      echo "[pre-push]   处理后（补文档或确认缺口有意）再 push；dossier 在系统临时目录、报告下次 push 自动清理，均无需手动删除。"
       exit 1
     fi
   fi
@@ -98,5 +103,5 @@ echo "[pre-push] ② 示例回归自校验（检查器行为）"
   || { echo "[pre-push] ✗ 自校验未通过，已拦截 push。若检查器有意变更，先跑 self_validate.py --baseline 再提交。"; exit 1; }
 
 echo "[pre-push] ✓ 门禁全部通过，继续 push。"
-echo "[pre-push] 审计报告已落盘: $REPORT（agent 读取分析后删除，避免残留）"
+echo "[pre-push] 审计报告已落盘: $REPORT（gitignored，下次 push 时钩子自动清理，无需手动删除）"
 exit 0

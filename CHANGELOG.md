@@ -5,11 +5,19 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.20 打磨明细（pre-push 报告删除改代码强制 + [agent-todo] #6/#7 去重文档）
+
+- **问题 1（真实缺陷）**：v1.27.19 落盘的 `bench/agent_audit_report.md` 删除仅靠钩子注释/提示文案「agent 读取分析后删除」，**无任何 `rm` 代码**——删除依赖 agent 记忆，恰是本技能致力消灭的「依赖记忆」模式复发。
+- **修复 1**：`pre-push` 每次运行开始时 `rm -f "$REPORT"` 自清理上一轮报告（代码强制，非约定）；`bench/` 已 gitignore 故意外残留也不进版本库；doc-llm dossier 在系统临时目录由 OS 清理。钩子文案统一改为「无需手动删除，删除权归钩子」，移除全部「agent 读取后删除」记忆依赖措辞。
+- **问题 2（文档漂移）**：`[agent-todo]` 第 6/7 条要求 agent 手动跑 `audit_docs` / `dev_self_audit --dev-docs --strict`，但其执行自 v1.27.19 起已被 `pre-push` 钩子自动覆盖（钩子跑 `dev_self_audit.py --strict` 含 doc + doc-llm agent 模式 + dev_docs 扫 README/CHANGELOG），属指令与钩子执行重复。
+- **修复 2**：DEVELOPMENT.md 第 6/7 类指令列补注「执行已由钩子自动覆盖、agent 无需手动跑」，指令清单表后新增说明段，明确 agent 保留职责仅为「钩子拦截时的语义判读」、报告生命周期由钩子代码强制管理。
+- **验证**：`sh -n hooks/pre-push` 语法 OK；`bench/` 确认 gitignore；报告自清理逻辑（先 rm 再写）实测无残留。dev-only 改动，不影响发布面。四处版本号一致 1.27.20。
+
 ## 1.27.19 打磨明细（pre-push 承接 [agent-todo] #6/#7：落盘审计报告 + doc-llm 确定性缺口门禁）
 
 - **问题**：[agent-todo] #6（补丁号）/ #7（次主版本）要求 agent 跑 `audit_docs` / `dev_self_audit` 自审计并接手 doc-llm 语义判读，但原流程依赖 agent 手动敲命令看输出，且「报告回传 agent」无可靠通道——因项目硬约定 push 由用户手动执行（agent 不 push），pre-push 钩子输出只落在用户终端，agent 看不到。
 - **修复（dev 工具 `hooks/pre-push`，不进部署副本）**：
-  1. `dev_self_audit.py --strict` 输出 tee 到 `bench/agent_audit_report.md`（已 gitignore），终行打印报告路径——agent 主动读取分析，不受谁 push 影响；agent 读后删除，避免残留。
+  1. `dev_self_audit.py --strict` 输出 tee 到 `bench/agent_audit_report.md`（已 gitignore），终行打印报告路径——agent 主动读取分析，不受谁 push 影响；报告由钩子每次运行开始时自清理（代码强制），agent 无需手动删除。
   2. doc-llm 语义漂移门禁：`dev_self_audit` 硬编码 agent 模式写 dossier（内含确定性「正向覆盖缺口」段），钩子 `grep` 该段——若列出缺口（代码有、文档未写）则拦 push 并打印 dossier 路径，须 agent 接手判读后才放行；缺口为空则放行。设 `SKILL_AUDIT_SKIP_DOC_LLM_GATE=1` 可放行（agent 已确认缺口有意、非漏改）。
 - **验证**：当前干净代码 `dev_self_audit --strict` ERROR 0 / WARN 0 / INFO 38、9/9 OK；dossier 覆盖段为「未发现代码有、文档缺的正向覆盖缺口」→ 门禁对干净代码不误拦。dev 工具增强，符合 2026-09-01「版本号改动后直接升」约定；四处版本号一致 1.27.19。
 

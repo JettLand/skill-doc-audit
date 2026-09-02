@@ -190,7 +190,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 ### 本地 CI（`pre-push` 钩子）发出的 `[agent-todo]` 指令清单
 
-`pre-push` 钩子（`hooks/pre-push`）在 `git push origin main` 前调用 `dev_self_audit.py --strict` + `self_validate.py`。其中 `dev_self_audit` 在汇总后调用 `release_check.run_release_checks()` 产出提示块，并在末尾 best-effort 调用 `dev_market_bench.py check-bump` 产出版本变动提示——**本地 CI 是这些 `[agent-todo]` 仅有的两个发出方之一（另一个是远程 `dev-qa`；`post-commit` 同步钩子不发提示）**。
+`pre-push` 钩子（`hooks/pre-push`）在 `git push origin main` 前调用 `dev_self_audit.py --strict` + `self_validate.py`，并把审计报告落盘 `bench/agent_audit_report.md`（钩子每次运行自清理、gitignored）。其中 `dev_self_audit` 在汇总后调用 `release_check.run_release_checks()` 产出提示块，并在末尾 best-effort 调用 `dev_market_bench.py check-bump` 产出版本变动提示——**本地 CI 是这些 `[agent-todo]` 仅有的两个发出方之一（另一个是远程 `dev-qa`；`post-commit` 同步钩子不发提示）**。第 6/7 类的审计执行已由此钩子自动覆盖（见下方指令清单表后说明）。
 
 > **v1.27.19 起 pre-push 增强「回传 agent 分析」通道**：`dev_self_audit --strict` 输出 tee 落盘 `bench/agent_audit_report.md`（gitignore），钩子终行打印报告路径，agent 主动读取分析（不受谁 push 影响）；agent 读后删除避免残留。另加 doc-llm 确定性门禁——`dev_self_audit` 硬编码 agent 模式写 dossier（含「正向覆盖缺口」段），钩子 `grep` 该段，列出缺口则拦 push 并打印 dossier 路径（须 agent 接手判读后才放行，挡住「doc-llm 静默通过」）；设 `SKILL_AUDIT_SKIP_DOC_LLM_GATE=1` 可放行 agent 已确认的有意缺口。详见 `hooks/pre-push`。
 
@@ -203,11 +203,17 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | 3 | `[agent-todo][WARN]` | `SKILL.md version` 高于 `CHANGELOG.md` 最高版本节 | `将 CHANGELOG.md 的「未发布改动」节提升为 '<SKILL版本> 打磨明细' 节后再提交` | **是** |
 | 4 | `[agent-todo][INFO]` | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py`；或仓库根/`src` 下存在 `*.bak`/`*.bak.*` 过时备份 | `及时清理 temp/ 测试残留与 `*.bak` 备份（默认保留最近 3 个、更早的删除）；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` | 否 |
 | 5 | `[agent-todo][建议]` | 次/主版本（x.y.z 中 x 或 y）变动 | `⚠ 决策点：是否运行「市场质量基准实测器」？默认不自动跑；若本次涉及检查器逻辑 / 误报抑制 / 风险口径改动，建议运行验证规模化行为稳定：python src/scripts/dev_market_bench.py run`（仅人工要求或本建议触发时启用，不进自动调度） | 否 |
-| 6 | `[agent-todo][必须]`（阻断） | 补丁号（x.y.z 中 **z**）变动 | `必须执行 doc + doc-llm 文档自审计（开发者模式）：python src/scripts/audit_docs.py --skill <部署副本路径> --check doc --check doc-llm --doc-llm-mode agent`。`<部署副本路径>` 由 `resolve_deploy_dir()` 动态解析后打印（非标准安装/跨 agent 亦正确，通常是 `~/.workbuddy/skills/skill-doc-audit`）；doc-llm 产出语义漂移 dossier，需 agent 接手判读；也可执行 `dev_self_audit.py --dev-docs` 一并扫 README/CHANGELOG。→ **次/主版本（x / y）变动不触发本条**：其文档/结构漂移已由第 7 类全量自审计（`--all-checks`，含 doc + doc-llm）覆盖，避免重复提醒 | **是** |
-| 7 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行开发者模式全量自审计（维护整体质量）：python src/scripts/dev_self_audit.py --dev-docs --strict`（全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移） | **是** |
+| 6 | `[agent-todo][必须]`（阻断） | 补丁号（x.y.z 中 **z**）变动 | `必须执行 doc + doc-llm 文档自审计（开发者模式）：python src/scripts/audit_docs.py --skill <部署副本路径> --check doc --check doc-llm --doc-llm-mode agent`。`<部署副本路径>` 由 `resolve_deploy_dir()` 动态解析后打印（非标准安装/跨 agent 亦正确，通常是 `~/.workbuddy/skills/skill-doc-audit`）；doc-llm 产出语义漂移 dossier，需 agent 接手判读；也可执行 `dev_self_audit.py --dev-docs` 一并扫 README/CHANGELOG。→ **次/主版本（x / y）变动不触发本条**：其文档/结构漂移已由第 7 类全量自审计（`--all-checks`，含 doc + doc-llm）覆盖，避免重复提醒。**（执行自 v1.27.19 起已由 pre-push 钩子自动覆盖，见下表后说明；agent 无需手动跑，仅当钩子拦截时读取 dossier 判读）** | **是** |
+| 7 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行开发者模式全量自审计（维护整体质量）：python src/scripts/dev_self_audit.py --dev-docs --strict`（全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移）。**（执行自 v1.27.19 起已由 pre-push 钩子自动覆盖，见下表后说明；agent 无需手动跑，仅当钩子拦截时读取报告/dossier 判读）** | **是** |
 | 8 | `[agent-todo][必须]`（阻断） | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）`：SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish。→ 先询问用户取得授权；获准后 `skillhub publish <技能目录> --changelog "..." --json`（发布目录内**不得含 `dist/` 或任何 `.zip`**：市场自行重打包，目录内含 zip 会返回 400「不允许的文件类型」） | **是** |
 | 9 | `[agent-todo][建议]` | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `版本变动时用户文档（SKILL.md / references/*）无需写入版本变动叙述`：如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身。→ 发版前复核 SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除 | 否 |
 | 10 | `[agent-todo][建议]` | 仓库存在未提交改动（`git status --porcelain` 非空） | `检测到未提交的本地改动，请立即本地 commit`：本地提交即触发 post-commit 钩子同步部署副本，避免 src 与部署副本 / 版本号长期脱节；提交与发布解耦，未上架也可随时提交。→ `python src/scripts/dev_commit.py -m "<有意义说明>"`（静态提交助手：自动 git add -u + commit，commit 触发 post-commit 同步部署副本；新增文件加 --all 或显式传路径） | 否 |
+
+> **第 6 / 7 类与 `pre-push` 钩子的执行重叠（v1.27.19 起）**：`pre-push` 在每次推 `main` 前已自动跑 `dev_self_audit.py --strict`（其内硬编码 doc-llm agent 模式、dev_docs 写死含 README/CHANGELOG）+ `self_validate.py`，并对 doc-llm 确定性「正向覆盖缺口」做门禁、落盘报告 `bench/agent_audit_report.md`。因此第 6/7 类要求的**审计执行已被钩子自动覆盖**：
+> - agent **无需**在版本迭代时手动跑第 6/7 条命令作为门禁（重复执行）；若想要更早的本地反馈，仍可手动跑，但不再是「必须」。
+> - agent 的**保留职责是语义判读**：仅当钩子拦截（打印 dossier / 报告路径）时读取并决定「补文档 or 确认缺口有意（`SKILL_AUDIT_SKIP_DOC_LLM_GATE=1` 放行）」。
+>
+> **报告文件生命周期（代码强制，不依赖 agent 记忆）**：`bench/agent_audit_report.md` 由钩子每次运行开始时 `rm -f` 自清理上一轮，且 `bench/` 已 gitignore——即便意外残留也不进版本库；doc-llm dossier 写在系统临时目录、由 OS 清理。**agent 只需读取、不应手动删除**（删除权归钩子）。这避免了「靠记忆删除」的脆弱模式。
 
 **提示块的实际打印格式**（来自 `dev_self_audit.py:153-165`，以「版本不一致」为例的真实渲染）：
 
