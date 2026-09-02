@@ -191,7 +191,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 `pre-push` 钩子（`hooks/pre-push`）在 `git push origin main` 前调用 `dev_self_audit.py --strict` + `self_validate.py`。其中 `dev_self_audit` 在汇总后调用 `release_check.run_release_checks()` 产出提示块，并在末尾 best-effort 调用 `dev_market_bench.py check-bump` 产出版本变动提示——**本地 CI 是这些 `[agent-todo]` 仅有的两个发出方之一（另一个是远程 `dev-qa`；`post-commit` 同步钩子不发提示）**。
 
-> 下列「指令清单」汇总本地 CI **所有可能发出的 `[agent-todo]`**，逐项给出：触发条件、发出的指令（可照做动作）、严重度与是否阻断。其中第 1–4 类来自 `release_check.py`，第 5–9 类来自 `dev_market_bench.py check-bump`（第 5–7 类仅在次/主版本变动时打印；**第 8–9 类在任何版本变化时都打印**，含补丁号——因为任何版本都可能需要上架）。
+> 下列「指令清单」汇总本地 CI **所有可能发出的 `[agent-todo]`**，逐项给出：触发条件、发出的指令（可照做动作）、严重度与是否阻断。其中第 1–4 类来自 `release_check.py`，第 5–10 类来自 `dev_market_bench.py check-bump`（第 5–7 类仅在次/主版本变动时打印；**第 8–9 类在任何版本变化时都打印**，含补丁号——因为任何版本都可能需要上架；**第 10 类为常驻通用提示，检测未提交改动、不依赖版本变动**）。
 
 | # | 标识 / 严重度 | 触发条件 | 发出的 `[agent-todo]` 指令（原文要点） | 阻断 |
 |---|---|---|---|---|
@@ -204,6 +204,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | 7 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行开发者模式全量自审计（维护整体质量）：python src/scripts/dev_self_audit.py --dev-docs --strict`（全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移） | **是** |
 | 8 | `[agent-todo][必须]`（阻断） | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）`：SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish。→ 先询问用户取得授权；获准后 `skillhub publish <技能目录> --changelog "..." --json`（发布目录内**不得含 `dist/` 或任何 `.zip`**：市场自行重打包，目录内含 zip 会返回 400「不允许的文件类型」） | **是** |
 | 9 | `[agent-todo][建议]` | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `版本变动时用户文档（SKILL.md / references/*）无需写入版本变动叙述`：如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身。→ 发版前复核 SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除 | 否 |
+| 10 | `[agent-todo][建议]` | 仓库存在未提交改动（`git status --porcelain` 非空） | `检测到未提交的本地改动，请立即本地 commit`：本地提交即触发 post-commit 钩子同步部署副本，避免 src 与部署副本 / 版本号长期脱节；提交与发布解耦，未上架也可随时提交。→ `git add <改动文件> && git commit -m "..."` | 否 |
 
 **提示块的实际打印格式**（来自 `dev_self_audit.py:153-165`，以「版本不一致」为例的真实渲染）：
 
@@ -218,10 +219,11 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 ⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。
 ```
 
-> 第 5–9 类 `[agent-todo]`（版本变动提示）来自 `dev_market_bench.py check-bump`，由 `dev_self_audit.py` 经 `_parse_check_bump` 解析后并入同一「发布前待办」块（[必须] 进 rel_block 阻断、[建议] 进 rel_info 不阻断），**不再纯透传 stdout**；与上面的 release_check 提示合并显示。
+> 第 5–9 类 `[agent-todo]`（版本变动提示）与第 10 类（常驻通用提示，检测未提交改动）均来自 `dev_market_bench.py check-bump`，由 `dev_self_audit.py` 经 `_parse_check_bump` 解析后并入同一「发布前待办」块（[必须] 进 rel_block 阻断、[建议] 进 rel_info 不阻断），**不再纯透传 stdout**；与上面的 release_check 提示合并显示。
 > - **第 5–7 类**仅当次版本 / 主版本（x.y.z 中的 x 或 y）发生变动时才打印；日常**补丁号**变动（x.y.**z**，如 1.25.5 → 1.25.6）**不触发**——这正是「日常提交看不到这几条」的预期原因，并非功能失效。三者同源同触发条件：第 5 类针对规模化基准（建议、不阻断），第 6 类针对 doc+doc-llm 文档自审计（必须、阻断），第 7 类针对开发者模式全量自审计（必须、阻断）。
 > - **第 8–9 类是例外：任何版本变化（含补丁号）都打印**——因为任何版本都可能需要上架，而上架作为对外公开动作必须先经用户授权；不能只在次/主版本时才提醒授权，否则补丁版本会被静默上架。
 > - 严重度标签语义：第 5 类打 `[建议]`（非阻断，**不升退出码、不拦 push**）——基准实测 `run` 只在人工要求或 agent 评估后执行，check-bump 对它「建议、绝不自动跑」；第 6–8 类打 `[必须]`（阻断，**`--strict` 下升退出码、拦 push**）——次/主版本变动属质量高风险点，文档/结构漂移必须由 agent 实际跑过审计确认后才可发布；上架属对外公开动作、须用户授权，故均为强制步骤而非建议。
+> - **第 10 类为常驻通用提示（不依赖版本变动）**：只要 `git status --porcelain` 非空（有未提交改动）就打印，旨在防止长期开发中因记忆漂移遗漏本地 commit、使 src 与部署副本 / 版本号脱节；属 `[建议]` 不阻断、不升退出码。仓库已干净时不打印（与其余版本变动提示正交，任何版本 / 任何状态都可能触发）。
 > - 检测基线存于 `bench/market_bench/last_bench_version.txt`（gitignore，不进版本库）；每次运行都刷新为当前版本，故同一版本变动只提示一次。
 > - 真实渲染样例（模拟次版本 1.24.0 → 1.25.7 触发；第 6–8 类进 `rel_block` 阻断、第 5 类进 `rel_info` 不阻断，版本变动标题在块外原样打印）：
 

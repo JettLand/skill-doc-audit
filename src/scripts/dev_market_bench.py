@@ -715,6 +715,23 @@ def is_minor_or_major_bump(old, new):
     return b[0] != a[0] or b[1] != a[1]
 
 
+def _git_uncommitted():
+    """best-effort 检测仓库是否有未提交改动；git 不可用 / 异常时返回 False（不误报）。
+
+    用于 check_bump 的常驻提醒：长期开发易因记忆漂移遗漏本地 commit，
+    导致 src 与部署副本 / 版本号长期脱节（post-commit 钩子本应同步部署副本）。
+    """
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        out = subprocess.run(["git", "status", "--porcelain"],
+                             cwd=repo, capture_output=True, text=True, timeout=10)
+    except Exception:  # noqa: BLE001
+        return False
+    if out.returncode != 0:
+        return False
+    return bool(out.stdout.strip())
+
+
 def check_bump():
     cur = current_version()
     if not cur:
@@ -762,6 +779,14 @@ def check_bump():
         print("  [agent-todo][建议] 版本变动时，用户文档（SKILL.md / references/*）无需写入版本变动叙述")
         print("  如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身")
         print("  → 发版前复核：SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除、仅留行为/能力描述")
+    # 通用提示（不依赖版本变动）：长期开发易因记忆漂移遗漏本地 commit，
+    # 导致 src 与部署副本 / 版本号长期脱节（post-commit 钩子本应同步部署副本）。
+    # 检测到未提交改动即提示立即本地 commit；[建议] 不阻断、不升退出码。
+    if _git_uncommitted():
+        print("")
+        print("  [agent-todo][建议] 检测到未提交的本地改动，请立即本地 commit")
+        print("  本地提交即触发 post-commit 钩子同步部署副本，避免 src 与部署副本 / 版本号长期脱节")
+        print("  → git add <改动文件> && git commit -m \"...\"（提交与发布解耦：未上架也可随时提交）")
     try:
         os.makedirs(CACHE, exist_ok=True)
         open(LAST_VERSION, "w", encoding="utf-8").write(cur)

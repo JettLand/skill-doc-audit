@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.27.2 | **checkers.md 新增 examples 检查器「功能与风险详解」综合篇幅 + 新增 `[agent-todo]` 第 10 类常驻提交提醒**：examples 检查器补充五类检查覆盖 / 三档模式与默认姿态 / 安全红线 / 风险与局限 / 误报抑制机制的完整说明；check-bump 新增不依赖版本变动的常驻提醒——检测到未提交改动即提示立即本地 commit（防长期开发记忆漂移使 src 与部署副本 / 版本号脱节），`[建议]` 不阻断、不升退出码。部署自审 `ERROR 0 / WARN 0` |
 | 1.27.1 | **用户文档版本叙述收敛 + 发布门禁强化**：删除 SKILL.md / references 内联版本里程碑叙述（如「v1.26.0 新增」），用户文档只描述当前能力本身；新增 `[agent-todo]` 第 9 类（版本变动时用户文档不写版本变动叙述，属开发者文档 CHANGELOG 职责）。部署自审 `ERROR 0 / WARN 0 / INFO 35` |
 | 1.27.0 | **正向能力覆盖检查器 `DOC_CAPABILITY_MISSING`（doc 检查器增强）**：确定性捕捉「代码有、文档没写」的能力缺口——仅审计本框架技能（代码含 `ALL_CHECKERS`）时，注册的每个检查器名 / 用户面向 CLI 参数须出现在 SKILL.md 或 references 文档中，否则 `WARN` 阻断发布（与 `DOC_CAPABILITY_DRIFT` 正反向对称）；doc-llm dossier 同步新增「正向覆盖缺口」预分析段，把代码有文档缺的项直接列为比对要点，免去 agent 自行穷举对账（正是漏检的元凶）。另含前序 dev-only 收口（同步钩子移除自动打包、上架授权 `[agent-todo]` 第 8 类）。部署自审 `ERROR 0 / WARN 0 / INFO 35` |
 | 1.26.0 | **泛用版 examples 检查器（检查器 #9）**：对任意技能文档里的命令示例做静态校验——示例引用的脚本文件是否存在（`EXAMPLE_TARGET_MISSING`）、传给脚本的参数是否声明（`EXAMPLE_FLAG_UNKNOWN`）、示例调用的外部 CLI 是否声明（`EXAMPLE_EXT_CMD`）、是否含危险/不可逆命令（`EXAMPLE_DANGEROUS`）；默认纯静态（零执行/零网络/零 token），`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（白名单解释器+技能内脚本+超时保护，绝不执行任意 shell）。新增 `examples-skill` fixture 与黄金快照，`self_validate` 的 `DETERMINISTIC` 收口 examples。部署自审 `ERROR 0 / WARN 0 / INFO 34` |
