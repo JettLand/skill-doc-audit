@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.27.9 | **examples 检查器 ask 模式选项 2 文本增强**：补「绝不执行任意 shell / 外部命令」并新增一行「⚠ 风险提示」（沙箱非操作系统级容器，脚本仍以当前用户权限运行，可能读写本地文件或发起网络访问；请仅对信任的技能选择此档）。仅用户可见提示文本变更，`_sandbox_reject_reason` 白名单网关与执行语义未改。四处版本号一致 1.27.9 |
 | 1.27.8 | **展示名更名：`技能文档审计` → `技能体检助手`**：仅改用户可见 `displayName`、文档标题与描述首句、README 提及；技术标识 `name`/`slug` 维持 `skill-doc-audit` 不变（避免破坏部署副本路径与检查器注册）。纯表述类变更，无功能改动。四处版本号一致 1.27.8 |
 | 1.27.7 | **examples 默认值改为 ask（非交互/超时回退 static）+ 开发者模式 examples 默认 run**：`cli.py` 的 `--examples-mode` 默认 `static`→`ask`；`dev_self_audit.py` `cli_args` 新增 `examples_mode="run"`（审计自家源码、执行自家带 expected 标注示例受控安全）。同步 SKILL.md / checkers.md / cli 帮助文本 / examples.py docstring 中「默认 static」措辞。评估确认：改为 run 后参数校验（第 3 步）仍由 `core_doc=(doc_name=="SKILL.md")` 控制，仅限 SKILL.md、未扩大范围。四处版本号一致 1.27.7 |
 | 1.27.6 | **DEV_TOOLS 语法守卫 DRY 重构（复用 runtime 同款 py_compile）**：抽出 `auditlib.core.compile_python_file` 公共 helper，`runtime` 检查器与 `_guard_dev_tools` 守卫复用同一 `py_compile` 语法校验实现——手段复用、入口独立（runtime 报 `py_syntax` ERROR 阻断发布面；守卫仅 INFO 非阻断，命中即提示 agent 复核）。`runtime.py` 移除内联 `py_compile`、改调 helper，`_guard_dev_tools` 同步复用；三处源码改动，行为不变、输出格式与错误摘要一致。四处版本号一致 1.27.6 |
