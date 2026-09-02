@@ -62,8 +62,15 @@ def check_doc(ctx):
 
         # A3 退出码口径（仅 SKILL.md：退出码是技能本体的契约，开发文档不列退出码，避免误报）
         if doc_name == "SKILL.md":
+            # 文档退出码：表格行 + 「退出码：」行内反引号（两种写法都收）
             doc_exits = set(DOC_EXIT_RE.findall(doc))
-            code_exits = set(CODE_EXIT_RE.findall(blob))
+            for _line in doc.splitlines():
+                if "退出码" in _line:
+                    doc_exits |= set(DOC_EXIT_INLINE_RE.findall(_line))
+            # 代码退出码：从 sys.exit(<arg>) 实参中提取数字（覆盖条件表达式两种分支）
+            code_exits = set()
+            for _arg in CODE_EXIT_RE.findall(blob):
+                code_exits |= set(re.findall(r"\d+", _arg))
             deprecated = set()
             for line in doc.splitlines():
                 m2 = re.match(r"^\|\s*`(\d+)`\s*\|", line)

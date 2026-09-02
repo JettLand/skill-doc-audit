@@ -71,8 +71,13 @@ MAX_FILE_SIZE = 2_000_000  # 单文件超过此字节数跳过扫描，避免超
 FILE_REF_RE = re.compile(r"`([\w./\\-]+\.(?:py|js|jsx|ts|tsx|vue|go|rs|java|c|cpp|h|rb|php|swift|kt|lua|json|log|md|lnk|sh|ps1|asar|txt))`")
 FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]{2,})")
 IDENT_RE = re.compile(r"`(_?[a-z][a-z0-9]*_[a-z0-9_]+)`")
-DOC_EXIT_RE = re.compile(r"^\|\s*`(\d+)`\s*\|", re.M)
-CODE_EXIT_RE = re.compile(r"return\s+(\d+)\s*$", re.M)
+# 退出码比对（A3）：文档「退出码」契约 vs 代码实际进程退出码（sys.exit）。
+# DOC_EXIT_RE 兼容表格行与行内反引号两种写法（SKILL.md 用「退出码：\`0\`...\`130\`」行内散文）；
+# CODE_EXIT_RE 匹配 sys.exit(<arg>)，再从实参里提取数字（覆盖 `sys.exit(0 if failed else 1)`
+# 这类条件表达式的两种可能退出码），避开误匹配函数内 return N（DEV_TOOLS 的 return 0/2 曾是误报源）。
+DOC_EXIT_RE = re.compile(r"^\|\s*`(\d+)`\s*\|", re.M)          # 表格行退出码（兼容旧式）
+DOC_EXIT_INLINE_RE = re.compile(r"`(\d+)`")                    # 行内反引号退出码（退出码：\`0\`...\`130\`）
+CODE_EXIT_RE = re.compile(r"sys\.exit\(\s*([^)]*?)\)", re.M)   # 进程退出码实参（进程级，非函数 return）
 STATUS_RE = re.compile(r"write_result\(\s*[\"']([a-z_]+)[\"']")
 VERSION_RE = re.compile(r"^version:\s*[\"']?([0-9][0-9A-Za-z.\-]*)[\"']?\s*$", re.M)
 

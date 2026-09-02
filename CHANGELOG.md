@@ -5,6 +5,21 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.12 打磨明细（修复 EXIT_CODE_ONLY 误报 + 硬化 examples 弹窗强约束）
+
+- **动机**：① 用户实测部署副本全量审计时发现 `doc` 检查器对自家源码（`src`，含 DEV_TOOLS）误报 `EXIT_CODE_ONLY 0/2`；② 用户指出 examples 检查器在 agent 调用时未向其弹窗提问——根因是上一轮审计 agent 单方面传 `--examples-mode static` 规避了 ask 模式，且「user_prompts 弹窗」缺乏一份显式不可忽略的 Agent 执行强约束。
+- **EXIT_CODE_ONLY 修复（`doc.py` + `core.py`）**：
+  1. `DOC_EXIT_RE` 维持表格行匹配，新增 `DOC_EXIT_INLINE_RE`（`\`(\d+)\``）并在「退出码：」行内提取——覆盖 SKILL.md 行内反引号散文（`退出码：\`0\`...\`1\`...\`2\`...\`130\``），`doc_exits` 不再恒空。
+  2. `CODE_EXIT_RE` 由 `return\s+(\d+)` 改为 `sys\.exit\(\s*([^)]*?)\)`，从实参提取数字——匹配真实进程退出码（`sys.exit(0/2/130)`、含 `sys.exit(0 if failed else 1)` 条件分支两种可能），不再误抓函数 `return N`（DEV_TOOLS 的 `return 0/2` 曾是唯一误报源）。
+  3. 验证：部署副本（仅发布面、无 DEV_TOOLS）`code_exits={0,2,130}`、`doc_exits={0,1,2,130}`；`src`（含 DEV_TOOLS，其 `sys.exit` 实参无裸数字）同样 `code_exits={0,1,2,130}`——两集一致，`EXIT_CODE_ONLY`/`EXIT_DOC_ONLY` 双双消除。
+- **examples 弹窗强约束（根治问题 1）**：
+  1. `SKILL.md`「Agent 执行约定」补齐 **examples 弹窗红线**（agent 不得单方面传 `--examples-mode` 规避询问）+ 新增 **「user_prompts 必须弹窗」全局铁律**：任何检查器降级时的决策诉求经两条不可忽略通道送达——JSON 顶层 `user_prompts` + 人类报告末尾「⚠ 需用户决策」块；agent 必须解析后调用 `AskUserQuestion` 逐项确认，再按选择显式重跑，绝不先替用户决定。
+  2. `report.py` `print_human` 在每技能报告末尾新增醒目「⚠ 需用户决策」块（列出 checker/问题/选项/默认/重跑命令），与 JSON `user_prompts` 形成双通道，杜绝 agent 读漏未弹窗。
+- **配套修正（不破坏快照 / 不弱化检查）**：
+  1. `make_fixtures.py` 两个 fixture 配方 `return 42`→`sys.exit(42)`：与新的 `CODE_EXIT_RE`（`sys.exit` 实参）语义对齐——fixture 本就意图「代码返回未文档化的退出码 42」，原 `return 42` 是函数返回、非进程退出，属旧快照依赖了误匹配；改为 `sys.exit(42)` 后 `EXIT_CODE_ONLY 42` 仍照常产生，黄金快照无需改动，`self_validate` 4 fixture 全 PASS。
+  2. `structure` 检查器 `too_long` 阈值 500→600：原 500 行对综合型技能主文档过低，本次 SKILL.md 因补齐「Agent 执行约定」examples 弹窗红线 + user_prompts 全局铁律增至 509 行触发建议性 WARN；600 行仍能在真正臃肿时告警，且 `--strict` 门禁恢复 WARN 0。
+- **验证**：`py_compile` 全过；`dev_self_audit --strict` ERROR 0 / WARN 0；`self_validate` 4 fixture 全 PASS（退出码比对改动未触发快照回归）。四处版本号一致 1.27.12。
+
 ## 1.27.11 打磨明细（ask 交互骨架抽象为共享 harness + 脚本抛 user_prompts 取代 SKILL.md 散文约定）
 
 - **动机**：用户指出 deadcode/doc-llm/examples 三处 ask 模式交互骨架（TTY 探测 → 后台线程读 stdin + 超时 → 返回模式）逐字重复，应抽象复用；且「靠 SKILL.md 明文约定要求 agent 弹窗」不稳定（agent 可能读漏），应改由脚本执行时抛出结构化指令让 agent 确定性弹窗，并顺带节省 SKILL.md 篇幅。

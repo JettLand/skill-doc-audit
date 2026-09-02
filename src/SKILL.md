@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.27.11"
+version: "1.27.12"
 license: MIT
 author: Jett
 agent_created: true
@@ -175,6 +175,18 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 
 一句话：**Agent 场景下的 deadcode 精度，永远由「Agent 显式传参」决定，而不是脚本的 `ask` 默认。** 这样精度选择权始终在用户手里，符合设计初衷。
 
+### examples 检查器同理（Agent 必须弹窗，不得静默替用户选档）
+
+`--all-checks` 已包含 `examples`，默认按 `ask`。**Agent 调用时与 deadcode/doc-llm 同一红线**：
+
+- **不得由 Agent 单方面传 `--examples-mode static` / `run` / `off` 来规避询问**（这正是「替用户决定」的反模式，用户已明令禁止）。除非用户在当次指令中已显式指定某档，否则一律跑默认 `ask`。
+- `ask` 在非交互（管道 / Agent 沙箱）下会降级为静态并发出 `examples_degraded` INFO finding，且**结构化决策载荷进入 JSON 顶层 `user_prompts`**；脚本同时在人类报告末尾打印醒目的「⚠ 需用户决策」块。
+- **Agent 读到 `user_prompts`（或报告里的「需用户决策」块）后，必须逐项调用 `AskUserQuestion` 向用户弹窗确认**，再按用户选择以显式 `--examples-mode run`（允许）或 `--examples-mode static`（拒绝）重跑；**严禁静默默认选 static 或 run**。
+
+### 全局铁律：user_prompts 必须弹窗，不可静默代决
+
+任何检查器（deadcode / doc-llm / examples …）在非交互环境降级时，其「需用户决策」诉求都会经由两条不可忽略的通道送达 Agent：① JSON 输出顶层 `user_prompts`；② 人类报告末尾的「⚠ 需用户决策」块。**Agent 的标准动作是：先解析输出 → 若存在 `user_prompts` 即调用 `AskUserQuestion` 逐项确认 → 再按用户选择显式重跑；绝不先替用户决定某个 `--*-mode` 再跑。** 显式传参仅当用户在本次指令中已明确授权某档时方可免问。
+
 ## 流程
 
 1. **备份并扫描**
@@ -268,7 +280,7 @@ cp SKILL.md.bak.<时间戳> SKILL.md
 校验**任意技能**文档里写出的命令示例是否站得住脚——避免「文档教用户的命令一跑就挂」这类漂移。默认 `ask`（交互询问是否允许沙箱试运行；非交互 / 超时回退 `static`），实际执行属需显式授权的可选能力；纯静态检查（零执行 / 零网络 / 零 token）仍是日常与 CI 的落地姿态。
 
 - **三档模式（`--examples-mode`）**：`ask`（默认，交互询问是否允许沙箱试运行，30 秒超时或本地非交互一律回退 static 并发 INFO finding `examples_degraded`）/ `static`（纯静态解析）/ `run`（受限沙箱试运行）/ `off`（跳过）。
-- **agent 操作约定（ask 模式非交互必须弹窗）**：当 **agent** 在交互终端外（非 TTY）调用 examples 时，ask 模式会降级为静态并发出 `examples_degraded` INFO finding（与 `doc-llm` 的 `doc_llm_skipped` 同构：结构化、含「请 agent 转交用户」建议）。**agent 必须据此用提问工具向用户弹窗确认**（选项：① 允许受限沙箱试运行 / ② 仅静态检查），再按用户选择以显式 `--examples-mode run`（允许）或 `--examples-mode static`（拒绝）重新调用本检查器；**严禁 agent 静默替用户默认选 static 或 run**。显式传 `--examples-mode` 即视为已授权，不会触发此约定。此约定保证「是否执行技能内脚本」这一安全决策始终由用户拍板。
+- **agent 弹窗约定（ask 非交互）**：`ask` 降级为静态并发 `examples_degraded` INFO，决策载荷进 JSON `user_prompts` 并在报告印「⚠ 需用户决策」块；**agent 必须据此 `AskUserQuestion` 向用户确认后以 `--examples-mode run/static` 重跑，严禁静默默认**。完整红线见「Agent 执行约定」。
 - **默认静态档查什么**：① 示例命令引用的脚本文件是否存在（`EXAMPLE_TARGET_MISSING`，仅核验 `.py/.js/.mjs/.ts/.sh/.ps1` 这类脚本扩展名，仓库引用 / 安装路径 / 输出文件一律跳过，避免误报）；② 传给脚本的参数是否在脚本中声明（`EXAMPLE_FLAG_UNKNOWN` WARN，仅 SKILL.md）；③ 示例调用的外部 CLI 是否在文档声明依赖（`EXAMPLE_EXT_CMD` INFO）；④ 是否含危险 / 不可逆命令（`EXAMPLE_DANGEROUS` ERROR/WARN）。纯文档快照（未取到代码）时退为 INFO，绝不把「没下载到」误判成「文件不存在」。
 - **安全红线（不可放宽）**：即便 `run` 模式也**绝不执行文档里的任意 shell**。只执行同时满足全部条件的命令：白名单解释器（python/python3/node）+ 无 shell 元字符（`; | & < > $ \` ( )` 等）+ 目标脚本在技能目录内 + 扩展名白名单 + 该示例块由作者显式标注了期望 + 受超时与条数上限约束。不满足即跳过并 INFO 说明，绝不「尽力执行」。
 - **示例标注语法（作者可选，供 run 模式比对）**：为示例围栏加标注 `{example expected-exit=0 expected-stdout="OK"}` 后，run 模式会执行并比对期望（仅白名单解释器 + 技能内脚本 + 超时保护）；未标注的示例任何模式都只做静态检查、不执行。

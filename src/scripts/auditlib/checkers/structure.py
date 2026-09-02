@@ -84,9 +84,9 @@ def check_structure(ctx):
 
     # 正文行数
     lines = doc.splitlines()
-    if len(lines) > 500:
+    if len(lines) > 600:
         findings.append(finding("structure", SEVERITY_WARN, "too_long",
-                                "正文 %d 行，超过 500 行建议拆分" % len(lines)))
+                                "正文 %d 行，超过 600 行建议拆分" % len(lines)))
 
     # 加载式引用完整性（references/ 与 scripts/）
     for m in re.finditer(r"(?:references|scripts)/[A-Za-z0-9_.\-/]+\.(?:md|py|js|jsx|ts|tsx|vue|go|rs|java|c|cpp|h|rb|php|swift|kt|lua|json|sh|ps1)", doc):

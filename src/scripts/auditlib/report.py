@@ -89,6 +89,16 @@ def print_human(results):
         receipt = checker_receipt_runs(r)
         if receipt:
             print("  " + receipt)
+        # 需用户决策（ask 模式非交互降级时检查器挂载的 user_decision）：
+        # 无论 agent 是否解析 JSON，都在人类报告末尾以醒目块呈现，杜绝「读漏未弹窗」。
+        prompts = [f.get("user_decision") for f in r["findings"] if f.get("user_decision")]
+        if prompts:
+            print("\n  ⚠ 需用户决策（Agent 必须调用提问工具向用户弹窗确认，不可静默代决）：")
+            for p in prompts:
+                opts = " / ".join("%s=%s" % (o["key"], o["label"]) for o in p["options"])
+                print("    · [%s] %s" % (p["checker"], p["question"]))
+                print("      选项: %s   默认=%s" % (opts, p["default"]))
+                print("      重跑: %s" % p["rerun_hint"])
         print("-" * 72)
 
 
