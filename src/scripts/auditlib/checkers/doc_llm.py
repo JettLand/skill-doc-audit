@@ -110,17 +110,34 @@ def _write_doc_llm_dossier(ctx):
     doc_sections = "\n\n".join(
         "## 文档 %s 全文\n\n%s" % (d["name"], d["content"]) for d in docs
     )
+    # 正向覆盖缺口预分析（v1.27.0）：确定性抽取「代码有、文档未写」的项，
+    # 直接列为比对要点，免去 agent 自行穷举对账（正是漏检的元凶）。与 doc 检查器
+    # DOC_CAPABILITY_MISSING 共用 compute_capability_gaps，避免两套实现漂移。
+    all_doc_text = "\n".join(d["content"] for d in docs)
+    try:
+        cg, fg = compute_capability_gaps(code, all_doc_text)
+        cov_rows = []
+        if cg:
+            cov_rows.append("- 检查器在代码注册但文档未提及：**%s**" % "、".join(cg))
+        if fg:
+            cov_rows.append("- 命令行参数在代码声明但文档未提及：**%s**" % "、".join(fg))
+        coverage = "\n".join(cov_rows) if cov_rows else "（未发现代码有、文档缺的正向覆盖缺口）"
+    except Exception as e:  # noqa: BLE001
+        coverage = "（无法生成覆盖缺口：%s）" % e
     content = (
         "# doc-llm 语义漂移检测 Dossier（agent 接手）\n\n"
         "本文件由 skill-doc-audit 生成，供 **agent 直接接手** 完成语义漂移检测。\n"
         "请勿依赖任何外部 LLM；agent 应使用自身能力比对下方材料。\n\n"
         "%s\n\n"
         "## 代码事实清单（由源码抽取：顶层定义 / CLI 参数 / 返回码 / 常量）\n\n%s\n\n"
+        "## 正向覆盖缺口（代码有、文档未写，确定性预检）\n\n%s\n\n"
         "## 比对要点\n"
-        "逐条核对上述各文档声称的：能力范围、默认值、行为、数量、集合、CLI 参数、退出码、配置项 —— "
+        "1. 先核对上方「正向覆盖缺口」：这些项代码已具备但文档未写，是最可能漏更新之处，"
+        "优先补文档或确认是否应移除代码能力。\n"
+        "2. 再逐条核对各文档声称的：能力范围、默认值、行为、数量、集合、CLI 参数、退出码、配置项 —— "
         "是否与代码事实清单一致。\n"
         "仅报告确有依据的语义漂移（文档说法与代码事实冲突），不报告风格/措辞问题。\n"
-    ) % (doc_sections, sheet)
+    ) % (doc_sections, sheet, coverage)
     path = os.path.join(tempfile.gettempdir(), "skill_doc_audit_doc_llm_dossier.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)

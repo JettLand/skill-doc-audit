@@ -5,7 +5,17 @@
 > 排序：版本号降序（最新在前）。
 
 
-## 未发布改动（dev-only 工具链；不进部署副本，技能能力未变故不 bump 版本）
+## 1.27.0 打磨明细（正向能力覆盖检查器 DOC_CAPABILITY_MISSING + 开发套件收口）
+
+### 正向能力覆盖检查器 `DOC_CAPABILITY_MISSING`（doc 检查器增强，v1.27.0）
+- **动机**：用户多次人工审核发现文档总是漏更新（如 examples #9 在「能力边界」漏列、开发文档 `DETERMINISTIC` 漏列）。原 `doc-llm` 是 agent 语义接手、非确定性、INFO 不阻断，**正是漏检的元凶**——把命门放在最不可靠的那层。故能力缺口检测改为**确定性**落地在 `doc` 检查器（Vector 1），与 `EXIT_CODE_ONLY`/`DOC_COUNT_DRIFT` 同族。
+- **判定（`doc` 检查器 C3 段）**：仅当目标技能使用本框架（代码含 `ALL_CHECKERS` 标记，即审计自家技能）才做强校验，避免对第三方技能误报；
+  - 检查器枚举覆盖：注册的每个检查器名须以独立 token 出现在 SKILL.md / references 文档（边界负向断言避免 `doc` 误匹配 `document` / `doc-llm`）；
+  - 正向能力覆盖（CLI 参数）：仅扫用户面向入口 `cli.py` 声明的 `--` 参数（排除 dev 工具私有参数），剔除 `INTERNAL_CLI_FLAGS`（CI/高级/调试用途），任一被扫文档出现即视为已文档化；
+  - 与 `DOC_CAPABILITY_DRIFT`（文档声称、代码无，反向）正反向对称，统一 `WARN`（与 `DOC_COUNT_DRIFT` 同级，`--strict` 下阻断发布，强制补文档）。
+- **doc-llm 同步增强**：dossier 新增「正向覆盖缺口」预分析段，调用同一 `compute_capability_gaps()`（与 doc 检查器共用、单一真相源、免两套实现漂移），把代码有文档缺的检查器名 / CLI 参数直接列为 agent 比对要点，免去其自行穷举对账。即「两者都要」：doc 出确定性 WARN 兜底 + doc-llm fact sheet 补缺口段供语义复核。
+- **共享逻辑**：`core.py` 新增 `CLI_FLAG_RE` / `INTERNAL_CLI_FLAGS` / `cap_token_present()` / `compute_capability_gaps()`；`CATEGORY_LABELS` 登记 `DOC_CAPABILITY_MISSING`。
+- 验证（正向）：人为从文档并集抠掉 `--examples-timeout`，C3 立即报其为缺口；反向/既有：本仓库文档完整时 C3 为 0 缺口；`self_validate` 4 fixture 因 `blob` 不含 `ALL_CHECKERS` 不触发 C3、黄金快照不变、全 PASS；`dev_self_audit --strict` 发布面 `ERROR 0 / WARN 0 / INFO 35`。
 
 ### 同步钩子不再自动打包，发布改为「市场自行重打包」（dev-only）
 - **动机**：`skillhub publish <技能目录>` 时市场会自行重打包，本地 `dist/*.zip` 无用；更糟的是被发布目录内若含 `.zip` 会被市场拒收（`400 不允许的文件类型: dist/skill-doc-audit.zip`）——v1.26.0 上架时实测踩到，当时只能临时复制一份排除 `dist/` 的副本来绕开。

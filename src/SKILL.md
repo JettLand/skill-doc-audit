@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能文档审计
 description: 技能文档审计：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.26.0"
+version: "1.27.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -23,7 +23,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 
 **脚本能可靠判定的（低误报，通常就是偏差）** —— 由以下检查器产出，可按需启用（模式机制 / 判定口径 / 误报抑制详见 `references/checkers.md`）：
 
-- `doc`（常驻默认开）：文档一致性——死引用 `DEAD_PATH`、失效命令行参数 `DEAD_FLAG`、退出码不符、枚举/数量/能力声明与代码事实不符；自由散文语义漂移由 `doc-llm` 补足。
+- `doc`（常驻默认开）：文档一致性——死引用 `DEAD_PATH`、失效命令行参数 `DEAD_FLAG`、退出码不符、枚举/数量/能力声明与代码事实不符、正向能力覆盖 `DOC_CAPABILITY_MISSING`（代码注册的能力/参数、文档未写）；自由散文语义漂移由 `doc-llm` 补足。
 - `structure`：结构体检 + 元信息（frontmatter / 标题 / 引用）。
 - `security`：安全红线静态子集（硬编码密钥、路径穿越、危险通配删除等）。
 - `runtime`：脚本可运行性（语法 / 引用缺失）。
@@ -361,11 +361,12 @@ python scripts/audit_docs.py --skill src --all-checks
 | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致（如 deadcode 模式列表） | WARN |
 | `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致（如「N 个检查器」） | WARN |
 | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | WARN |
+| `DOC_CAPABILITY_MISSING` | 代码声明的能力文档未提及（正向覆盖缺口） | WARN |
 | `DOC_LLM_DRIFT` | 文档/代码语义漂移（agent 判定，doc-llm） | WARN |
 | `doc_llm_agent_handoff` | 语义漂移检测已转交 agent 接手（dossier 已写入，agent 将自行比对） | INFO |
 | `doc_llm_skipped` | 全量检测中语义漂移检测跳过（非交互环境，未调用任何 LLM） | INFO |
 
-> 结构化声明 ↔ 代码事实交叉校验（`DOC_ENUM_DRIFT` / `DOC_COUNT_DRIFT` / `DOC_CAPABILITY_DRIFT`，均 `WARN` 仅作线索）；自由散文语义漂移由独立的 `doc-llm` 检查器覆盖（由 agent 直接接手、不再调外部 LLM）。完整机制见 `references/checkers.md`。
+> 结构化声明 ↔ 代码事实交叉校验（`DOC_ENUM_DRIFT` / `DOC_COUNT_DRIFT` / `DOC_CAPABILITY_DRIFT` / `DOC_CAPABILITY_MISSING`，均 `WARN` 仅作线索）；自由散文语义漂移由独立的 `doc-llm` 检查器覆盖（由 agent 直接接手、不再调外部 LLM）。完整机制见 `references/checkers.md`。
 
 ### structure（结构体检 + 元信息）
 

@@ -146,6 +146,7 @@ CATEGORY_LABELS = {
     "DOC_ENUM_DRIFT": "文档枚举/集合与代码不一致",
     "DOC_COUNT_DRIFT": "文档数量声明与代码不一致",
     "DOC_CAPABILITY_DRIFT": "文档声称的能力在代码中无对应实现",
+    "DOC_CAPABILITY_MISSING": "代码声明的能力文档未提及（能力覆盖缺口）",
     # doc-llm：语义漂移检测（Vector 2，v1.22.0 引入、v1.23.0 纳入全量，v1.24.0 起由 agent 直接接手，不再依赖外部 LLM）
     "DOC_LLM_DRIFT": "文档/代码语义漂移（agent 判定）",
     "doc_llm_agent_handoff": "语义漂移检测已转交 agent 接手",
@@ -243,6 +244,51 @@ DOC_MODE_BRACE_RE = re.compile(r"\{([a-z]+(?:,[a-z]+)*)\}")
 DOC_MODE_SLASH_RE = re.compile(r"`([a-z]+(?:/[a-z]+){1,})`")
 # 能力声明动词（文档声称提供/支持/默认/自动/移除/弃用/停用/废弃/新增/包含某能力）
 CAP_VERB_RE = re.compile(r"提供|支持|默认|自动|移除|弃用|停用|废弃|新增|包含")
+
+# --------------------------------------------------------------------------- #
+# 正向能力覆盖（v1.27.0，DOC_CAPABILITY_MISSING）：代码声明的能力/参数在文档中缺失
+# —— 与 DOC_CAPABILITY_DRIFT（文档声称、代码无）正反向对称。
+# 仅当目标技能使用本框架（代码含 ALL_CHECKERS 标记）时做强校验（WARN，阻断发布），
+# 避免对第三方技能误报；其他技能不跑本检查（见 doc.check_doc 的 C3 段）。
+# --------------------------------------------------------------------------- #
+# 从代码 blob 抽取「add_argument("--x")」声明的长参数（用户面向 CLI 表面）
+CLI_FLAG_RE = re.compile(r'add_argument\(\s*["\'](--[A-Za-z0-9_-]+)')
+# 不要求出现在用户文档的 CLI 参数（CI / 高级 / 调试用途），避免无谓 WARN
+INTERNAL_CLI_FLAGS = {
+    "--json", "--strict", "--timeout", "--max-file-size",
+    "--source", "--ref", "--keep-temp", "--report", "--target",
+    "--verify", "--dev-docs",
+}
+
+def cap_token_present(name, text):
+    """检查器名是否作为独立 token 出现在文本。
+
+    用边界负向断言避免「doc」误匹配「document」、「doc-llm」误匹配「doc」。
+    """
+    return re.search(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text) is not None
+
+def compute_capability_gaps(code, doc):
+    """返回 (checker_gaps, flag_gaps)：代码有但文档未提及的检查器名 / CLI 参数。
+
+    - code：{rel: content} 代码字典；doc：被扫文档全文并集（SKILL.md + references 等）。
+    - 仅当目标使用本框架（代码含 ALL_CHECKERS 标记）才计算，否则返回双空列表——
+      避免对第三方技能误报（其能力契约我们无从知晓，误报比漏报更糟）。
+    - CLI 参数只扫**用户面向入口 cli.py**（排除 dev 工具 make_fixtures/self_validate 等的
+      私有参数），再剔除 INTERNAL_CLI_FLAGS；出现在任一被扫文档即视为已文档化。
+    由 doc 检查器（发为发现）与 doc-llm（写入 dossier 供语义复核）共用，避免两套实现漂移。
+    """
+    checker_gaps, flag_gaps = [], []
+    blob = "\n".join(code.values()) if isinstance(code, dict) else str(code)
+    if "ALL_CHECKERS" in blob:
+        for name in ALL_CHECKERS:
+            if not cap_token_present(name, doc):
+                checker_gaps.append(name)
+        cli_text = "\n".join(c for rel, c in code.items()
+                              if rel.replace("\\", "/").endswith("cli.py"))
+        for fl in sorted(set(CLI_FLAG_RE.findall(cli_text)) - INTERNAL_CLI_FLAGS):
+            if fl not in doc:
+                flag_gaps.append(fl)
+    return checker_gaps, flag_gaps
 
 
 def category_cn(category):

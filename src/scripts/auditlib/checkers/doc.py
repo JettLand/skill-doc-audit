@@ -164,6 +164,24 @@ def check_doc(ctx):
                                         "配置项全集(%d): %s；文档未出现: %s" % (
                                             len(cfg_keys), ", ".join(cfg_keys),
                                             ", ".join(cfg_missing) or "无")))
+
+        # C3 正向能力覆盖（代码有、文档没写）——与 DOC_CAPABILITY_DRIFT 正反向对称（v1.27.0）
+        # 仅当目标技能使用本框架（blob 含 ALL_CHECKERS 标记，即审计自家技能）才做强校验，
+        # 避免对第三方技能误报；第三方技能不跑本段（其能力契约我们无从知晓，误报比漏报更糟）。
+        # 文档比对用全部被扫文档并集（SKILL.md + references 等），避免「写在 checkers.md 却被判缺失」。
+        if doc_name == "SKILL.md" and "ALL_CHECKERS" in blob:
+            all_doc_text = "\n".join(d["content"] for d in docs)
+            checker_gaps, flag_gaps = compute_capability_gaps(code, all_doc_text)
+            for name in checker_gaps:
+                findings.append(finding("doc", SEVERITY_WARN, "DOC_CAPABILITY_MISSING",
+                                        "代码注册了检查器 %s，但 SKILL.md 未提及（能力目录漏列）" % name,
+                                        file=doc_name,
+                                        suggestion="在「能力边界」或检查器章节补 %s 的说明" % name))
+            for fl in flag_gaps:
+                findings.append(finding("doc", SEVERITY_WARN, "DOC_CAPABILITY_MISSING",
+                                        "代码声明了命令行参数 %s 但文档未提及（用户面向参数应写入文档）" % fl,
+                                        file=doc_name,
+                                        suggestion="在 SKILL.md / checkers.md 的 CLI 速查补 %s 说明" % fl))
     return findings
 
 
