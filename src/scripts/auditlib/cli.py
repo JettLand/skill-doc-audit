@@ -31,6 +31,11 @@ def main():
                     help="examples run 模式下单条示例命令执行超时秒数（默认 20）")
     ap.add_argument("--examples-max-cmd", type=int, default=12,
                     help="examples run 模式下单技能最多执行的示例命令条数（默认 12，防突刺）")
+    ap.add_argument("--examples-consent", action="store_true",
+                    help="示例执行验证的用户授权令牌（v1.27.13）：agent 在非交互（自动化）环境下显式指定 "
+                         "--examples-mode run/static/off 时，必须同时携带本旗标，证明该档位来自用户本次指令的"
+                         "明确授权；缺省则脚本判定为 agent 静默替用户决定档位，阻断执行并报告 "
+                         "examples_consent_missing（ERROR）。交互（真人终端）场景无需本旗标。")
     ap.add_argument("--preview", action="store_true",
                     help="只预览将运行哪些检查器、将扫描哪些文件，不产出发现，退出码 0（适合首次审计前心里有数）")
     ap.add_argument("--source", default="local", choices=list(SOURCES),

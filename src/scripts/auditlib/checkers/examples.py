@@ -275,29 +275,36 @@ def _declared_flags(script_path, skill_dir):
 # 模式解析（static / ask / run / off）
 # --------------------------------------------------------------------------- #
 def _resolve_examples_mode(args):
-    """决定 examples 模式与是否「非交互降级」。
+    """决定 examples 模式与是否「非交互降级 / 授权缺失阻断」。
 
     返回 (mode, degraded, reason)，与 _resolve_doc_llm_mode 同构：
     - mode: "static" | "run" | "off"
     - degraded: bool，本次是否因「非交互环境未经用户确认」而停留在静态档（未沙箱试运行）
-    - reason: str|None，降级原因（供 check_examples 发结构化 finding，让 agent 可读到并转交用户）
+    - reason: str|None，降级/阻断原因（供 check_examples 发结构化 finding，让 agent 可读到并转交用户）
 
-    与 deadcode / doc-llm 的 ask 惯例一致：非交互环境（管道 / Agent 自动化）绝不卡住等待输入，
-    直接回退最保守档（static）并标记 degraded=True，由 check_examples 发出显著 INFO finding
-    （含「请 agent 向用户确认后显式重跑」的建议），杜绝「静默降级」——agent 读到该 finding 须
-    用提问工具向用户确认，而非静默代用户决定。
+    设计原则（v1.27.13）：把「是否执行技能内脚本」这一安全决策强制交还用户，
+    不依赖 SKILL.md 散文约定（agent 可能读漏），改由代码 consent 闸门自执行：
+    - ask 默认：非交互环境直接降级 static 并发出 user_prompts（结构化、机读），由 agent 转交用户；
+    - 显式 run/static/off：交互终端（真人即用户）可直接生效；非交互（agent）环境必须携带
+      --examples-consent 授权令牌，否则判定为 agent 静默替用户决定档位，返回 reason="consent_missing"
+      交由 check_examples 发阻断级 finding（examples_consent_missing），拒绝执行。
     """
-    mode = getattr(args, "examples_mode", "static") if args else "static"
+    mode = getattr(args, "examples_mode", "ask") if args else "ask"
     if mode not in EXAMPLES_MODES:
-        mode = "static"
-    if mode != "ask":
+        mode = "ask"
+    if mode == "ask":
+        if not is_interactive():
+            sys.stderr.write(
+                "[examples] 非交互（自动化）环境，未获授权执行示例命令，"
+                "采用纯静态检查（如需试运行请由 agent 转交用户决策后显式重跑）。\n")
+            return "static", True, "ask 模式处于非交互（自动化）环境，无法向用户询问，已回退默认（纯静态）模式"
+        return _prompt_examples_mode()
+    # 显式 run/static/off：交互终端（真人即用户）或已携 --examples-consent 授权令牌方可行
+    consent = getattr(args, "examples_consent", False)
+    if is_interactive() or consent:
         return mode, False, None
-    if not sys.stdin.isatty():
-        sys.stderr.write(
-            "[examples] 非交互（自动化）环境，未获授权执行示例命令，"
-            "采用纯静态检查（如需试运行请显式指定 --examples-mode run）。\n")
-        return "static", True, "ask 模式处于非交互（自动化）环境，无法向用户询问，已回退默认（纯静态）模式"
-    return _prompt_examples_mode()
+    # agent 在非交互环境显式指定档位却无用户授权令牌 → 阻断（视为静默替用户决定）
+    return mode, False, "consent_missing"
 
 
 def _prompt_examples_mode():
@@ -411,13 +418,32 @@ def check_examples(ctx):
     mode, degraded, reason = _resolve_examples_mode(args)
     if mode == "off":
         return findings
+    if reason == "consent_missing":
+        # agent 非交互环境显式指定档位却无用户授权令牌 → 阻断（不执行任何示例命令）
+        findings.append(finding(
+            "examples", SEVERITY_ERROR, "examples_consent_missing",
+            "示例执行验证遭拒（examples_consent_missing）：agent 在非交互（自动化）环境下显式指定了 "
+            "--examples-mode %s，但未携带用户授权令牌 --examples-consent，判定为 agent 静默替用户决定档位，"
+            "已阻断执行、未运行任何示例命令。正确做法二选一：① 不传 --examples-mode（默认 ask → 非交互降级"
+            "为纯静态并发出 user_prompts，由 agent 转交用户决策）；② 仅当用户在本次指令中已明确指定某档时，"
+            "才以 --examples-mode %s --examples-consent 显式重跑。" % (mode, mode),
+            user_decision=user_decision(
+                "examples",
+                "示例执行验证是否允许受限沙箱试运行？（agent 显式指定 %s 但无用户授权，已阻断）" % mode,
+                [("1", "仅静态检查（默认，零执行 / 零网络 / 零 token）"),
+                 ("2", "受限沙箱试运行（白名单软隔离，绝不执行任意 shell / 外部命令）")],
+                default="1",
+                rerun_hint="python audit_docs.py --skill <技能目录> --examples-mode %s --examples-consent" % mode,
+            )))
+        return findings
     if degraded:
         findings.append(finding(
             "examples", SEVERITY_INFO, "examples_degraded",
             "示例执行验证已降级（examples_degraded）：当前为非交互（agent/自动化）环境、ask 模式"
             "无法向用户弹窗确认，已仅做纯静态检查。是否允许受限沙箱试运行属安全确认，须由用户决定——"
             "请 agent 用提问工具向用户确认（选项：允许沙箱试运行 / 仅静态检查），再按用户选择以显式"
-            " --examples-mode run（允许）或 --examples-mode static（拒绝）重新调用本检查器；切勿静默代用户默认。",
+            " --examples-mode run --examples-consent（允许）或 --examples-mode static --examples-consent（拒绝）"
+            "重新调用本检查器；切勿静默代用户默认。",
             suggestion="run 模式为白名单软沙箱（非 OS 级隔离），执行的技能内脚本仍以当前用户权限运行，"
                        "可能读写本地文件或发起网络访问；仅对信任的技能选 run。与 doc-llm 的 agent 接手约定一致："
                        "非交互环境的决策须交由用户确认，而非脚本静默替决。",
@@ -427,7 +453,7 @@ def check_examples(ctx):
                 [("1", "仅静态检查（默认，零执行 / 零网络 / 零 token）"),
                  ("2", "受限沙箱试运行（白名单软隔离，绝不执行任意 shell / 外部命令）")],
                 default="1",
-                rerun_hint="python audit_docs.py --skill <技能目录> --examples-mode run   # 或 static",
+                rerun_hint="python audit_docs.py --skill <技能目录> --examples-mode run --examples-consent   # 或 static --examples-consent",
             )))
 
     skill_dir = ctx["skill_dir"]

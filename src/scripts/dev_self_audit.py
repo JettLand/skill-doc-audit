@@ -171,6 +171,8 @@ def main():
         # examples：开发者模式审计「自家」技能源码，执行自家带 expected 标注的示例是受控且安全的，
         # 故默认 run（受限沙箱试运行）以捕获示例输出漂移；第三方技能仍须经 --examples-mode run 显式授权。
         examples_mode="run",
+        # 开发者自审计即「开发者已明确授权 run」，携带 consent 令牌避免触发 consent_missing 阻断闸门
+        examples_consent=True,
         max_file_size=2_000_000,
     )
     dev_docs = [os.path.join(ROOT, "README.md"), os.path.join(ROOT, "CHANGELOG.md")]

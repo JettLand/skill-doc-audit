@@ -5,6 +5,18 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.13 打磨明细（examples 弹窗强约束改由代码 consent 闸门自执行，删除 Agent 执行约定散文）
+
+- **动机**：用户指出 v1.27.12 仍依赖 SKILL.md 散文（「Agent 执行约定」整段）强约束 agent 弹窗，与 v1.27.11「少靠散文、改由脚本抛指令」的意图相悖；且运行时 `user_prompts` 信号只能纠正「进了 ask 分支」的情况，管不了 agent 在「跑前」单方面传 `--examples-mode` 规避询问（正是此前未弹窗的根因）。
+
+- **改动**：
+  - `examples.py`：新增 consent 闸门——非交互（agent）环境显式指定 `--examples-mode run/static/off` 但未携带 `--examples-consent` 授权令牌时，返回 `consent_missing` 并由 `check_examples` 发阻断级 `examples_consent_missing`（ERROR），**拒绝执行任何示例命令**；交互（真人终端）场景无需令牌。默认 ask 在非交互下仍降级 static + `user_prompts`（结构化、机读），决策交还用户。`examples_degraded` 的 `rerun_hint` 同步补 `--examples-consent`。
+  - `cli.py`：新增 `--examples-consent`（store_true）授权令牌旗标，help 文本说明语义。
+  - `dev_self_audit.py`：`cli_args` 增 `examples_consent=True`（开发者审计自家源码、run 模式受控安全，即「已明确授权」），避免误触阻断闸门。
+  - `SKILL.md`：删除「Agent 执行约定」整段强制散文（deadcode/doc-llm/examples/全局铁律四节），仅保留用法参考与检查器能力说明中的精准描述；`examples` 检查器章节重跑命令补 `--examples-consent`。强制逻辑完全代码化。
+
+- **验证**：`py_compile` 全过；`dev_self_audit --strict` ERROR 0 / WARN 0；`self_validate` 4 fixture 全 PASS（`finding_signature` 比对不含 `user_decision`/`rerun_hint`，改 `rerun_hint` 不破坏快照；`examples_consent_missing` 仅非交互+显式档+无令牌时触发，self_validate 默认 ask 不命中）。四处版本号一致 1.27.13。
+
 ## 1.27.12 打磨明细（修复 EXIT_CODE_ONLY 误报 + 硬化 examples 弹窗强约束）
 
 - **动机**：① 用户实测部署副本全量审计时发现 `doc` 检查器对自家源码（`src`，含 DEV_TOOLS）误报 `EXIT_CODE_ONLY 0/2`；② 用户指出 examples 检查器在 agent 调用时未向其弹窗提问——根因是上一轮审计 agent 单方面传 `--examples-mode static` 规避了 ask 模式，且「user_prompts 弹窗」缺乏一份显式不可忽略的 Agent 执行强约束。

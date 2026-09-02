@@ -1,4 +1,5 @@
 import glob, os, sys, json, argparse
+from types import SimpleNamespace
 
 # ---- 仓库根解析（fresh-clone 安全：完全基于 __file__，不依赖 CWD）----
 HERE = os.path.dirname(os.path.abspath(__file__))          # <root>/src/scripts
@@ -103,7 +104,17 @@ def main():
         if not os.path.isdir(fx_path):
             fail('fixture 不存在：%s\n（可运行 `python src/scripts/make_fixtures.py` 重建 tests/fixtures/）' % fx_path)
 
-        results = analyze_skill(fx_path, enabled=list(checkers), args=None)
+        # examples 检查器默认 ask 在非交互/pty 环境下会走交互提示或降级，导致黄金快照不确定；
+        # 黄金快照按「纯静态」(examples_mode=static) 生成（EXAMPLE_UNVERIFIED 标注「未做执行验证」，
+        # 且无 examples_degraded），故此处显式以 static + examples_consent 授权运行，使 examples
+        # 确定性可比对、不触发交互/降级/阻断闸门（self_validate 仅校验确定性行为）。
+        _sv_args = SimpleNamespace(
+            examples_mode="static",
+            examples_consent=True,
+            examples_max_cmd=12,
+            examples_timeout=20,
+        )
+        results = analyze_skill(fx_path, enabled=list(checkers), args=_sv_args)
         got = normalize(results)
 
         if args.baseline:

@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.27.12"
+version: "1.27.13"
 license: MIT
 author: Jett
 agent_created: true
@@ -80,6 +80,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks
 
 # 3) 先预览再审计（看清楚会扫哪些检查器、哪些文件，退出码 0）
 python scripts/audit_docs.py --skill <目录> --all-checks --preview
+# examples 示例执行验证：默认 ask（非交互降级纯静态）；agent 非交互显式 --examples-mode 须附 --examples-consent 授权令牌（否则阻断并报告 examples_consent_missing）
 ```
 
 想做某件事，直接用对应命令要点：
@@ -134,58 +135,6 @@ python scripts/audit_docs.py --skill <技能目录> --all-checks
 
 审计结束后临时目录默认自动清理；加 `--keep-temp` 可保留并打印路径，便于排查。
 
-## Agent 执行约定（deadcode 精度模式 / doc-llm 语义检测必须显式决策）
-
-本技能的 `deadcode` 默认精度模式为 `ask`，其「询问」是基于**人类交互终端（TTY）**的 `input()` 现场提示。但当你（Agent）替用户执行 `--all-checks` 时，脚本是通过管道运行的（`stdin` 非 TTY），`input()` 既无法显示也无法接收用户输入，于是脚本只能**静默降级为零依赖 `ast` 模式**——用户的精度选择权被悄悄吞掉，与设计初衷（精度应由用户决定）相悖。实测表现即「Agent 跑全量检测时 deadcode 只跑 AST、跳过询问」。
-
-因此，**Agent 在运行任何包含 deadcode 的全量审计前，必须显式决策并把结果以 `--deadcode-mode` 传入，绝不依赖 `ask` 默认**。标准动作如下：
-
-1. **探测 vulture 是否已安装**（零副作用）：
-   ```sh
-   python -c "import vulture" 2>/dev/null && echo HAVE || echo NONE
-   ```
-2. **已装** → 直接以高精度运行：
-   ```sh
-   python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture
-   ```
-3. **未装** → **主动用 AskUserQuestion 询问用户三选一**（不要替用户默认 ast），再把选择显式传入：
-   - 「安装 vulture 后走高精度」：先 `pip install vulture`，再 `--deadcode-mode vulture`；
-   - 「直接零依赖 AST 跑（精度略低）」：`--deadcode-mode ast`；
-   - 「本次跳过 deadcode」：`--deadcode-mode skip`。
-
-### doc-llm 语义检测同理（由 agent 直接接手，无需外部 LLM）
-
-`--all-checks` 已包含 `doc-llm`，默认按 `ask` 处理。但**「ask」的载体因调用方式而异，且 Agent 场景必须用原生交互**：
-
-- **真实交互终端（tty 且有用户在场）**：CLI 直接弹 stdin 菜单询问，30 秒超时默认不启用。
-- **Agent 调用（本技能的主场景）**：Agent 沙箱没有用户能键入的终端，CLI 的 stdin 菜单虽会打印却**收不到输入**（实测：打印后空等约 30s 超时回退默认）。因此 **Agent 必须改用其原生的 `AskUserQuestion` 工具把 doc-llm 选择权抛给用户**，再按选择显式传参——这是「通过 agent 调用也要弹出菜单让用户选择」的正确实现，也契合「绝不替用户决定」红线。
-- **管道/CI（stdin 非 tty）**：弹不出菜单，记 INFO `doc_llm_skipped`（不联网、不消耗 token，INFO 非 WARN，不影响「全量检测 WARN 0」）。
-
-> 语义漂移检测由 agent 直接接手、不再依赖外部 LLM（会占用 agent 自身推理 token，但不向外部服务付费）；「预览」选项已移除。脚本职责收窄为：准备材料 → 落盘 dossier → 打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵 → 由 agent 读取判定。完整机制见 `references/checkers.md`。
-
-**Agent 调用时的标准动作（必须执行，不得省略询问）：**
-1. 运行 `--all-checks`（或 `--check doc-llm`）**前**，先调用 `AskUserQuestion` 向用户呈现 doc 检查器的语义检测模式。**使用以下统一措辞模板**（经用户改进，问题与选项文本必须原样使用，便于理解）：
-   - **question**：`运行doc检查器（默认常驻）时，你希望采用哪种模式？`
-   - **header**：`doc 检查`（≤12 字符）
-   - **选项 1** label `默认模式（静态脚本检查，零依赖）` / desc `推荐 · 不调用 LLM · 0 token · 离线`
-   - **选项 2** label `启用语义漂移检查（agent介入，消耗额外token）` / desc `agent 读取 SKILL.md 与代码事实清单，用自身能力比对；会占用 agent 推理 token（输入侧为主），但不依赖外部 LLM、无需付费`
-2. 按用户选择显式传参后再运行：默认→`--doc-llm-mode off`；agent 接手→`--doc-llm-mode agent`。**此举既不触发 CLI 的 30s 空等，又把决定权交还用户。**
-3. **红线**：Agent 不得跳过询问直接默认/跳过（那才是「替用户决定」）；也不得在用户未选「agent 接手」时擅自宣布已做语义检测。用户在指令中已明确指定模式时，可免问直接照办。
-4. **仅当明确处于无人值守的 CI / 自动化链路**时，才允许不经询问直接 `--deadcode-mode ast`（此时静默降级即预期行为）。
-
-一句话：**Agent 场景下的 deadcode 精度，永远由「Agent 显式传参」决定，而不是脚本的 `ask` 默认。** 这样精度选择权始终在用户手里，符合设计初衷。
-
-### examples 检查器同理（Agent 必须弹窗，不得静默替用户选档）
-
-`--all-checks` 已包含 `examples`，默认按 `ask`。**Agent 调用时与 deadcode/doc-llm 同一红线**：
-
-- **不得由 Agent 单方面传 `--examples-mode static` / `run` / `off` 来规避询问**（这正是「替用户决定」的反模式，用户已明令禁止）。除非用户在当次指令中已显式指定某档，否则一律跑默认 `ask`。
-- `ask` 在非交互（管道 / Agent 沙箱）下会降级为静态并发出 `examples_degraded` INFO finding，且**结构化决策载荷进入 JSON 顶层 `user_prompts`**；脚本同时在人类报告末尾打印醒目的「⚠ 需用户决策」块。
-- **Agent 读到 `user_prompts`（或报告里的「需用户决策」块）后，必须逐项调用 `AskUserQuestion` 向用户弹窗确认**，再按用户选择以显式 `--examples-mode run`（允许）或 `--examples-mode static`（拒绝）重跑；**严禁静默默认选 static 或 run**。
-
-### 全局铁律：user_prompts 必须弹窗，不可静默代决
-
-任何检查器（deadcode / doc-llm / examples …）在非交互环境降级时，其「需用户决策」诉求都会经由两条不可忽略的通道送达 Agent：① JSON 输出顶层 `user_prompts`；② 人类报告末尾的「⚠ 需用户决策」块。**Agent 的标准动作是：先解析输出 → 若存在 `user_prompts` 即调用 `AskUserQuestion` 逐项确认 → 再按用户选择显式重跑；绝不先替用户决定某个 `--*-mode` 再跑。** 显式传参仅当用户在本次指令中已明确授权某档时方可免问。
 
 ## 流程
 
@@ -237,6 +186,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --max-file-size 20000
 python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture
 # 先预览将运行哪些检查器、将扫描哪些文件（不产出发现，退出码 0）
 python scripts/audit_docs.py --skill <目录> --all-checks --preview
+# examples 示例执行验证：默认 ask（非交互降级纯静态）；agent 非交互显式 --examples-mode 须附 --examples-consent 授权令牌（否则阻断并报告 examples_consent_missing）
 
 # 多平台来源：克隆 GitHub 仓库并审计（可 @分支；仓库内 SKILL.md 在 src/ 也能自动定位）
 python scripts/audit_docs.py --source github --ref owner/repo --all-checks
