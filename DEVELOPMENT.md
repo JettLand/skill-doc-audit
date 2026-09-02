@@ -200,7 +200,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | 3 | `[agent-todo][WARN]` | `SKILL.md version` 高于 `CHANGELOG.md` 最高版本节 | `将 CHANGELOG.md 的「未发布改动」节提升为 '<SKILL版本> 打磨明细' 节后再提交` | **是** |
 | 4 | `[agent-todo][INFO]` | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py`；或仓库根/`src` 下存在 `*.bak`/`*.bak.*` 过时备份 | `及时清理 temp/ 测试残留与 `*.bak` 备份（默认保留最近 3 个、更早的删除）；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` | 否 |
 | 5 | `[agent-todo][建议]` | 次/主版本（x.y.z 中 x 或 y）变动 | `建议运行「市场质量基准实测器」验证规模化行为是否稳定：python src/scripts/dev_market_bench.py run`（不自动跑，由 Agent 评估后决定） | 否 |
-| 6 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行 doc + doc-llm 文档自审计（开发者模式）：python src/scripts/audit_docs.py --skill <部署副本路径> --check doc --check doc-llm --doc-llm-mode agent`。`<部署副本路径>` 由 `resolve_deploy_dir()` 动态解析后打印（非标准安装/跨 agent 亦正确，通常是 `~/.workbuddy/skills/skill-doc-audit`）；doc-llm 产出语义漂移 dossier，需 agent 接手判读；也可执行 `dev_self_audit.py --dev-docs` 一并扫 README/CHANGELOG | **是** |
+| 6 | `[agent-todo][必须]`（阻断） | 补丁号（x.y.z 中 **z**）变动 | `必须执行 doc + doc-llm 文档自审计（开发者模式）：python src/scripts/audit_docs.py --skill <部署副本路径> --check doc --check doc-llm --doc-llm-mode agent`。`<部署副本路径>` 由 `resolve_deploy_dir()` 动态解析后打印（非标准安装/跨 agent 亦正确，通常是 `~/.workbuddy/skills/skill-doc-audit`）；doc-llm 产出语义漂移 dossier，需 agent 接手判读；也可执行 `dev_self_audit.py --dev-docs` 一并扫 README/CHANGELOG。→ **次/主版本（x / y）变动不触发本条**：其文档/结构漂移已由第 7 类全量自审计（`--all-checks`，含 doc + doc-llm）覆盖，避免重复提醒 | **是** |
 | 7 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行开发者模式全量自审计（维护整体质量）：python src/scripts/dev_self_audit.py --dev-docs --strict`（全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移） | **是** |
 | 8 | `[agent-todo][必须]`（阻断） | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）`：SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish。→ 先询问用户取得授权；获准后 `skillhub publish <技能目录> --changelog "..." --json`（发布目录内**不得含 `dist/` 或任何 `.zip`**：市场自行重打包，目录内含 zip 会返回 400「不允许的文件类型」） | **是** |
 | 9 | `[agent-todo][建议]` | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `版本变动时用户文档（SKILL.md / references/*）无需写入版本变动叙述`：如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身。→ 发版前复核 SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除 | 否 |
@@ -220,22 +220,18 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 ```
 
 > 第 5–9 类 `[agent-todo]`（版本变动提示）与第 10 类（常驻通用提示，检测未提交改动）均来自 `dev_market_bench.py check-bump`，由 `dev_self_audit.py` 经 `_parse_check_bump` 解析后并入同一「发布前待办」块（[必须] 进 rel_block 阻断、[建议] 进 rel_info 不阻断），**不再纯透传 stdout**；与上面的 release_check 提示合并显示。
-> - **第 5–7 类**仅当次版本 / 主版本（x.y.z 中的 x 或 y）发生变动时才打印；日常**补丁号**变动（x.y.**z**，如 1.25.5 → 1.25.6）**不触发**——这正是「日常提交看不到这几条」的预期原因，并非功能失效。三者同源同触发条件：第 5 类针对规模化基准（建议、不阻断），第 6 类针对 doc+doc-llm 文档自审计（必须、阻断），第 7 类针对开发者模式全量自审计（必须、阻断）。
+> - **第 5、7 类**仅当次版本 / 主版本（x.y.z 中的 x 或 y）发生变动时才打印；**第 6 类**仅当**补丁号**（x.y.**z**）变动时才打印。三者分工：第 5 类针对规模化基准（建议、不阻断），第 7 类针对开发者模式全量自审计（必须、阻断），第 6 类针对补丁级 doc+doc-llm 文档自审计（必须、阻断）。**次/主版本已被第 7 类全量审计（含 doc + doc-llm）覆盖，故第 6 类不在次/主版本时重复触发；补丁号变动不跑全量审计，才由第 6 类专项提醒文档自审计**——这正是「日常提交看不到第 5、7 类」的预期原因，并非功能失效。
 > - **第 8–9 类是例外：任何版本变化（含补丁号）都打印**——因为任何版本都可能需要上架，而上架作为对外公开动作必须先经用户授权；不能只在次/主版本时才提醒授权，否则补丁版本会被静默上架。
-> - 严重度标签语义：第 5 类打 `[建议]`（非阻断，**不升退出码、不拦 push**）——基准实测 `run` 只在人工要求或 agent 评估后执行，check-bump 对它「建议、绝不自动跑」；第 6–8 类打 `[必须]`（阻断，**`--strict` 下升退出码、拦 push**）——次/主版本变动属质量高风险点，文档/结构漂移必须由 agent 实际跑过审计确认后才可发布；上架属对外公开动作、须用户授权，故均为强制步骤而非建议。
+> - 严重度标签语义：第 5 类打 `[建议]`（非阻断，**不升退出码、不拦 push**）——基准实测 `run` 只在人工要求或 agent 评估后执行，check-bump 对它「建议、绝不自动跑」；第 6、7、8 类打 `[必须]`（阻断，**`--strict` 下升退出码、拦 push**）——第 7 类（全量审计）覆盖次/主版本、第 6 类（doc+doc-llm）覆盖补丁号、第 8 类（上架授权）覆盖任意版本，文档/结构漂移须由 agent 实际跑过审计确认后才可发布；上架属对外公开动作、须用户授权，故均为强制步骤而非建议。
 > - **第 10 类为常驻通用提示（不依赖版本变动）**：只要 `git status --porcelain` 非空（有未提交改动）就打印，旨在防止长期开发中因记忆漂移遗漏本地 commit、使 src 与部署副本 / 版本号脱节；属 `[建议]` 不阻断、不升退出码。仓库已干净时不打印（与其余版本变动提示正交，任何版本 / 任何状态都可能触发）。
 > - 检测基线存于 `bench/market_bench/last_bench_version.txt`（gitignore，不进版本库）；每次运行都刷新为当前版本，故同一版本变动只提示一次。
-> - 真实渲染样例（模拟次版本 1.24.0 → 1.25.7 触发；第 6–8 类进 `rel_block` 阻断、第 5 类进 `rel_info` 不阻断，版本变动标题在块外原样打印）：
+> - 真实渲染样例（次版本 1.24.0 → 1.25.7 触发；第 7–8 类进 `rel_block` 阻断、第 5 类进 `rel_info` 不阻断；补丁号样例附后）：
 
 ```
-检测到次版本变动 v1.24.0 → v1.25.7（次/主版本变更须完成下列文档自审计后才可发布）
+检测到次版本变动 v1.24.0 → v1.25.7（次/主版本变更须完成下列质量自审计后才可发布）
   [agent-todo][建议] 建议运行「市场质量基准实测器」验证规模化行为是否稳定
     → python src/scripts/dev_market_bench.py run
     （基准实测不自动执行，由 Agent 评估后决定是否运行；仅人工要求或本建议触发时启用）
-
-  [agent-todo][必须] 次/主版本变更须执行 doc + doc-llm 文档自审计（开发者模式）
-    doc 检查死链接/文档漂移，doc-llm 产出语义漂移 dossier 需 agent 接手判读
-    → python src/scripts/audit_docs.py --skill <resolve_deploy_dir() 解析出的路径> --check doc --check doc-llm --doc-llm-mode agent
 
   [agent-todo][必须] 次/主版本变更须执行开发者模式全量自审计（维护整体质量）
     全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移
@@ -249,9 +245,21 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
   [agent-todo][建议] 版本变动时，用户文档（SKILL.md / references/*）无需写入版本变动叙述
     如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身
     → 发版前复核：SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除、仅留行为/能力描述
+
+（补丁号样例：1.27.2 → 1.27.3，仅第 6 类触发，次/主版本 #5/#7 不触发）
+
+检测到补丁号变动 v1.27.2 → v1.27.3（补丁变动须完成下列文档自审计后才可发布）
+  [agent-todo][必须] 补丁号变动须执行 doc + doc-llm 文档自审计（开发者模式）
+    doc 检查死链接/文档漂移，doc-llm 产出语义漂移 dossier 需 agent 接手判读
+    → python src/scripts/audit_docs.py --skill <resolve_deploy_dir() 解析出的路径> --check doc --check doc-llm --doc-llm-mode agent
+
+  [agent-todo][必须] 上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）
+    …（同上，任意版本均触发）
+  [agent-todo][建议] 版本变动时，用户文档（SKILL.md / references/*）无需写入版本变动叙述
+    …（同上，任意版本均触发）
 ```
 
-> ⚠ 历史坑位：`check-bump` 曾因 `current_version()` 读出的版本带 YAML 引号（`"1.25.7"`）导致 `_ver_tuple` 解析失败、`is_minor_or_major_bump` 恒为 `False`、次/主版本变动也**从不提示**（形同虚设）。已修复（`current_version()` 去引号 + `_ver_tuple` 健壮性增强），修复后次/主版本变动能正确打印上述第 5–7 类（第 6–7 类为 `[必须]` 阻断、第 5 类为 `[建议]` 不阻断）。
+> ⚠ 历史坑位：`check-bump` 曾因 `current_version()` 读出的版本带 YAML 引号（`"1.25.7"`）导致 `_ver_tuple` 解析失败、`is_minor_or_major_bump` 恒为 `False`、次/主版本变动也**从不提示**（形同虚设）。已修复（`current_version()` 去引号 + `_ver_tuple` 健壮性增强），修复后次/主版本变动能正确打印第 5、7 类（#7 为 `[必须]` 阻断、#5 为 `[建议]` 不阻断）；补丁号变动则打印第 6 类（doc+doc-llm，`[必须]` 阻断）。
 
 > 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·temp」，绝不因此阻断门禁。
 

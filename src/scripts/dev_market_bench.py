@@ -753,21 +753,26 @@ def check_bump():
         return 0
     if is_minor_or_major_bump(last, cur):
         kind = "主" if _ver_tuple(cur)[0] != _ver_tuple(last)[0] else "次"
-        print("检测到%s版本变动 v%s → v%s（次/主版本变更须完成下列文档自审计后才可发布）" % (kind, last, cur))
+        print("检测到%s版本变动 v%s → v%s（次/主版本变更须完成下列质量自审计后才可发布）" % (kind, last, cur))
         print("[agent-todo][建议] 建议运行「市场质量基准实测器」验证规模化行为是否稳定")
         print("  → python src/scripts/dev_market_bench.py run")
         print("  （基准实测不自动执行，由 Agent 评估后决定是否运行；仅人工要求或本建议触发时启用）")
         print("")
-        print("  [agent-todo][必须] 次/主版本变更须执行 doc + doc-llm 文档自审计（开发者模式）")
+        print("  [agent-todo][必须] 次/主版本变更须执行开发者模式全量自审计（维护整体质量）")
+        print("  全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移")
+        print("  → python src/scripts/dev_self_audit.py --dev-docs --strict")
+        # 次/主版本已被全量审计（#7，--all-checks 含 doc + doc-llm）覆盖，
+        # 故 doc + doc-llm 专项提醒（第6类）不再在此触发，改为仅补丁号变动时触发（见下）。
+    if cur != last and not is_minor_or_major_bump(last, cur):
+        # 补丁号（z）变动：次/主版本已走全量审计（#7），此处只针对补丁级文档自审计做专项提醒
+        print("")
+        print("检测到补丁号变动 v%s → v%s（补丁变动须完成下列文档自审计后才可发布）" % (last, cur))
+        print("  [agent-todo][必须] 补丁号变动须执行 doc + doc-llm 文档自审计（开发者模式）")
         print("  doc 检查死链接/文档漂移，doc-llm 产出语义漂移 dossier 需 agent 接手判读")
         # 部署副本路径经 resolve_deploy_dir() 解析（不写死 ~/.workbuddy，非标准安装/跨 agent 亦正确）
         _dep, _how = resolve_deploy_dir()
         print("  → python src/scripts/audit_docs.py --skill %s --check doc --check doc-llm --doc-llm-mode agent"
               % _dep)
-        print("")
-        print("  [agent-todo][必须] 次/主版本变更须执行开发者模式全量自审计（维护整体质量）")
-        print("  全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移")
-        print("  → python src/scripts/dev_self_audit.py --dev-docs --strict")
     if cur != last:
         # 任何版本变化（含补丁）都须先取得用户授权才允许上架——上架是外部公开动作。
         print("")
