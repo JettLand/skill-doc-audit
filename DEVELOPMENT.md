@@ -8,7 +8,7 @@
 |---|---|---|
 | 文档 | `src/SKILL.md` + `src/references/checkers.md` | 本文件 |
 | 受众 | 任何安装并使用本技能审计自己技能的人 | 本技能的开发者 / 贡献者 |
-| 工具 | `scripts/audit_docs.py`（随技能发布） | `dev_self_audit.py` / `dev_market_bench.py`（两套辅助开发工具）/ `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `build_dist.py` / `_devcommon.py`（dev-only 共享样板；均已被 `sync_deploy.py` 排除在部署副本外，且列入 `dev_self_audit.py` 的 `DEV_TOOLS` 排除集避免 orphan_asset 误报） |
+| 工具 | `scripts/audit_docs.py`（随技能发布） | `dev_self_audit.py` / `dev_market_bench.py`（两套辅助开发工具）/ `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `_devcommon.py`（dev-only 共享样板；均已被 `sync_deploy.py` 排除在部署副本外，且列入 `dev_self_audit.py` 的 `DEV_TOOLS` 排除集避免 orphan_asset 误报） |
 | 关键动作 | 跑 `--all-checks` 审计目标技能 | 审计最新源码 `src/`、自校验 fixtures、把 `src/` 同步到部署副本、走「未发布改动」累积发布 |
 
 **设计边界**：技术隔离已存在——dev 工具根本不进部署副本，终端用户拿不到。本文件是把「哪些是给用户、哪些是给维护者」的叙事显式二分，避免读者混淆；并明确 dev-only CLI 旗标仅在本仓库内有效。
@@ -22,7 +22,7 @@
 | 源码自审计器 | `src/scripts/dev_self_audit.py` | 守**发布质量**：同步校验（副本↔src）+ 审计最新源码发布面 + dev 文档漂移 + 发布就绪检查（`[agent-todo]`） | 每次 `git commit`（post-commit 仅同步、不跑它）/ `git push`（pre-push 门禁）/ 推 PR（dev-qa CI）；也手动跑 |
 | 市场质量基准实测器 | `src/scripts/dev_market_bench.py` | 守**「规模化真实世界」**：按 TRACE 质量分抽样、批量跑全量检查，验证检查器在长尾技能上的稳定性与 doc-llm 真实执行 | **不进自动调度**：仅人工要求时启用；或 `dev_self_audit` 监测到次/主版本变动时打印 `[agent-todo]` 建议、由 agent 评估后决定是否运行 |
 
-> 其余 `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `build_dist.py` / `_devcommon.py` 为检查器回归护栏、fixture 生成、副本同步、发布就绪检查、共享样板等基础设施，不属于「两套辅助开发工具」本身，但支撑前述两套工具运转。
+> 其余 `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `_devcommon.py` 为检查器回归护栏、fixture 生成、副本同步、发布就绪检查、共享样板等基础设施，不属于「两套辅助开发工具」本身，但支撑前述两套工具运转。
 
 ### 源码自审计器（dev_self_audit.py）
 
@@ -97,7 +97,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 **`dev_audit=True` 与 `exclude=DEV_TOOLS` 不进主 CLI——属本仓库专属 hack，禁止提成开关。** 理由：
 
 - `dev_audit=True`：`structure.py:21` 用 `not ctx.get("dev_audit")` 跳过 `name_mismatch`，唯一目的是本仓库源码根目录叫 `src/` 而非技能名（`dev_self_audit.py:115` 硬编码）。而用户用本技能审计**自己**的技能时，目录即技能目录，`name_mismatch` 是正确告警；把它暴露给用户等于教用户「可关掉名称一致性检查」。
-- `exclude=DEV_TOOLS`：`dev_self_audit.py:44` 排除 `sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `release_check.py` / `build_dist.py` 本仓库 dev 工具；其他技能根本没有这些文件，暴露出去是死参数。
+- `exclude=DEV_TOOLS`：`dev_self_audit.py:44` 排除 `sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `release_check.py` 本仓库 dev 工具；其他技能根本没有这些文件，暴露出去是死参数。
 
 **硬性边界**：`dev_audit` / `exclude` 的打开点只存在于 `dev_self_audit.py`（`src/scripts/` 内，已被 `sync_deploy.py` 排除在部署副本外）。若日后有人想把 `--dev-audit` 加到 `cli.py`（它是部署副本一部分），**等于把维护者专属逻辑塞回用户技能、直接回退三分式隔离**，应拒绝。引擎默认 `dev_audit=False`（`model.py:152`）即用户模式，符合「默认零依赖、绝不替用户决定」。
 
@@ -122,7 +122,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | `src/scripts/auditlib/checkers/{deadcode,doc_llm,portability}.py` 或 fixtures / 文档自身 | `dev_self_audit.py`（视情况） | `self_validate.py` | deadcode/doc_llm/portability 不在 `DETERMINISTIC` 子集，跑 `self_validate` 无回归捕捉价值、反引入噪音 |
 | dev 工具自身（sync_deploy / self_validate / make_fixtures / dev_self_audit / `_devcommon`） | 仅 `dev_self_audit.py` 复查 | `self_validate.py` | dev 工具不进发布面，`self_validate` 审计的是用户技能行为、与 dev 工具改动无关 |
 | 发布前（统一动作） | `dev_self_audit.py --strict` **+** `self_validate.py` | — | 一键全量：先质量门禁、再检查器回归（也可靠 CI 钩子自动覆盖） |
-| 版本迭代 / 发布前收尾 | （`dev_self_audit.py` 内置 `release_check` 自动提示） | 手动记忆 | 版本号一致性(SKILL.md↔sources.py) / CHANGELOG 收口 / dist 重打包 / temp 清理——改为门禁输出 `[agent-todo]`，不再依赖记忆 |
+| 版本迭代 / 发布前收尾 | （`dev_self_audit.py` 内置 `release_check` 自动提示） | 手动记忆 | 版本号一致性(SKILL.md↔sources.py) / CHANGELOG 收口 / temp 清理 / **上架前取得用户授权**——改为门禁输出 `[agent-todo]`，不再依赖记忆 |
 | 次版本/主版本变动（x.y / X.y） | （`dev_self_audit.py` 末尾 best-effort 调 `dev_market_bench.py check-bump` 自动提示） | 手动记忆 | 是否运行「市场质量基准实测器」`run` 由 agent 评估决定——仅打印 `[agent-todo]` 建议，**不自动跑基准**（基准实测只在人工要求或该建议触发时启用） |
 | 想验证检查器在规模化真实世界的稳定性 / 长尾技能质量分布 | `dev_market_bench.py run` | 自动调度 | 人工要求或前述版本变动建议触发；非日常改动必跑项 |
 | 准备 `git commit` | （`post-commit` 钩子自动 `sync_deploy`） | 手动 | 提交即同步部署副本 |
@@ -142,36 +142,48 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | 远程 CI `dev-qa.yml` | push/PR 到 `main`（GitHub Actions） | `dev_self_audit.py --strict --no-sync-check` + `self_validate.py` | **否**（`--no-sync-check`，CI 无副本） | **是** | 是（job 失败标红 PR） | PR 标红，拦下合并/发布 |
 
 要点：
-- **`post-commit` 仍只同步、不发提示、不门禁**——职责单一（提交即把 `src/` 发布面同步到部署副本）；`[agent-todo]` 由 `dev_self_audit` 输出，故只来自 `pre-push` 与 `dev-qa`。当前它**额外在同步前按需重建发布制品 zip**（`build_dist.ensure_fresh()`）——这属于「产出发布面」的一部分，不是提示/门禁，不破坏单一职责。
+- **`post-commit` 仍只同步、不打包、不发提示、不门禁**——职责单一（提交即把 `src/` 发布面同步到部署副本，并清掉副本里过时的 `dist/` 残留）；`[agent-todo]` 由 `dev_self_audit` 输出，故只来自 `pre-push` 与 `dev-qa`。（旧版曾在此**按需重建发布制品 zip**，现已移除——市场在上架时自行重打包，本地 zip 无用且会被拒收，详见下方命令表。）
 - **同步校验开关是本地与远程的唯一实质差异**：本机有部署副本故 `pre-push` 保留校验；GitHub 机器无副本，`dev-qa` 加 `--no-sync-check`。两套门禁的检查内容（`dev_self_audit --strict` + `self_validate`）完全一致。
 - **`[agent-todo]` 在远程 CI 仅日志噪音、但门禁（退出码）仍生效**：GitHub 上无 agent 消费提示文本，而 `release_check` 阻断项会升 `dev_self_audit` 退出码 → `dev-qa` 的 `publish-gate` job 失败 → PR 标红，是本地钩子未拦住时的远程兜底。
 
-### 同步钩子（`post-commit` → `sync_deploy.py`）具体执行什么
+### 同步钩子（`post-commit` → `sync_deploy.py`）自动执行命令表
 
-`post-commit` 钩子（`hooks/post-commit`）**只调用 `sync_deploy.py` 一个命令**——职责单一：把 `src/` 发布面字节级同步到部署副本。**它不发任何 `[agent-todo]`、不做质量门禁、不跑检查器**，只打印同步状态行。具体执行顺序（来自 `sync_deploy.py`）：
+`post-commit` 钩子（`hooks/post-commit`）**只调用 `sync_deploy.py` 一个命令**——职责单一：把 `src/` 发布面字节级同步到部署副本。**它不发 `[agent-todo]`、不做质量门禁、不跑检查器、不构建任何制品**，只打印同步状态行。
 
-1. **解析部署目录**：`_devcommon.resolve_deploy_dir()` → `(path, how)`，打印 `deploy dir: <path> (resolved via <how>)`（`how` 如 `candidate_root:C:\Users\admin\.workbuddy\skills`，便于排查非标准安装）。
-2. **按需重建发布制品 zip**（当前）：调用 `build_dist.ensure_fresh()`——若 `src/dist/skill-doc-audit.zip` 缺失或早于发布面源码则重建（18 项），否则跳过。zip **不入库**（见 `.gitignore`），此步保证部署副本与 SkillHub 发布永远基于最新 `src`，陈旧 zip 漂移在物理上不可能发生；agent 无需手动 `build_dist.py`。
-3. **复制发布面文件**（仅当目标缺失或字节不一致才复制）：
-   - `src/SKILL.md` → `<deploy>/SKILL.md`
-   - `src/scripts/audit_docs.py` → `<deploy>/scripts/audit_docs.py`
-   - `src/references/checkers.md` → `<deploy>/references/checkers.md`
-   - `src/dist/skill-doc-audit.zip` → `<deploy>/dist/skill-doc-audit.zip`（来自上一步重建结果）
-4. **递归复制发布面目录**：`src/scripts/auditlib/**` → `<deploy>/scripts/auditlib/**`（跳过 `__pycache__` 与 `*.pyc`）。
-5. **清理副本内 `__pycache__`**：`shutil.rmtree(<deploy>/scripts/__pycache__)` 等。
-5. **字节一致性校验**：`_verify()` 用 `filecmp` + `sha256` 逐文件核对发布面 ↔ 副本。
-6. **打印结果行**：`synced N file(s); verify: OK`（或 `already up-to-date; verify: OK`；不一致则 `verify: MISMATCH` 且 `exit 1`）。
+**钩子自身的两步前置**（`hooks/post-commit`，shell）：
+
+1. `git rev-parse --show-toplevel` 定位仓库根（**必须带 `|| true`**：脚本开了 `set -e`，git 不可用会 errexit 终止、连告警都打印不出来）。
+2. 按 `SKILL_AUDIT_PYTHON` → `$HOME` 托管版本 → 系统标准路径 → `PATH` 的顺序定位解释器（git 钩子子进程**不继承**交互 shell 的 PATH，裸 `python` 可能静默失败）。
+
+**随后 `sync_deploy.py` 自动执行的操作**（命令表）：
+
+| # | 自动执行的动作 | 实现 / 调用 | 作用 | 失败后果 |
+|---|---|---|---|---|
+| 1 | 解析部署目录 | `_devcommon.resolve_deploy_dir()` → `(path, how)` | 定位要同步的目标副本（跨平台 / 跨 Agent 探测，见本文「部署目录跨平台 / 跨 Agent 解析」节） | 未找到 → 打印 `deploy dir not found ... skip` 并 `exit 0`，**不阻塞 commit** |
+| 2 | 清理历史 `dist/` 残留 | `_clean_stale_dist()` → `shutil.rmtree(<deploy>/dist)` | 删掉旧版自动打包遗留的 zip——市场**拒收**被发布目录内的 `.zip`（400「不允许的文件类型」） | 无（幂等；本就干净则跳过、不打印） |
+| 3 | 复制发布面文件 | `_sync_file()`（**仅当目标缺失或字节不一致**才复制） | `SKILL.md`、`scripts/audit_docs.py`、`references/checkers.md` | 源缺失 → 打印 `WARN src missing` |
+| 4 | 递归复制发布面目录 | `_sync_tree()`（跳过 `__pycache__` / `*.pyc`） | `scripts/auditlib/**` | 源目录缺失 → 打印 `WARN src dir missing` |
+| 5 | 清理副本内 `__pycache__` | `_clean_pycache(<deploy>/scripts)` | 避免旧字节码污染已安装技能 | 无 |
+| 6 | 字节一致性校验 | `_verify()`（`filecmp` 逐文件比对） | 核对发布面 ↔ 副本是否一致 | `MISMATCH` → `exit 1`（仅告警，**commit 已成功**） |
+| 7 | 打印结果行 | — | `synced N file(s); verify: OK` / `already up-to-date; verify: OK` | — |
+
+> **刻意不做的事**（职责边界，避免膨胀）：
+> - **不构建 `dist/` 制品**——SkillHub 上架时自行重打包，本地 zip 无用且有害（见上表第 2 行）；
+> - 不发 `[agent-todo]`（由 `pre-push` / `dev-qa` 的 `dev_self_audit` 负责）；
+> - 不跑检查器、不做质量门禁；
+> - 不删除副本内发布面之外的文件（陈旧 dev 文件需人工复核，不自动删）——**`dist/` 是唯一例外**，因为它是本仓库自己造出来的过时产物。
 
 **刻意排除、不进副本的内容**（dev-only，避免污染用户技能）：
 
-- dev 工具：`make_fixtures.py` / `self_validate.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `sync_deploy.py` / `release_check.py` / `build_dist.py`
+- dev 工具：`make_fixtures.py` / `self_validate.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `sync_deploy.py` / `release_check.py`（原 `build_dist.py` 制品构建脚本已随「市场自行重打包」移除）
 - `src/tests/`（fixtures + 黄金快照）、`__pycache__` / `*.pyc`
 
 **真实打印样例**（本机一次提交后）：
 
 ```
 [sync_deploy] deploy dir: C:\Users\admin\.workbuddy\skills\skill-doc-audit (resolved via candidate_root:C:\Users\admin\.workbuddy\skills)
-[sync_deploy] synced 1 file(s); verify: OK
+[sync_deploy] removed stale dist artifact: C:\Users\admin\.workbuddy\skills\skill-doc-audit\dist
+[sync_deploy] already up-to-date; verify: OK
 ```
 
 > 若部署目录不存在（非标准安装且未设 `SKILL_DEPLOY_DIR`）：打印 `deploy dir not found ... skip (set SKILL_DEPLOY_DIR to override)` 并 `exit 0`（**不阻塞 commit**）——这是「优雅回落」而非「降级报错」，因为确实未安装该技能。
@@ -180,18 +192,18 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 `pre-push` 钩子（`hooks/pre-push`）在 `git push origin main` 前调用 `dev_self_audit.py --strict` + `self_validate.py`。其中 `dev_self_audit` 在汇总后调用 `release_check.run_release_checks()` 产出提示块，并在末尾 best-effort 调用 `dev_market_bench.py check-bump` 产出版本变动提示——**本地 CI 是这些 `[agent-todo]` 仅有的两个发出方之一（另一个是远程 `dev-qa`；`post-commit` 同步钩子不发提示）**。
 
-> 下列「指令清单」汇总本地 CI **所有可能发出的 `[agent-todo]`**，逐项给出：触发条件、发出的指令（可照做动作）、严重度与是否阻断。其中第 1–5 类来自 `release_check.py`，第 6–8 类来自 `dev_market_bench.py check-bump`（仅在次/主版本变动时打印）。
+> 下列「指令清单」汇总本地 CI **所有可能发出的 `[agent-todo]`**，逐项给出：触发条件、发出的指令（可照做动作）、严重度与是否阻断。其中第 1–4 类来自 `release_check.py`，第 5–8 类来自 `dev_market_bench.py check-bump`（第 5–7 类仅在次/主版本变动时打印；**第 8 类在任何版本变化时都打印**，含补丁号——因为任何版本都可能需要上架）。
 
 | # | 标识 / 严重度 | 触发条件 | 发出的 `[agent-todo]` 指令（原文要点） | 阻断 |
 |---|---|---|---|---|
 | 1 | `[agent-todo][ERROR]` | `SKILL.md version` ≠ `sources.py` 第144行 `User-Agent` | `将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/<SKILL版本>` | **是** |
 | 2 | `[agent-todo][ERROR]` | `README.md`「版本摘要」表最新版本行 ≠ `SKILL.md version` | `在 README.md「版本摘要」表顶部补一行 '| <SKILL版本> | （本次改动说明） |'，或修正已有行版本号`（解析不到版本表行时不误拦） | **是** |
 | 3 | `[agent-todo][WARN]` | `SKILL.md version` 高于 `CHANGELOG.md` 最高版本节 | `将 CHANGELOG.md 的「未发布改动」节提升为 '<SKILL版本> 打磨明细' 节后再提交` | **是** |
-| 4 | `[agent-todo][INFO]`（兜底守卫） | 同步钩子未跑导致 `dist/skill-doc-audit.zip` 缺失 / 早于发布面源码 | `手动重建：python src/scripts/build_dist.py`；并确认 `hooks/post-commit` 已运行（`git config core.hooksPath`） | 否 |
-| 5 | `[agent-todo][INFO]` | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py`；或仓库根/`src` 下存在 `*.bak`/`*.bak.*` 过时备份 | `及时清理 temp/ 测试残留与 `*.bak` 备份（默认保留最近 3 个、更早的删除）；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` | 否 |
-| 6 | `[agent-todo][建议]` | 次/主版本（x.y.z 中 x 或 y）变动 | `建议运行「市场质量基准实测器」验证规模化行为是否稳定：python src/scripts/dev_market_bench.py run`（不自动跑，由 Agent 评估后决定） | 否 |
-| 7 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行 doc + doc-llm 文档自审计（开发者模式）：python src/scripts/audit_docs.py --skill <部署副本路径> --check doc --check doc-llm --doc-llm-mode agent`。`<部署副本路径>` 由 `resolve_deploy_dir()` 动态解析后打印（非标准安装/跨 agent 亦正确，通常是 `~/.workbuddy/skills/skill-doc-audit`）；doc-llm 产出语义漂移 dossier，需 agent 接手判读；也可执行 `dev_self_audit.py --dev-docs` 一并扫 README/CHANGELOG | **是** |
-| 8 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行开发者模式全量自审计（维护整体质量）：python src/scripts/dev_self_audit.py --dev-docs --strict`（全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移） | **是** |
+| 4 | `[agent-todo][INFO]` | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py`；或仓库根/`src` 下存在 `*.bak`/`*.bak.*` 过时备份 | `及时清理 temp/ 测试残留与 `*.bak` 备份（默认保留最近 3 个、更早的删除）；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` | 否 |
+| 5 | `[agent-todo][建议]` | 次/主版本（x.y.z 中 x 或 y）变动 | `建议运行「市场质量基准实测器」验证规模化行为是否稳定：python src/scripts/dev_market_bench.py run`（不自动跑，由 Agent 评估后决定） | 否 |
+| 6 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行 doc + doc-llm 文档自审计（开发者模式）：python src/scripts/audit_docs.py --skill <部署副本路径> --check doc --check doc-llm --doc-llm-mode agent`。`<部署副本路径>` 由 `resolve_deploy_dir()` 动态解析后打印（非标准安装/跨 agent 亦正确，通常是 `~/.workbuddy/skills/skill-doc-audit`）；doc-llm 产出语义漂移 dossier，需 agent 接手判读；也可执行 `dev_self_audit.py --dev-docs` 一并扫 README/CHANGELOG | **是** |
+| 7 | `[agent-todo][必须]`（阻断） | 次/主版本（x.y.z 中 x 或 y）变动 | `必须执行开发者模式全量自审计（维护整体质量）：python src/scripts/dev_self_audit.py --dev-docs --strict`（全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移） | **是** |
+| 8 | `[agent-todo][必须]`（阻断） | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）`：SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish。→ 先询问用户取得授权；获准后 `skillhub publish <技能目录> --changelog "..." --json`（发布目录内**不得含 `dist/` 或任何 `.zip`**：市场自行重打包，目录内含 zip 会返回 400「不允许的文件类型」） | **是** |
 
 **提示块的实际打印格式**（来自 `dev_self_audit.py:153-165`，以「版本不一致」为例的真实渲染）：
 
@@ -206,11 +218,12 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 ⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。
 ```
 
-> 第 6–8 类 `[agent-todo]`（版本变动提示）来自 `dev_market_bench.py check-bump`，由 `dev_self_audit.py` 经 `_parse_check_bump` 解析后并入同一「发布前待办」块（[必须] 进 rel_block 阻断、[建议] 进 rel_info 不阻断），**不再纯透传 stdout**；与上面的 release_check 提示合并显示。
-> - **仅当次版本 / 主版本（x.y.z 中的 x 或 y）发生变动时才打印**；日常**补丁号**变动（x.y.**z**，如 1.25.5 → 1.25.6）**不触发**——这正是「日常提交看不到这条提示」的预期原因，并非功能失效。第 6–8 类同源同触发条件（次/主版本变动）：第 6 类针对规模化基准（建议、不阻断），第 7 类针对 doc+doc-llm 文档自审计（必须、阻断），第 8 类针对开发者模式全量自审计（必须、阻断）。
-> - 严重度标签语义：第 6 类打 `[建议]`（非阻断，**不升退出码、不拦 push**）——基准实测 `run` 只在人工要求或 agent 评估后执行，check-bump 对它「建议、绝不自动跑」；第 7–8 类打 `[必须]`（阻断，**`--strict` 下升退出码、拦 push**）——次/主版本变动属质量高风险点，文档/结构漂移必须由 agent 实际跑过审计确认后才可发布，故为强制步骤而非建议。
+> 第 5–8 类 `[agent-todo]`（版本变动提示）来自 `dev_market_bench.py check-bump`，由 `dev_self_audit.py` 经 `_parse_check_bump` 解析后并入同一「发布前待办」块（[必须] 进 rel_block 阻断、[建议] 进 rel_info 不阻断），**不再纯透传 stdout**；与上面的 release_check 提示合并显示。
+> - **第 5–7 类**仅当次版本 / 主版本（x.y.z 中的 x 或 y）发生变动时才打印；日常**补丁号**变动（x.y.**z**，如 1.25.5 → 1.25.6）**不触发**——这正是「日常提交看不到这几条」的预期原因，并非功能失效。三者同源同触发条件：第 5 类针对规模化基准（建议、不阻断），第 6 类针对 doc+doc-llm 文档自审计（必须、阻断），第 7 类针对开发者模式全量自审计（必须、阻断）。
+> - **第 8 类是例外：任何版本变化（含补丁号）都打印**——因为任何版本都可能需要上架，而上架作为对外公开动作必须先经用户授权；不能只在次/主版本时才提醒授权，否则补丁版本会被静默上架。
+> - 严重度标签语义：第 5 类打 `[建议]`（非阻断，**不升退出码、不拦 push**）——基准实测 `run` 只在人工要求或 agent 评估后执行，check-bump 对它「建议、绝不自动跑」；第 6–8 类打 `[必须]`（阻断，**`--strict` 下升退出码、拦 push**）——次/主版本变动属质量高风险点，文档/结构漂移必须由 agent 实际跑过审计确认后才可发布；上架属对外公开动作、须用户授权，故均为强制步骤而非建议。
 > - 检测基线存于 `bench/market_bench/last_bench_version.txt`（gitignore，不进版本库）；每次运行都刷新为当前版本，故同一版本变动只提示一次。
-> - 真实渲染样例（模拟次版本 1.24.0 → 1.25.7 触发；第 7–8 类进 `rel_block` 阻断、第 6 类进 `rel_info` 不阻断，版本变动标题在块外原样打印）：
+> - 真实渲染样例（模拟次版本 1.24.0 → 1.25.7 触发；第 6–8 类进 `rel_block` 阻断、第 5 类进 `rel_info` 不阻断，版本变动标题在块外原样打印）：
 
 ```
 检测到次版本变动 v1.24.0 → v1.25.7（次/主版本变更须完成下列文档自审计后才可发布）
@@ -225,11 +238,16 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
   [agent-todo][必须] 次/主版本变更须执行开发者模式全量自审计（维护整体质量）
     全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移
     → python src/scripts/dev_self_audit.py --dev-docs --strict
+
+  [agent-todo][必须] 上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）
+    SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish
+    → 先询问用户取得授权；获准后：skillhub publish <技能目录> --changelog "..." --json
+    （发布目录内不得含 dist/ 或任何 .zip：市场自行重打包，目录内含 zip 会返回 400「不允许的文件类型」）
 ```
 
-> ⚠ 历史坑位：`check-bump` 曾因 `current_version()` 读出的版本带 YAML 引号（`"1.25.7"`）导致 `_ver_tuple` 解析失败、`is_minor_or_major_bump` 恒为 `False`、次/主版本变动也**从不提示**（形同虚设）。已修复（`current_version()` 去引号 + `_ver_tuple` 健壮性增强），修复后次/主版本变动能正确打印上述第 6–8 类（第 7–8 类为 `[必须]` 阻断、第 6 类为 `[建议]` 不阻断）。
+> ⚠ 历史坑位：`check-bump` 曾因 `current_version()` 读出的版本带 YAML 引号（`"1.25.7"`）导致 `_ver_tuple` 解析失败、`is_minor_or_major_bump` 恒为 `False`、次/主版本变动也**从不提示**（形同虚设）。已修复（`current_version()` 去引号 + `_ver_tuple` 健壮性增强），修复后次/主版本变动能正确打印上述第 5–7 类（第 6–7 类为 `[必须]` 阻断、第 5 类为 `[建议]` 不阻断）。
 
-> 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·dist·temp」，绝不因此阻断门禁。
+> 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·temp」，绝不因此阻断门禁。
 
 > 此外，`dev_self_audit` / `cli.py` 的汇总区会打印**检查器执行回执**（v1.25.5）：逐检查器标 `#身份代号 名称` 与 `✓ 已执行 / ✗ 执行失败 / ✗ 未注册(UNKNOWN)`，尾部一行 `检查器执行回执: ✓doc … ✓doc-llm ✓examples  [9/9 已执行 OK]`。这是给 agent / 使用者的显式信号——确证每个检查器「真的跑过」，而非像 doc-llm 旧 bug 那样静默落空却显通过；`UNKNOWN`（注册键拼写不一致）/ `FAILED`（执行抛异常）会额外转成 ERROR 发现并升退出码。
 
@@ -270,14 +288,13 @@ python src/scripts/make_fixtures.py --baseline   # 仅人工显式触发
 
 - **版本号一致性（阻断，两处机器校验）**：① `SKILL.md` `version` 必须等于 `sources.py` 第144行的 `User-Agent: skill-doc-audit/<ver>`；② `SKILL.md` `version` 必须等于 `README.md`「版本摘要」表最新版本行。任一处不一致 → ERROR 并打印精确修复指令，`--strict` 下拦下 push。（`CHANGELOG` 最高版本节仍仅校验「已收口」，不逐字比对。）
 - **CHANGELOG 收口（阻断）**：`SKILL.md` 版本高于 CHANGELOG 最高版本节时，提示把「未发布改动」提升为 `<ver> 打磨明细`；WARN，`--strict` 下拦截。
-- **dist 制品过期（兜底守卫，正常不触发）**：本仓库发布流程中 `src/dist/skill-doc-audit.zip` **不入库**、由 `post-commit` 钩子经 `sync_deploy.py` 自动 `build_dist.ensure_fresh()` 重建，故常规开发与发布前 zip 永远最新、本项恒不提示。仅当 `hooks/post-commit` 未运行（如钩子跳过、python 未定位）导致 zip 缺失或早于发布面源码时，作为兜底发 INFO 提示手动重建，避免 SkillHub 发布打包旧代码。
 - **temp/ 残留（提示）**：`temp/` 发现 `*_test*.py` / `*.mhtml` / `_eval*.txt` / `stress*` 等临时产物时提示清理；INFO，且提示重申「清理前先确认非用户手动放入的文件」（遵循 temp/ 管理约定）。
 
 阻断项与 `--strict` 的 WARN 同样计入 `dev_self_audit` 退出码，故会拦下 `pre-push`；非阻断项仅作 INFO 提示，不阻塞常规提交/推送。效果：把「发布前该做什么」从记忆下沉为门禁输出。
 
 ## 部署副本同步（sync_deploy.py + 提交即同步钩子）
 
-- `sync_deploy.py`（dev-only）：把 `src/` 发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md / dist/skill-doc-audit.zip）字节级同步到部署副本 `~/.workbuddy/skills/skill-doc-audit`，清理 `__pycache__`，末段校验一致性；**刻意排除** dev 工具与 `tests/`。当前同步前先 `build_dist.ensure_fresh()` **按需重建发布制品 zip**（zip 不入库、视为生成产物），保证部署副本与 SkillHub 发布永远基于最新 `src`。
+- `sync_deploy.py`（dev-only）：把 `src/` 发布面（SKILL.md / scripts/audit_docs.py / scripts/auditlib/** / references/checkers.md）字节级同步到部署副本 `~/.workbuddy/skills/skill-doc-audit`，清理 `__pycache__` 与历史 `dist/` 残留，末段校验一致性；**刻意排除** dev 工具与 `tests/`。**不再产出或同步任何制品 zip**——市场在上架时自行重打包，本地 zip 无用且会导致上传被拒（详见「同步钩子（`post-commit` → `sync_deploy.py`）自动执行命令表」）。
 - `hooks/post-commit`（`git config core.hooksPath` 须为**本仓库的绝对路径** `<repo>/hooks`，勿照抄他人路径）：每次 `git commit` 后自动运行 `sync_deploy.py`，**提交即同步**。⚠ 钩子必须在能找到 `python` 的环境运行，且 `core.hooksPath` 必须为绝对路径——相对 `../hooks` 会被 git 解析到仓库外导致钩子永不触发；提交后务必 `diff` 核验副本一致，不能只看 commit 成功。
 
 部署目录解析（与用户名/平台/设备/宿主 agent 解耦，**非标准安装、非 WorkBuddy agent 下真正定位、不降级**）：`sync_deploy.py` 与 `dev_self_audit.py` 均通过 `_devcommon.resolve_deploy_dir()` 解析，返回 `(path, how)`（how 打印在同步日志，便于排查）。优先级：

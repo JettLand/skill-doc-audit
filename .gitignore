@@ -12,10 +12,9 @@ backups/
 __pycache__/
 *.pyc
 
-# 发布制品（生成产物，不进版本库）：由 post-commit 钩子经 sync_deploy.py 自动
-# build_dist.ensure_fresh() 重建，保证部署副本 / SkillHub 发布永远基于最新 src，
-# 杜绝陈旧 zip 漂移。磁盘文件保留，clone 后首次提交即重建。
-src/dist/skill-doc-audit.zip
+# 注：本仓库**不再产出发布制品**——SkillHub 上架时自行重打包（`skillhub publish <技能目录>`），
+# 本地 zip 无用；且被发布目录内若含任何 .zip 会被市场拒收（400「不允许的文件类型」）。
+# 故无需再 ignore src/dist/（该目录不应存在；历史残留由 sync_deploy.py 在部署副本侧清除）。
 
 # 回归测试夹具（脏样本基线）：由 make_fixtures.py 声明式 recipe 生成，不进版本库
 # （git checkout 后由 self_validate.py 自动重建，或手动 `python src/scripts/make_fixtures.py`）

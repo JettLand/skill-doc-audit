@@ -5,6 +5,27 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 未发布改动（dev-only 工具链；不进部署副本，技能能力未变故不 bump 版本）
+
+### 同步钩子不再自动打包，发布改为「市场自行重打包」（dev-only）
+- **动机**：`skillhub publish <技能目录>` 时市场会自行重打包，本地 `dist/*.zip` 无用；更糟的是被发布目录内若含 `.zip` 会被市场拒收（`400 不允许的文件类型: dist/skill-doc-audit.zip`）——v1.26.0 上架时实测踩到，当时只能临时复制一份排除 `dist/` 的副本来绕开。
+- **`sync_deploy.py` 移除自动打包**：删除 `import build_dist` 与 `build_dist.ensure_fresh()` 调用；`SYNC_FILES` 移除 `dist/skill-doc-audit.zip`；`_verify()` 移除 zip 的 sha256 比对（随之删除已无用的 `_sha256()` 与 `hashlib` 导入，避免留死代码）。
+- **新增自愈清理**：`_clean_stale_dist()` 在每次同步时删掉部署副本里的历史 `dist/` 残留——旧安装遗留的过时 zip 无需手工清理，下次提交即自愈。`dist/` 是同步环节唯一会删除的目录（其余一律只增不删，避免误删用户文件）。
+- **删除 `src/scripts/build_dist.py`**（制品构建脚本，dev-only）：市场自行重打包后已无用途；`dev_self_audit.py` 的 `DEV_TOOLS` 移除该条目；`.gitignore` 移除 `src/dist/skill-doc-audit.zip` 条目并注明不再产出制品；本地 `src/dist/` 与部署副本 `dist/` 均已清除。
+- **`release_check.py` 移除 dist 过期守卫**：不再自动打包后，该守卫会恒误报「制品过期」，故删除 `check_dist_staleness()` 并移出 `CHECKS`，模块 docstring 同步更新。
+- 验证：`py_compile` 通过；`sync_deploy.py` 实测删除副本 `dist/` 残留并 `verify: OK`；`self_validate` 4 项全 PASS；`dev_self_audit --strict` ERROR 0 / WARN 0 / INFO 35。
+
+### DEVELOPMENT.md：新增「同步钩子自动执行命令表」
+- 把原「具体执行什么」的编号列表升级为**命令表**，覆盖钩子 2 步前置（`git rev-parse` 定位仓库根须带 `|| true`、按 `SKILL_AUDIT_PYTHON` → `$HOME` 托管版 → 系统标准路径 → PATH 定位解释器）与 `sync_deploy.py` 的 7 个自动动作，逐行给出：动作 / 实现调用 / 作用 / 失败后果；顺带修掉原列表的编号重复（出现两个「5.」）。
+- 新增「刻意不做的事」澄清职责边界：不构建制品、不发 `[agent-todo]`、不跑检查器、不删除发布面之外的文件（`dist/` 是唯一例外，因其为本仓库自己造出的过时产物）。
+
+### 新增 `[agent-todo]` 第 8 类：上架 SkillHub 前须先获得用户授权
+- `dev_market_bench.py check-bump` 新增第 8 类提示（`[必须]`，阻断）：**任何版本变化**（x.y.z 任一字段，**含补丁号**）都打印——任何版本都可能需要上架，而上架是外部公开动作，须用户点头后才可执行 `skillhub publish`；未获授权前只能本地 commit/push。
+- 与第 5–7 类触发条件不同源：第 5–7 类仅在次/主版本变动时打印，第 8 类补丁版本也打印（否则补丁版本会被静默上架）。提示文本同时给出发布姿势（`skillhub publish <技能目录> --changelog "..." --json`）与踩坑警示（发布目录内不得含 `dist/` 或任何 `.zip`）。
+- 文档：DEVELOPMENT.md 指令清单删除已失效的「dist 制品过期」类（原第 4 类）并把后继类号前移，新增第 8 类；说明行、严重度语义、真实渲染样例同步更新；README「打包与发布」改为**目录发布**并标注「须先取得用户授权」与 dist 禁忌。
+- 验证：模拟次版本变动（1.25.0 → 1.26.0）第 5–8 类按序全打印；模拟补丁级变动（非次/主）**仅**打印第 8 类，不误触发 5–7 类重量级提示。
+
+
 ## 1.26.0 打磨明细（泛用版 examples 检查器 + 开发套件改进收口）
 
 ### 泛用版 examples 检查器（v1.26.0 新增，检查器 #9，进 --all-checks）

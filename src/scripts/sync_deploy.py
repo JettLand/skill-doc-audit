@@ -3,7 +3,14 @@
 """Sync release artifacts from repo `src/` to the installed deployment copy.
 
 This is a **dev-only maintainer tool** (NOT part of the distributed skill; it is
-excluded from `src/dist/skill-doc-audit.zip` and from the deployment copy itself).
+excluded from the deployment copy itself).
+
+Note: this tool **no longer builds any dist artifact**. SkillHub re-packs the
+skill itself at publish time (`skillhub publish <skill-dir>`), so a locally built
+`dist/*.zip` is useless — worse, if such a zip sits inside the published
+directory the marketplace rejects the upload (400 不允许的文件类型). This script
+therefore also removes any leftover `dist/` in the deploy copy. See
+DEVELOPMENT.md 「同步钩子（`post-commit` → `sync_deploy.py`）自动执行命令表」.
 
 Purpose
 -------
@@ -31,7 +38,10 @@ What gets synced (the release surface)
 - src/scripts/audit_docs.py        -> <deploy>/scripts/audit_docs.py
 - src/scripts/auditlib/**          -> <deploy>/scripts/auditlib/**
 - src/references/checkers.md       -> <deploy>/references/checkers.md
-- src/dist/skill-doc-audit.zip     -> <deploy>/dist/skill-doc-audit.zip
+
+(`dist/` is intentionally NOT synced: the marketplace re-packs at publish time,
+and a zip inside the published directory is rejected. Step 0 below actively
+deletes stale `dist/` leftovers in the deploy copy.)
 
 What is deliberately EXCLUDED (dev-only / not for deployment)
 ------------------------------------------------------------
@@ -44,6 +54,8 @@ Safety
 - Only copies the explicit release surface above; never deletes files in the
   deploy dir that are not part of the surface (so a stale dev file would be
   left behind rather than removed — manual review if you ever add dev files).
+- The ONE exception: a stale `dist/` directory is removed (legacy build artifact
+  that would break marketplace upload).
 - Cleans `__pycache__` inside the deploy copy after sync.
 - Verifies byte-consistency at the end and prints OK / MISMATCH.
 
@@ -55,14 +67,12 @@ Usage
 import os
 import sys
 import shutil
-import hashlib
 import filecmp
 
 HERE = os.path.dirname(os.path.abspath(__file__))   # .../src/scripts
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 from _devcommon import ROOT, SRC, resolve_deploy_dir
-import build_dist   # 发布制品构建（zip 不入库，提交后即重建，保证部署/发布基于最新 src）
 
 DEP, _DEP_HOW = resolve_deploy_dir()   # 自动探测：优先 WORKBUDDY_CONFIG_DIR，失败回退多候选根探测
 
@@ -71,20 +81,11 @@ SYNC_FILES = [
     ("SKILL.md", "SKILL.md"),
     ("scripts/audit_docs.py", "scripts/audit_docs.py"),
     ("references/checkers.md", "references/checkers.md"),
-    ("dist/skill-doc-audit.zip", "dist/skill-doc-audit.zip"),
 ]
 # (relative-in-src, relative-in-deploy) — directory-level release surface
 SYNC_DIRS = [
     ("scripts/auditlib", "scripts/auditlib"),
 ]
-
-
-def _sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for blk in iter(lambda: f.read(65536), b""):
-            h.update(blk)
-    return h.hexdigest()
 
 
 def _sync_file(src, dst):
@@ -119,12 +120,20 @@ def _clean_pycache(base):
             shutil.rmtree(os.path.join(root, "__pycache__"))
 
 
+def _clean_stale_dist(deploy_dir):
+    """删除部署副本里的历史 dist/ 残留（旧版本自动打包产物的遗留）。
+
+    市场上架时自行重打包，且会拒收被发布目录内的 .zip，故副本内不应有 dist/。
+    返回被删除的目录路径；本就干净则返回 None（便于打印自愈动作）。
+    """
+    d = os.path.join(deploy_dir, "dist")
+    if os.path.isdir(d):
+        shutil.rmtree(d)
+        return d
+    return None
+
+
 def _verify():
-    # dist zip byte-identical
-    a = os.path.join(SRC, "dist/skill-doc-audit.zip")
-    b = os.path.join(DEP, "dist/skill-doc-audit.zip")
-    if os.path.exists(a) and os.path.exists(b) and _sha256(a) != _sha256(b):
-        return False
     for s, d in SYNC_FILES + SYNC_DIRS:
         sp, dp = os.path.join(SRC, s), os.path.join(DEP, d)
         if os.path.isdir(sp):
@@ -153,15 +162,12 @@ def main():
         print("[sync_deploy] skip (set SKILL_DEPLOY_DIR to override)")
         return 0
     print("[sync_deploy] deploy dir: %s (resolved via %s)" % (DEP, _DEP_HOW))
-    # 发布制品 zip 不入库、由本钩子按需重建：先确保 src/dist/skill-doc-audit.zip
-    # 与发布面源码一致，再同步到部署副本，使部署副本与 SkillHub 发布永远基于最新 src。
-    try:
-        if build_dist.ensure_fresh():
-            print("[sync_deploy] dist artifact rebuilt (was stale/missing)")
-        else:
-            print("[sync_deploy] dist artifact already fresh; skip rebuild")
-    except Exception as e:
-        print("[sync_deploy] WARN dist rebuild failed: %s" % e)
+    # 0) 清掉部署副本里的历史 dist/ 残留（旧版本曾自动打包并同步 zip）。
+    #    市场上架时自行重打包，且会拒收被发布目录内的 .zip（400「不允许的文件类型」），
+    #    故副本内不应残留任何 dist 制品——这一步让旧残留自愈，无需手工清理。
+    removed = _clean_stale_dist(DEP)
+    if removed:
+        print("[sync_deploy] removed stale dist artifact: %s" % removed)
     copied = 0
     for s, d in SYNC_FILES:
         sp, dp = os.path.join(SRC, s), os.path.join(DEP, d)

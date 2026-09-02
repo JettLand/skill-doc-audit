@@ -751,6 +751,13 @@ def check_bump():
         print("  [agent-todo][必须] 次/主版本变更须执行开发者模式全量自审计（维护整体质量）")
         print("  全量检查器 + README/CHANGELOG 文档自审计；确认 dev 工具与发布面一致、无漂移")
         print("  → python src/scripts/dev_self_audit.py --dev-docs --strict")
+    if cur != last:
+        # 任何版本变化（含补丁）都须先取得用户授权才允许上架——上架是外部公开动作。
+        print("")
+        print("  [agent-todo][必须] 上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）")
+        print("  SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish")
+        print("  → 先询问用户取得授权；获准后：skillhub publish <技能目录> --changelog \"...\" --json")
+        print("  （发布目录内不得含 dist/ 或任何 .zip：市场自行重打包，目录内含 zip 会返回 400「不允许的文件类型」）")
     try:
         os.makedirs(CACHE, exist_ok=True)
         open(LAST_VERSION, "w", encoding="utf-8").write(cur)
