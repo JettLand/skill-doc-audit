@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.27.22 | **dev_commit 子进程显式 UTF-8 解码（dev 工具增强）**：修复 `_run()` 未指定 `encoding` 致 Windows 按 GBK 解码钩子 UTF-8 中文回执、抛 `UnicodeDecodeError` 噪声的缺陷——现显式 `encoding="utf-8"` + `errors="replace"`。dev-only，不影响发布面。四处版本号一致 1.27.22 |
 | 1.27.21 | **从代码移除 [agent-todo] #6/#7 + 修 Q1 文档缺陷（dev 工具增强）**：`dev_market_bench.py check_bump()` 删除第 6 类（补丁号 doc+doc-llm）与第 7 类（次/主版本全量审计）两个 `[必须]` 打印块——其执行自 v1.27.19 起已被 pre-push 钩子（`dev_self_audit --strict`）覆盖，仅「语义判读」无法自动化、真正须 agent 做的是上架授权（现 #6）。文档重编号（原 #8→#6、#9→#7、#10→#8）；修复 Q1：删 DEVELOPMENT.md 185 行过期 `removed stale dist artifact` 样例、补 pre-push 同构命令表。py_compile 通过、doc ERROR/WARN 0、self_validate 4/4 PASS，四处版本号一致 1.27.21 |
 | 1.27.20 | **pre-push 报告删除改代码强制 + [agent-todo] #6/#7 去重（dev 工具增强）**：修复 v1.27.19 残留缺陷——`bench/agent_audit_report.md` 删除原仅靠「agent 读取后删除」记忆约定、无 `rm` 代码；现改为钩子每次运行开始 `rm -f` 自清理（代码强制），bench/ 已 gitignore，dossier 由 OS 清理，agent 只需读取无需删。DEVELOPMENT.md 第 6/7 类指令去重——其审计执行自 v1.27.19 起已被 pre-push 钩子自动覆盖，改为「agent 无需手动跑、仅保留钩子拦截时的语义判读」，表后补生命周期说明段。四处版本号一致 1.27.20 |
 | 1.27.19 | **pre-push 承接 [agent-todo] #6/#7（dev 工具增强）**：审计报告 tee 落盘 `bench/agent_audit_report.md`（钩子自清理），doc-llm 确定性「正向覆盖缺口」段触发拦 push 并给 dossier 路径（须 agent 接手判读），`SKILL_AUDIT_SKIP_DOC_LLM_GATE=1` 可放行有意缺口。不进部署副本。四处版本号一致 1.27.19 |

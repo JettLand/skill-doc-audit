@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.27.22 打磨明细（dev_commit 子进程显式 UTF-8 解码，修钩子回显 UnicodeDecodeError 噪声）
+
+- **问题**：v1.27.21 提交时实测复现——`dev_commit.py` 的 `_run()` 用 `subprocess.run(..., text=True)` 但未指定 `encoding`，Windows 下按系统区域编码（GBK）解码 post-commit 钩子输出的 UTF-8 中文（`[sync_deploy] ... 同步部署副本`），打印回执时抛 `UnicodeDecodeError`。提交与同步本身不受影响（`verify: OK` 仍正常打印），但回显通道被噪声污染。
+- **修复**：`_run()` 显式 `encoding="utf-8"` + `errors="replace"`——钩子/脚本输出按其真实编码解码，极端字节序列也不中断提交流程。dev-only 工具改动，不影响发布面。
+- **验证**：本版本提交自身即走修复后路径，钩子回显应无 UnicodeDecodeError、`verify: OK` 正常。四处版本号一致 1.27.22。
+
 ## 1.27.21 打磨明细（从代码移除 [agent-todo] #6/#7 + 修 Q1 文档缺陷）
 
 - **问题（指令与钩子执行重复）**：v1.27.20 仅把 DEVELOPMENT.md 第 6/7 类措辞从「必须执行」改成「已由钩子覆盖、agent 无需手动跑」，但**没动产生它们的代码**——`dev_market_bench.py` 的 `check_bump()` 仍打印这两条 `[agent-todo][必须]`（阻断）指令，正文仍是「必须运行 `audit_docs` / `dev_self_audit.py --dev-docs --strict`」。文档说「不用跑」、代码仍打「必须跑」，二者互相打架；且第 6/7 条的「执行」本身已被 `pre-push` 钩子（`dev_self_audit --strict`）100% 覆盖，真正只能 agent 做、无法自动化的是第 8 类（上架授权须问用户）。

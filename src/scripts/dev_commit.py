@@ -25,7 +25,11 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 
 def _run(cmd):
-    return subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
+    # 显式 UTF-8 解码：钩子/脚本输出为 UTF-8，Windows 默认按区域编码（GBK）读
+    # 会触发 UnicodeDecodeError（v1.27.21 提交回显钩子 stderr 中文时实测复现）；
+    # errors="replace" 保证极端字节序列也不中断提交流程。
+    return subprocess.run(cmd, cwd=REPO, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 def main():
