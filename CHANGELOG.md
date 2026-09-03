@@ -5,6 +5,11 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.34.3 打磨明细（修复 doc-llm / examples / deadcode 非交互伪交互判定 + 回执诚实化）
+
+- **改动（检查器行为修正，补丁级）**：① 根治 `is_interactive()` 伪交互判定（`core.py:429`）——原仅查 `sys.stdin.isatty()`，Agent 后台 / CI 把 stdout/stderr 重定向到日志而 stdin 仍可能是 TTY，被误判可交互 → 弹菜单到不可见流 → 卡满 30s 超时后以「用户放弃」伪装软跳过（doc-llm 此前非交互批量审计静默 30s×N 后空转、回执仍 `✓doc-llm`）。改为要求 stdin **与** stderr 均为 TTY；否则走非交互降级 / 硬失败路径，不再静默超时。deadcode / examples 共用此函数，一并受益。② 回执诚实化（`report.py`）：`mode=off`（跳过）的检查器由 `✓` 改标 `⚠` 并点名「未实际运行」，逐检查器块注解「非交互降级 / 显式 off」（`doc_llm.py:167` 把 `degraded` 写入 `_meta`）。③ 分类收敛：doc-llm 非交互降级统一走 `ask_undecided`（ERROR，与 deadcode/examples 层级3 一致），`core.py` 补 `ask_undecided` 中文标签；清理已死 `doc_llm_skipped` 描述，修正 `SKILL.md` / `references/checkers.md` 文档漂移（原误写「记 INFO doc_llm_skipped」）。
+- **验证**：非交互复现 `audit_docs.py --all --all-checks` 由修复前隐含 30s×N 静默超时，变为 **731ms** 返回、`EXIT=1`、`⚠doc-llm … ⚠ 跳过(未实际运行): doc-llm` + 「需用户决策」块；三模式回执（ask非交互→⚠+ERROR / off→⚠无ERROR / agent→✓+handoff）均正确。`self_validate.py` 全 PASS（黄金快照未受影响）；`dev_self_audit.py --strict` EXIT 0、ERROR 0 / WARN 0 / INFO 39。副作用：examples/deadcode 非交互亦不再 30s 静默超时，统一 `ask_undecided` 硬失败，推荐 CI 命令须显式 `--examples-mode static --examples-consent`（已采用）。详见 `doc_llm_degradation_analysis.md`。
+
 ## 1.34.2 打磨明细（修正基准实测器文档描述 + 恢复次/主版本基准实测 [agent-todo]（#6））
 
 - **改动**：① 修正 `DEVELOPMENT.md`「市场质量基准实测器」小节——原描述仍写旧的「质量分近似」取样逻辑（`LIST`/`index` 子命令、`--workers`、`quality_index.json`、TRACE overall 5.0 分），与 `dev_market_bench.py` 实测逻辑（官方列表 API 随机页偏移取样、`run` 子命令、`AUDIT_FLAGS` = `--all-checks --deadcode-mode vulture --doc-llm-mode agent --examples-mode static --examples-consent --json`）不符，已据源码重写（取样规则 / 规模约束 / 全量审计 / 下载口径 / 不进自动调度五点 + 子命令块 + 缓存清单）。② 恢复次/主版本变动时的「市场质量基准实测器」`[agent-todo]` 决策点提示：在 `dev_market_bench.py::check_bump` 的 `if cur != last:` 分支内、`is_minor_or_major_bump(last, cur)` 命中时打印（`[建议]`，非阻断），并重新加回 `_ver_tuple` / `is_minor_or_major_bump` 两个辅助函数；未提交改动提示由第 6 类顺移为第 7 类，指令清单现为 7 条（#1 版本一致性 / #2 CHANGELOG 收口 / #3 temp 清理 / #4 上架授权[必须] / #5 文档无版本叙述[建议] / #6 基准实测建议[建议·次主版本] / #7 未提交[建议·常驻]）。

@@ -164,7 +164,7 @@ def check_doc_llm(ctx):
     }
     _mode_desc = _MODE_DESC.get(mode, mode)
     sys.stderr.write("[doc-llm] 已采用 %s 模式：%s\n" % (mode, _mode_desc))
-    ctx["_meta"] = {"mode": mode, "mode_desc": _mode_desc}
+    ctx["_meta"] = {"mode": mode, "mode_desc": _mode_desc, "degraded": degraded}
     findings = []
     if mode == "agent":
         dossier = _write_doc_llm_dossier(ctx)

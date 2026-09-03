@@ -21,13 +21,24 @@ def checker_receipt_runs(r):
     if not runs:
         return ""
     parts = []
+    skipped = []
     for c in runs:
-        mark = "✓" if c["status"] == "OK" else "✗"
+        if c["status"] != "OK":
+            mark = "✗"
+        elif c.get("mode") == "off":
+            # 检查器函数已执行，但本次按 mode=off 跳过（显式 --X-mode off / 非交互降级），
+            # 不等同于「已执行并通过」——用 ⚠ 显式标注，杜绝「静默落空却显示通过」。
+            mark = "⚠"
+            skipped.append(c["name"])
+        else:
+            mark = "✓"
         parts.append("%s%s" % (mark, c["name"]))
     ok = sum(1 for c in runs if c["status"] == "OK")
     n = len(runs)
-    if ok == n:
+    if ok == n and not skipped:
         tail = "  [%d/%d 已执行 OK]" % (ok, n)
+    elif ok == n:
+        tail = "  [%d/%d 已执行 OK]  ⚠ 跳过(未实际运行): %s" % (ok, n, ", ".join(skipped))
     else:
         bad = ", ".join("%s=%s" % (c["name"], c["status"]) for c in runs if c["status"] != "OK")
         tail = "  ⚠ 未正常执行: %s  [%d/%d 已执行]" % (bad, ok, n)
@@ -70,6 +81,11 @@ def print_human(results):
                 code_tag, chk, badge, s["error"], s["warn"], s["info"]))
             if status != "OK" and run and run.get("error"):
                 print("      ↳ %s" % run["error"])
+            # 显式标注「跳过」：检查器函数执行了，但 mode=off 未实际做检查（语义/示例校验空转），
+            # 必须点名，避免被 [9/9 已执行 OK] 误读为「已验证通过」。
+            elif run and run.get("mode") == "off":
+                _deg = "（非交互降级）" if run.get("degraded") else ""
+                print("      ↳ 该检查器本次未实际运行（mode=off%s）：%s" % (_deg, run.get("mode_desc") or "跳过"))
             for f in fs:
                 loc = ""
                 if f.get("file"):

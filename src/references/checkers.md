@@ -47,7 +47,7 @@
 | doc | `DOC_CAPABILITY_MISSING` | 代码声明的能力文档未提及（正向覆盖缺口） | 仅审计本框架技能（代码含 `ALL_CHECKERS`）：注册的每个检查器名 / 用户面向 CLI 参数须出现在 SKILL.md 或 references 文档中，否则提示文档漏更新（与 `DOC_CAPABILITY_DRIFT` 正反向对称） | WARN |
 | doc-llm | `DOC_LLM_DRIFT` | 文档/代码语义漂移（agent 判定） | `doc-llm` 检查器（v1.23.0 起纳入 `--all-checks`，v1.24.0 起由 agent 直接接手）经 agent 用自身能力判定的语义漂移条目，仅作线索（v1.22.1 引入 / 接手机制 v1.24.0） | WARN |
 | doc-llm | `doc_llm_agent_handoff` | 语义漂移检测已转交 agent 接手 | 用户选「agent 接手」或显式 `--doc-llm-mode agent`：脚本写 dossier（SKILL.md 全文 + 代码事实清单 + 正向覆盖缺口预分析 + 比对要点）+ 打印 `AGENT_TAKEOVER` 哨兵，由 agent 读取后自行比对 | INFO |
-| doc-llm | `doc_llm_skipped` | 全量检测中语义漂移检测跳过 | `--all-checks` 全量自带 `doc-llm`、非交互环境无法向用户询问 → 跳过且未调用任何 LLM，属预期行为，记 INFO 不告警（保「全量检测 WARN 0」不变量） | INFO |
+| doc-llm | `ask_undecided` | 决策未决（非交互硬失败） | `--all-checks` 全量自带 `doc-llm`、非交互环境（stdout/stderr 任一非 TTY）无法向用户询问 → 硬失败挂起（ERROR，退出码 1），强制以显式 `--doc-llm-mode agent/off` 重跑；与 deadcode/examples 层级3 一致。不再静默软跳过（旧 `doc_llm_skipped` INFO 已弃用） | ERROR |
 | structure | `name_mismatch` | 名称不一致 | frontmatter name 与目录名不一致 | WARN |
 | structure | `version_missing` | 版本缺失 | 缺少合规 version | ERROR |
 | structure | `name_missing` | 名称缺失 | 缺少 name 声明 | ERROR |
@@ -268,7 +268,7 @@ examples 检查器（检查器 #9，v1.26.0 起纳入 `--all-checks` 全量集�
 | `--examples-mode {static,ask,run,off}` | examples 检查器模式；`ask` 默认(交互询问是否沙箱试运行，30s 超时/非交互回退 static 并 INFO 标注)，`static` 纯静态(零执行/零网络/零 token)，`run` 受限沙箱试运行带 expected 标注的示例，`off` 跳过 |
 | `--examples-timeout <秒>` | examples run 模式下单条示例命令执行超时（默认 20） |
 | `--examples-max-cmd <条>` | examples run 模式下单技能最多执行示例命令条数（默认 12，防突刺） |
-| `--doc-llm-mode {ask,agent,off}` | doc-llm 语义检测模式；`ask` 默认（交互问询是否 agent 接手，30s 超时/非交互跳过并记 INFO），`agent` 写 dossier 由 agent 接手比对，`off` 跳过 |
+| `--doc-llm-mode {ask,agent,off}` | doc-llm 语义检测模式；`ask` 默认（交互终端问询是否 agent 接手，30s 超时回退 off；非交互环境无法征询 → 硬失败挂起 `ask_undecided`（ERROR），须显式 `--doc-llm-mode agent/off` 重跑），`agent` 写 dossier 由 agent 接手比对，`off` 跳过 |
 | `--examples-consent` | examples 授权令牌：agent 非交互环境显式指定 `--examples-mode run/static/off` 时须附此令牌，否则脚本阻断并报 `examples_consent_missing`（ERROR），杜绝静默替用户决定 |
 | `--source {local,github,skillhub,url}` | 技能来源（默认 local 本机）；`github` 需 git、`skillhub` 需 skillhub CLI、`url` 标准库直抓零外部 CLI |
 | `--ref <值>` | 来源引用：`owner/repo`（可 `@分支`，逗号分隔批量）/ 集市 slug / https 地址 |

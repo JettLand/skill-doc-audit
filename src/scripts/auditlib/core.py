@@ -184,7 +184,7 @@ CATEGORY_LABELS = {
     # doc-llm：语义漂移检测（Vector 2，v1.22.0 引入、v1.23.0 纳入全量，v1.24.0 起由 agent 直接接手，不再依赖外部 LLM）
     "DOC_LLM_DRIFT": "文档/代码语义漂移（agent 判定）",
     "doc_llm_agent_handoff": "语义漂移检测已转交 agent 接手",
-    "doc_llm_skipped": "全量检测中语义漂移检测跳过（非交互环境，未调用任何 LLM）",
+    "ask_undecided": "决策未决（非交互环境，ask 模式无法征询用户，已硬失败挂起，需显式 --X-mode 重跑）",
     "B_STATUS": "运行状态枚举（供 AI 复核）",
     "B_CONFIG": "配置项枚举（供 AI 复核）",
     # structure：结构体检 + 元信息
@@ -427,8 +427,16 @@ def compile_python_file(path, cfile=None):
 
 
 def is_interactive():
-    """stdin 是否为交互终端（TTY）。非 TTY（管道 / Agent 自动化调用）下不弹菜单、不卡住。"""
-    return sys.stdin.isatty()
+    """是否为「可交互征询」环境：stdin 与 stderr 均为 TTY 才能可靠弹菜单并读入选择。
+
+    仅查 stdin 为 TTY 不够——Agent 后台任务 / CI 常把 stdout/stderr 重定向到日志文件，
+    此时 stdin 仍可能是 TTY，但 stderr 非 TTY 会导致菜单打印到不可见流、无人键入，
+    最终卡满 30s 超时后以「用户超时放弃」伪装成软跳过（doc-llm / examples 此前均踩此坑：
+    非交互批量审计里 doc-llm 静默 30s×N 后降级 off、回执仍显示 ✓doc-llm，形成
+    「静默落空却显示通过」）。故必须 stderr 也是 TTY（菜单可见）才视为可交互；否则按
+    非交互处理，交由 ask 非交互降级 / 硬失败（ask_undecided）路径，不再静默 30s 超时。
+    """
+    return sys.stdin.isatty() and sys.stderr.isatty()
 
 
 def prompt_choice(title, options, timeout=30):
