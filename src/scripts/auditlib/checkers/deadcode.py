@@ -64,11 +64,11 @@ def _resolve_deadcode_mode(args):
     - 显式 --deadcode-mode vulture：缺失时先尝试自动安装（用户已显式要求高精度），
       成功即高精度，失败回退 ast（degraded=True）；显式 ast / off 直接用、绝不安装
       （用户已显式决定，零联网）。
-    - 默认 ask：环境已装 vulture 则直接采用高精度 vulture 模式（不重复询问）；
-      未装 vulture 时：TTY 交互询问（选 1 视为用户显式要求，先尝试自动安装；
-      超时 30s / 无输入 → 直接回退零依赖 ast，**不安装**——用户未做决定，
-      绝不替用户发起联网）；非 TTY（被管道或 Agent 调用）→ 直接回退零依赖 ast
-      并标记 degraded=True，同样**不安装**（零依赖、零联网）。
+    - 默认 ask：vulture 检测由**脚本自身静态完成，绝不依赖 agent 探测**。脚本检测到
+      vulture 已安装 → 直接采用高精度 vulture 模式（回参告知，绝不重复询问）；vulture
+      未安装 → 进入正常 ask 流程问询用户（交互终端弹菜单；非 TTY/Agent 无法从 stdin
+      询问则回退零依赖 ast 并挂载 user_decision，交 agent 弹窗确认）。无论采用哪种精度
+      模式，check_deadcode 都会回参告知（ast/vulture/off），绝不静默代决。
     """
     mode = getattr(args, "deadcode_mode", "ask") if args else "ask"
     if mode != "ask":
@@ -80,22 +80,18 @@ def _resolve_deadcode_mode(args):
             sys.stderr.write("[deadcode] ⚠ 未检测到 vulture 库且自动安装失败，回退零依赖 AST 模式（精度降级）\n")
             return "ast", True
         return mode, False
-    # ask 模式
-    if not is_interactive():
-        # 非交互（管道 / Agent / CI）：绝不替用户决定精度档。
-        # 不论 vulture 是否已安装，都不自动采用高精度——透明回退零依赖 ast 并挂载
-        # user_decision（build_json 提升为 user_prompts），交由 agent 向用户弹窗确认后
-        # 以显式 --deadcode-mode 重跑。需高精度请用户显式选择 vulture（该路径才会自动安装）。
-        sys.stderr.write(
-            "[deadcode] ⚠ 非交互（自动化）环境，deadcode 精度档须由用户决定，不自动采用 vulture；"
-            "回退零依赖 AST 模式（精度较低、易误报）。如需高精度请显式 --deadcode-mode vulture。\n"
-        )
-        return "ast", True
-    # 交互终端：已装 vulture 直接走高精度（用户已主动安装，免重复询问）；否则弹菜单
+    # ---- ask 模式：脚本静态检测 vulture（不调用 agent）----
     if _vulture_module() is not None:
-        sys.stderr.write("[deadcode] 检测到 vulture 库，自动采用高精度模式（跳过询问）\n")
+        # vulture 已安装：直接采用高精度，回参告知（绝不重复询问、绝不替用户决定精度档）
+        sys.stderr.write("[deadcode] 静态检测到 vulture 库，ask 模式直接采用高精度 vulture 模式\n")
         return "vulture", False
-    return _prompt_deadcode_mode()
+    # vulture 未安装：进入正常 ask 流程问询用户
+    if is_interactive():
+        return _prompt_deadcode_mode()
+    # 非交互（Agent / 管道 / CI）：无法从 stdin 询问，挂载 user_decision 交由 agent 弹窗，
+    # 临时回退零依赖 ast（degraded=True 触发 check_deadcode 注入 user_decision）。
+    sys.stderr.write("[deadcode] ⚠ 非交互环境且未检测到 vulture，已挂载精度模式决策请求（暂以零依赖 AST 代行）\n")
+    return "ast", True
 
 def _prompt_deadcode_mode():
     """交互询问 deadcode 精度模式；30 秒超时/无输入默认零依赖 ast（不安装）。
@@ -129,6 +125,16 @@ def _prompt_deadcode_mode():
 
 def check_deadcode(ctx):
     mode, degraded = _resolve_deadcode_mode(ctx.get("args"))
+    # 反参告知：无论采用哪种精度模式，都显式回参 ast / vulture / off，
+    # 供 human（stderr 行）与 agent（checker_runs[deadcode].mode）确定性读取，杜绝静默代决。
+    _MODE_DESC = {
+        "vulture": "vulture 高精度（需 vulture 库）",
+        "ast": "零依赖 AST（易误报，无需安装）",
+        "off": "关闭（跳过 deadcode 检查）",
+    }
+    _mode_desc = _MODE_DESC.get(mode, mode)
+    sys.stderr.write("[deadcode] 已采用 %s 精度模式：%s\n" % (mode, _mode_desc))
+    ctx["_meta"] = {"mode": mode, "mode_desc": _mode_desc}
     findings = []
     if degraded:
         # 降级（未装 vulture 且自动安装失败，回退零依赖 ast）→ 显著提示精度下降，

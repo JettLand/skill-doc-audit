@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.30.0"
+version: "1.31.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -28,7 +28,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `security`：安全红线静态子集（硬编码密钥、路径穿越、危险通配删除等）。
 - `runtime`：脚本可运行性（语法 / 引用缺失）。
 - `deps`：依赖与平台声明（未声明外部 CLI / 运行平台）。
-- `deadcode`（运行前按 `--deadcode-mode` 选精度）：未使用定义 / 导入、不可达代码、孤立资源文件（Agent 调用须显式传 `--deadcode-mode`，精度档由用户决定，不静默跳过）。
+- `deadcode`（运行前按 `--deadcode-mode` 选精度，默认 ask 由脚本静态检测 vulture 决定）：未使用定义 / 导入、不可达代码、孤立资源文件（**vulture 检测由脚本完成、不依赖 agent 探测**，并回参告知实际精度模式 ast/vulture；仅 vulture 缺失且非交互时才挂载决策请求交 agent 弹窗）。
 - `portability`（零依赖纯静态）：跨平台可移植性——硬编码绝对路径、`os.getcwd` 依赖、平台专属 shell、解释器锁、编码假设、`agent_coupling`；按 `target_platform` / `target_agent` 豁免。
 - `doc-llm`：自由散文语义漂移检测（由 agent 直接接手、无需外部 LLM）——由 agent 用自身能力比对 SKILL.md 与代码事实；dossier 含「正向覆盖缺口」预分析（与 `doc` 的 `DOC_CAPABILITY_MISSING` 共用 `compute_capability_gaps`，确定性列出代码已注册但文档未写的检查器 / CLI 参数，供 agent 优先核对）；全量检测显式问询，非交互环境记 INFO `doc_llm_skipped`。
 - `examples`（**检查器 #9**）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 传给脚本的参数是否声明 / 示例调用的外部 CLI 是否声明 / 是否含危险或不可逆命令）。默认 `ask`（交互询问是否沙箱试运行；非交互 / 超时一律回退 `static` 零执行 / 零网络 / 零 token）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。
@@ -58,17 +58,17 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - **绝不替用户决定**：凡涉及「是否启用增强 / 外部依赖能力」的取舍，必须显式交还用户决策——交互终端呈现可选项（含代价）并等待选择，超时 / 非交互则安全回退默认模式，而**绝不**为省事自动替用户开启联网或消耗资源（超时 / 非交互回退路径**不触发安装**）。
 - **透明兜底**：无法询问（自动化 / Agent / 非 TTY）时，宁可在报告中显著标注「已跳过 / 已降级」（INFO / WARN），也不静默代决。
 
-该原则已在 doc-llm（`--doc-llm-mode` 默认问询、菜单含代价、超时回退默认）与 deadcode（`--deadcode-mode ask` 交互询问精度、非 TTY 显著告警；仅用户显式要求 vulture 时才自动安装）中落地。
+该原则已在 doc-llm（`--doc-llm-mode` 默认问询、菜单含代价、超时回退默认）与 deadcode（`--deadcode-mode ask` 由**脚本静态检测** vulture：已装则直接高精度、未装则挂载决策请求交还用户，全程回参告知实际精度模式）中落地。
 ### Agent 非交互运行须知（决策必须回交用户，禁止静默代决）
 
 本技能被 Agent 经子进程调用时，**stdin 不是 TTY**，交互菜单无法弹出。此时 `ask` 默认档只会「透明回退 + 挂载 `user_decision`」，但回退本身不构成「已征得用户同意」。Agent 必须主动把决策交还用户：
 
-1. **运行前先问**：在调用 `audit_docs.py --all-checks` 之前，用提问工具（如 AskUserQuestion）向用户确认三档取舍，再以显式旗标传入，不要把决定留给自己：
-   - deadcode 精度：`vulture`（高精度，需装 vulture）/ `ast`（零依赖）/ `off`（不运行）；
+1. **运行前无需自行探测 vulture**：deadcode 的 vulture 检测由脚本静态完成，**agent 不要自己跑 `python -c "import vulture"` 去探测**——直接以默认 `ask` 运行即可，脚本会自行决定精度并回参告知。doc-llm / examples 仍按各自约定运行前确认（其取舍不涉及 vulture 安装）：
+   - deadcode 精度：默认 `ask`（脚本检测后决定），如需锁定可显式 `--deadcode-mode vulture/ast/off`；
    - doc-llm 模式：`agent`（由你接手语义比对）/ `off`（跳过）；
    - examples 模式：`run`（沙箱试运行，须 `--examples-consent`）/ `static`（纯静态）/ `off`（跳过）。
-2. **运行后必查回交**：若报告出现「⚠ 需用户决策」块，或 `--json` 输出 `user_prompts` 非空，必须逐项向用户弹窗确认，再按用户选择以显式 `--X-mode` 重跑。**绝不允许直接给出结论、把决策点悄悄吞掉。**
-3. 代码层兜底：非 TTY 下 `deadcode` 的 `ask` 默认**绝不**自动采用 vulture（即便环境已装），一律回退 `ast` 并挂载精度决策请求，交由你弹窗确认——这正是为了不让脚本替用户决定精度。
+2. **运行后必查回交（反参告知）**：deadcode 会在 stderr 与 JSON `checker_runs`（deadcode 条目的 `mode` 字段）回参实际采用的精度（ast / vulture / off），agent **必须将该模式明确告知用户**（如「deadcode 以 vulture 高精度模式运行」）。若报告出现「⚠ 需用户决策」块或 `--json` 的 `user_prompts` 非空（即 vulture 缺失且非交互），必须逐项向用户弹窗确认精度取舍，再以显式 `--deadcode-mode` 重跑。**绝不允许静默代决、把决策点悄悄吞掉。**
+3. 代码层兜底：vulture 已安装时 `ask` 直接采用高精度 vulture 并回参告知（不重复询问）；仅当 vulture 缺失且非交互时，才回退 `ast` 并挂载精度决策请求交你弹窗确认——脚本绝不会在 vulture 缺失时静默替用户决定。
 
 
 > **跨平台、跨 Agent 适配，不写死宿主假设。**
@@ -86,7 +86,7 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 # 1) 体检一个技能（doc 一致性常驻默认开，审计前自动备份 SKILL.md）
 python scripts/audit_docs.py --skill ~/.workbuddy/skills/<技能名> --backup
 
-# 2) 全套体检（结构/安全/可运行/依赖/死代码；deadcode 已装 vulture 则自动高精度，未装先尝试自装、失败运行前询问精度并显著告警）
+# 2) 全套体检（结构/安全/可运行/依赖/死代码；deadcode 默认 ask：脚本检测 vulture，已装自动高精度并回参告知，未装询问精度模式）
 python scripts/audit_docs.py --skill <目录> --all-checks
 
 # 3) 先预览再审计（看清楚会扫哪些检查器、哪些文件，退出码 0）
@@ -124,7 +124,7 @@ python scripts/audit_docs.py --skill <目录> --all-checks --preview
 python scripts/audit_docs.py --skill <技能目录> --all-checks
 ```
 
-它会自动备份 `SKILL.md`、跑完全部检查器、输出带中文标签的报告。`deadcode` 若环境已装 `vulture` 会自动用高精度模式，没装则自动降级为零依赖 `ast`（**不需要额外安装任何东西就能跑**，见下）。其余 90% 场景用「快速开始」那张表查对应命令要点即可，无需通读全文。**注意**：上一段的「自动降级」仅在人类交互终端成立；**Agent 经管道执行时不会真正询问用户，须显式传 `--deadcode-mode` 指定精度档**，勿依赖静默降级。
+它会自动备份 `SKILL.md`、跑完全部检查器、输出带中文标签的报告。`deadcode` 默认 `ask` 由脚本静态检测 `vulture`：已装则自动用高精度模式并回参告知实际精度（**不需要额外安装任何东西就能跑**），没装则询问精度模式（非交互环境挂载决策请求交 agent 弹窗）。其余 90% 场景用「快速开始」那张表查对应命令要点即可，无需通读全文。**注意**：Agent 经管道执行时若 vulture 缺失不会真正询问用户，会挂载精度决策请求并交你弹窗确认或显式 `--deadcode-mode` 指定，勿依赖静默降级。
 
 > 三个最常见疑问（要装 vulture 吗 / 远程审计要装 git 吗 / WARN 要不要全改）见「常见问题与避坑」·速答三问。
 
@@ -177,7 +177,7 @@ python scripts/audit_docs.py --skill ~/.workbuddy/skills/workbuddy-checkin --bac
 # 启用插件式检查器（doc 常驻 + 指定项，可重复 --check）
 python scripts/audit_docs.py --skill <目录> --check structure --check security
 
-# 全部检查器（doc + structure + security + runtime + deps + deadcode；deadcode 已装 vulture 则自动高精度，否则运行前询问精度模式）
+# 全部检查器（doc + structure + security + runtime + deps + deadcode；deadcode 默认 ask：脚本检测 vulture，已装自动高精度并回参告知，未装询问精度模式）
 python scripts/audit_docs.py --skill <目录> --all-checks
 
 # 仅依赖/平台声明检查
@@ -193,8 +193,9 @@ python scripts/audit_docs.py --skill <目录> --all-checks --strict
 python scripts/audit_docs.py --skill <目录> --all-checks --timeout 60
 # 超大文件跳过阈值（字节）；超过则跳过并报告，避免拖慢
 python scripts/audit_docs.py --skill <目录> --all-checks --max-file-size 2000000
-# deadcode 精度模式：ask(交互终端已装 vulture 则自动高精度;非交互环境绝不自动采用,回退 ast 并交还用户决策) / 显式 vulture 高精度 / ast 零依赖 / off 不运行；Agent/CI 须显式 --deadcode-mode 跳过交互询问
-python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture
+# deadcode 精度模式：ask(默认，脚本静态检测 vulture；已装则自动高精度并回参告知，未装交还用户决策) / 显式 vulture 高精度 / ast 零依赖 / off 不运行；Agent/CI 可用显式 --deadcode-mode 锁定精度，否则默认 ask 由脚本检测并回参告知
+python scripts/audit_docs.py --skill <目录> --all-checks   # deadcode 默认 ask：脚本检测 vulture，已装用高精度并回参告知，未装交还决策
+python scripts/audit_docs.py --skill <目录> --all-checks --deadcode-mode vulture   # 或显式锁定高精度
 # 先预览将运行哪些检查器、将扫描哪些文件（不产出发现，退出码 0）
 python scripts/audit_docs.py --skill <目录> --all-checks --preview
 # examples 示例执行验证：默认 ask（非交互降级纯静态）；agent 非交互显式 --examples-mode 须附 --examples-consent 授权令牌（否则阻断并报告 examples_consent_missing）
@@ -265,7 +266,7 @@ python scripts/audit_docs.py --check doc --skill <技能目录>
 
 ### 速答三问（30 秒）
 
-- **要装 vulture 吗？** 不用手动装。显式 `--deadcode-mode vulture`（或交互选 vulture）但环境缺库时，脚本会先自动 `pip install vulture`（装好即用高精度）；装不上才降级 `ast` 并标注精度降级。其它情形（ast/off、ask 超时或非交互回退）不触发安装，缺库即零依赖 `ast`，其它检查器完全不受影响。
+- **要装 vulture 吗？** 不用手动装。默认 `ask` 由脚本静态检测：环境已装 vulture 则直接高精度（回参告知，不触发安装）；仅显式 `--deadcode-mode vulture`（或交互选 vulture）但环境缺库时，脚本才先自动 `pip install vulture`（装好即用高精度），装不上降级 `ast` 并标注精度降级。其它情形（ast/off、ask 非交互且缺库回退）不触发安装，缺库即零依赖 `ast`，其它检查器完全不受影响。
 - **审计远程技能要装 git / skillhub 吗？** 不用。用 `--source url --ref <SKILL.md 的 https 地址>` 即可，标准库直抓、零外部 CLI。
 - **报告里一堆 WARN/INFO 要不要全改？** 不要。只有 `ERROR` 默认计入退出码；`WARN`/`INFO` 是线索，需你/AI 读源码复核后再决定。
 
@@ -275,7 +276,7 @@ python scripts/audit_docs.py --check doc --skill <技能目录>
 - **误区二：以为远程审计必须 `--source github`。** 其实优先用 `--source url --ref <SKILL.md 的 https 地址>` 即可——标准库直抓、零外部 CLI、绕开 `git clone`，绝大多数远端技能都能审计。仅在需要完整克隆仓库（含嵌套子目录/多技能）时才用 `--source github` / `--source skillhub`。
 - **误区三：报了路径穿越 / 硬编码密钥就是真漏洞。** 多半是上下文盲误报。`security` 检查器对所有正则统一做上下文感知过滤，自动排除注释行、含 `://` 的文档 URL、含 `__file__`/`dirname`/`.asar` 的合法资源上溯；真实漏洞（外部可控字符串拼入落盘路径、文档里真写死密钥）才会保留。
 - **误区四：文档列了退出码但代码从不返回，就是文档错了。** 未必。若标注「已弃用」，那是刻意的向后兼容说明，保留不要删。
-- **误区五：没装 vulture 就跑不了死代码检测 / 整工具用不了。** 不是。没装时 `deadcode` 仍可用且会先尝试自动安装 vulture（显式 vulture 与 ask 默认路径均如此）；装不上或显式选 `ast`/`off` 才以零依赖 `ast` 运行（仅死代码精度略低），其余检查器完全不受影响。
+- **误区五：没装 vulture 就跑不了死代码检测 / 整工具用不了。** 不是。没装时 `deadcode` 仍可用：ask 默认路径下脚本不自动安装 vulture，而是挂载精度决策请求交用户/agent 选择（非交互回退零依赖 `ast`）；仅显式 vulture 路径才尝试自动安装。装不上或显式选 `ast`/`off` 以零依赖 `ast` 运行（仅死代码精度略低），其余检查器完全不受影响。
 
 ### 避坑要点
 

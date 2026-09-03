@@ -333,10 +333,15 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
         try:
             res = fn(ctx) or []
             findings.extend(res)
-            checker_runs.append({
+            run = {
                 "name": name, "code": ccode, "status": "OK",
                 "findings": len(res), "error": None,
-            })
+            }
+            # 检查器自报元信息（如 deadcode 精度模式），合并进执行回执，供 JSON 确定性可读
+            meta = ctx.pop("_meta", None)
+            if meta:
+                run.update(meta)
+            checker_runs.append(run)
         except Exception as e:  # noqa: BLE001
             # 检查器执行抛异常：显式记为 FAILED，且把异常转成 ERROR 发现，确保运行退出码反映「没跑全」
             checker_runs.append({

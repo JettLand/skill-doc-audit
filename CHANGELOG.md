@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.31.0 打磨明细（deadcode ask 流程重构：vulture 检测收归脚本、反参告知实际精度）
+
+- **问题**：v1.30.0 的「非 TTY 绝不自动 vulture、一律回退 ast」过度保守，且 vulture 检测仍由 Agent 侧 `python -c "import vulture"` 承担，违反「绝不替用户决定」的同时把本应脚本自决的事推给 Agent。用户明确要求：vulture 检测必须由静态脚本完成（不调用 agent）；vulture 已装则直接采用高精度、未装才进入正常 ask 流程问询用户；且无论采用哪种精度模式都必须回参告知（ast/vulture/off）。
+- **修复**：① `deadcode.py` 重构 `_resolve_deadcode_mode` 的 ask 分支——脚本静态检测 vulture：已装即直接采用高精度 vulture 并回参告知，未装则进入正常 ask 流程（交互终端弹菜单；非 TTY/Agent 无法从 stdin 询问则回退零依赖 ast 并挂载 `user_decision` 交 agent 弹窗）。② `check_deadcode` 新增反参告知：每次运行均向 stderr 打印「已采用 <mode> 精度模式」，并将 `mode`/`mode_desc` 写入执行回执 `ctx["_meta"]`，由 `model.py` 合并进 `checker_runs[deadcode]`，使 human 与 agent 都能确定性读到实际精度（ast/vulture/off），杜绝静默代决。③ SKILL.md 移除「Agent 须自行探测 vulture / 显式传 --deadcode-mode」的旧指引，改为「Agent 直接以默认 ask 运行，vulture 检测由脚本完成并回参告知；仅 vulture 缺失且非交互时挂载决策请求交 agent 弹窗」。四处版本号一致 1.31.0。
+- **验证**：托管 Python（含 vulture 2.16）下以非 TTY 跑 `audit_docs.py --all-checks`，确认 deadcode 在 vulture 已装时直接采用高精度 vulture 并在 stderr/checker_runs 回参 `mode=vulture`（不再静默 ast）；vulture 缺失非 TTY 时回退 ast 并产出 `precision_degraded` WARN + `user_decision`；`dev_self_audit --strict` 9/9 检查器 ERROR 0/WARN 0/INFO（含 doc + doc-llm agent）。
+
 ## 1.30.0 打磨明细（根治 Agent 非交互环境静默替用户决定 deadcode 精度）
 
 - **问题**：用户开新对话由 Agent 全量检测技能时，全程无弹窗、Agent 替用户做了所有决定，违反「绝不替用户决定」核心原则。根因：`deadcode` 检查器 `ask` 模式在非 TTY（Agent 子进程 stdin 非终端）下，若环境已装 `vulture` 会**静默自动采用高精度**（无提示、无 `user_decision`），而 Agent 所用托管 Python 恰好装有 `vulture 2.16` → 精度档被脚本替用户决定；`doc-llm` / `examples` 虽挂载结构化 `user_prompts` + 「⚠ 需用户决策」报告块，但 SKILL.md 仅建议 Agent 回交、未强制，Agent 直接给结论把决策点吞掉。

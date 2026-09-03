@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.31.0 | **deadcode ask 流程重构（行为修复，小版本级）**：vulture 检测收归脚本静态完成（不调用 agent）；vulture 已装直接采用高精度并回参告知，未装才进入正常 ask 流程问询用户；无论采用哪种精度模式都回参告知实际模式（ast/vulture/off，写 stderr + checker_runs[deadcode].mode），杜绝静默代决。SKILL.md 移除「Agent 须自行探测 vulture」旧指引。四处版本号一致 1.31.0 |
 | 1.30.0 | **根治 Agent 非交互环境静默替用户决定 deadcode 精度（行为修复，小版本级）**：用户开新对话由 Agent 全量检测技能时全程无弹窗、Agent 替用户做了所有决定，违反「绝不替用户决定」。根因 `deadcode` `ask` 模式在非 TTY 下若环境已装 `vulture` 会静默自动采用高精度（无提示、无 `user_decision`），而 Agent 托管 Python 恰装有 `vulture`；`doc-llm`/`examples` 虽挂载 `user_prompts`+「⚠ 需用户决策」块但 SKILL.md 未强制 Agent 回交。修复：`deadcode.py` 非 TTY 下绝不自动 `vulture`、一律回退 `ast` 并挂 `user_decision`；SKILL.md 新增「Agent 非交互运行须知」强制运行前提问、运行后回交。四处版本号一致 1.30.0 |
 | 1.29.5 | **补记 v1.29.0 漏改的 SKILL.md L185 deadcode 注释 `skip`→`off`（纯文档单点修正）**：TRACE 高精度评测（2026-09-02）核对部署副本发现 SKILL.md L185 命令行注释仍写「`skip` 跳过」，但 v1.29.0 已把 deadcode 关闭档统一为 `off`（`skip` 已被 argparse 拒绝）——属 v1.29.0 单点文档遗漏。已改 `off 不运行`。四处版本号一致 1.29.5 |
 | 1.29.4 | **收口 DEVELOPMENT.md 命令表/指令清单的编号与计数措辞漂移（纯文档修正，7 处）**：经逐行核对，命令表与指令清单结构完整、**无需重新编撰**，但存在 v1.27.21 重编号（10类→8类）与 v1.29.2 新增 bump_audit 后的收口遗漏——① L124 DEV_TOOLS「全8个」→9个补 bump_audit；② L22 post-commit「仅同步不跑它」→同步+bump 自动早期反馈；③ L245 旧「第5–9类+第10类」残留→第5–8类；④ L251 阻断归属错指「第7–8类」→第6类上架授权；⑤ L225 退役标题加「旧」避歧义；⑥ L292 远程CI「4类提示」→8类（#1-4+#5-8）；⑦ L247 解释补 #7 全版本打印原因。dev_self_audit --strict 9/9 ERROR 0/WARN 0、self_validate 4/4 PASS。四处版本号一致 1.29.4 |
