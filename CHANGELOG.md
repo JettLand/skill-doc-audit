@@ -5,6 +5,13 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.34.5 打磨明细（--all-checks 语义补全：全量即全精度，doc-llm 不再静默落空）
+
+- **问题**：用户指出 `--all --all-checks` 下 doc-llm 仍走默认 `ask` 精度，非交互环境里被回退为 off（旧行为）或硬失败挂起 `ask_undecided`，与「全量体检」语义自相矛盾；且文档（SKILL.md / checkers.md / core.py docstring / cli help）仍写「非交互跳过 INFO / 弹菜单 30s 超时默认不启用」，与代码已脱节。
+- **改动**：`audit_docs.py --all-checks` 在解析参数后，对仍是默认 `ask` 的交互型检查器自动升为非交互安全全精度档位（与 `dev_self_audit.py` 既定约定一致）：`doc-llm` → `agent`（脚本写语义 drift dossier + 打印 AGENT_TAKEOVER 哨兵，agent 接手比对，零外部 LLM）；`examples` → `static` 且视同 `--examples-consent` 授权（纯静态零执行/零网络）；`deadcode` → `vulture` 高精度（缺库则尝试自动安装，失败回退 ast + WARN）。`--all-checks` 即视为用户显式授权全量，故 examples 静态校验无需再单独带 consent 旗标。显式 `--doc-llm-mode/--examples-mode/--deadcode-mode`（含显式 `ask`）始终优先于升档，命令行显式指定经 `sys.argv` 探测后不被覆盖。同步收口过时文档：cli `--all-checks` help、core.py 模块 docstring 与用法示例、`doc_llm.py` 注释、`checkers.md` `ask_undecided` 行（现仅显式 ask 非交互才触发）。
+- **验证**：`audit_docs.py --all --all-checks` 非交互实测 6 技能全部 `[9/9 已执行 OK]`，doc-llm 跑成 agent（AGENT_TAKEOVER 出现）、examples=static（无 consent_missing）、deadcode=vulture，`ask_undecided`/`examples_consent_missing` 均为 0；显式 `--doc-llm-mode off` 仍尊重 off、`--doc-llm-mode ask` 仍走显式 ask 硬失败挂起（升档不覆盖显式选择）。`dev_self_audit.py --strict` 复跑 EXIT 0 / ERROR 0 / WARN 0 / INFO 39。`py_compile` 全过。
+- **影响面**：仅用户侧 CLI 默认档补全，不改变 `dev_self_audit.py`（其本就显式传全精度档）；不改变检查器逻辑与退出码。
+
 ## 1.34.4 打磨明细（同源收口 examples / deadcode 文档表述，与代码 ask_undecided 硬失败一致）
 
 - **改动（文档收口，补丁级）**：1.34.3 修复 `is_interactive` 伪交互判定后，examples / deadcode 非交互 ask 同样走 `ask_undecided` 硬失败（ERROR），但 `SKILL.md` / `references/checkers.md` 中 examples / deadcode 段落仍写「非交互回退 static/ast 并发 INFO」，与代码不一致（examples 非交互→以 static 代行并硬失败挂起、deadcode 非交互缺 vulture→以 ast 代行并硬失败挂起；交互 30s 超时仍降级 static/ast 并发 `examples_degraded` INFO，不变）。本次同源收口：将 examples / deadcode 各处的「非交互回退 … 并发 INFO」统一改为「非交互环境无法征询 → 硬失败挂起 `ask_undecided`（ERROR），须显式 `--examples-mode` / `--deadcode-mode` 重跑」，并保留交互超时降级（examples_degraded INFO）的说明；`ask_undecided` 中文标签（1.34.3 已加）使三检查器回执显示一致。

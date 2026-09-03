@@ -11,7 +11,7 @@ def main():
     ap.add_argument("--all", action="store_true", help="审计 ~/.workbuddy/skills 下全部技能")
     ap.add_argument("--check", action="append", metavar="NAME",
                     help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability/doc-llm/examples)，可重复；doc 常驻默认开；doc-llm 默认按 ask 处理（弹菜单询问是否启用语义检测，由 agent 接手），显式 --doc-llm-mode agent 即由 agent 直接接手（不依赖外部 LLM、但会占用 agent 推理 token，输入侧为主）；examples 默认 ask(交互询问是否沙箱试运行，超时/非交互回退 static 零执行/零网络/零 token)，--examples-mode run 方在受限沙箱试运行带 expected 标注的示例")
-    ap.add_argument("--all-checks", action="store_true", help="启用全部检查器（含 doc-llm：交互终端弹菜单询问是否启用 LLM 语义检测，30 秒超时默认不启用，绝不自动联网；非交互环境跳过并以 INFO 提示；含 examples：默认 ask(交互询问是否沙箱试运行，超时/非交互回退 static 零执行/零网络/零 token)，--examples-mode run 方在受限沙箱试运行带 expected 标注的示例）")
+    ap.add_argument("--all-checks", action="store_true", help="启用全部检查器并以全精度非交互安全档位运行（doc-llm 默认 ask 自动升为 agent 语义检测、examples 自动升为 static 静态校验并视同已授权、deadcode 自动升为 vulture 高精度；均不弹菜单、不静默落空）；显式 --doc-llm-mode/--examples-mode/--deadcode-mode 优先级更高")
     ap.add_argument("--backup", action="store_true", help="审计前备份 SKILL.md")
     ap.add_argument("--backup-limit", type=int, default=BACKUP_LIMIT,
                     help="SKILL.md 最多保留的备份数（默认 %d）" % BACKUP_LIMIT)
@@ -58,6 +58,22 @@ def main():
                          "其仓库相对引用按文件自身目录解析，降低 DEAD_PATH 误报。"
                          "默认（不带此旗标）仅扫描 SKILL.md + references/*.md。")
     args = ap.parse_args()
+    # --all-checks 语义补全：不仅启用全部检查器，且把默认 ask 的交互型检查器自动升为
+    # 非交互安全全精度档位（与 dev_self_audit.py 约定一致：doc-llm=agent / examples=static+授权 /
+    # deadcode=vulture），杜绝「全量却静默落空 / 非交互硬失败」。仅当用户未显式指定对应
+    # --*-mode 时提升；显式值（含显式 ask）始终优先。
+    _explicit_modes = set()
+    for _m in ("doc_llm_mode", "examples_mode", "deadcode_mode"):
+        if any(_f in sys.argv for _f in ("--" + _m.replace("_", "-"),)):
+            _explicit_modes.add(_m)
+    if args.all_checks:
+        if args.doc_llm_mode == "ask" and "doc_llm_mode" not in _explicit_modes:
+            args.doc_llm_mode = "agent"
+        if args.examples_mode == "ask" and "examples_mode" not in _explicit_modes:
+            args.examples_mode = "static"
+            args.examples_consent = True  # --all-checks 即用户显式授权全量（含示例静态校验）
+        if args.deadcode_mode == "ask" and "deadcode_mode" not in _explicit_modes:
+            args.deadcode_mode = "vulture"
 
     MAX_FILE_SIZE = args.max_file_size
 

@@ -29,12 +29,12 @@ def _resolve_doc_llm_mode(args):
 
     返回 (mode, degraded, reason)，与 _resolve_deadcode_mode 同构：
     - mode: "off" | "agent"
-    - degraded/reason：仅当「--all-checks 全量自带、非交互环境无法询问」时标记，
+    - degraded/reason：仅当「显式 ask 且非交互环境无法询问」时标记（--all-checks 已把默认 ask 自动升为 agent，不再落此分支），
       供 check_doc_llm 发 INFO doc_llm_skipped（不污染「全量检测 WARN 0」不变量）。
 
     v1.24.0 起：语义漂移检测由 agent 直接接手，本函数不再处理任何外部 LLM 配置；
     v1.24.1 起：移除 preview 模式（会重复占用 agent 推理 token，徒增成本）。
-      - 未显式传入（--all-checks 全量路径即此）→ 按 ask：交互弹菜单，超时 30s 回退默认；
+      - 未显式传入且未因 --all-checks 升档 → 按 ask：交互弹菜单，超时 30s 回退默认；
       - 显式 off：完全不运行；
       - 显式 ask：交互弹菜单，超时 30s 回退默认；非交互 → 无法询问，回退默认并记 INFO 跳过；
       - 显式 agent：直接由 agent 接手（脚本写 dossier + 打印哨兵）。
