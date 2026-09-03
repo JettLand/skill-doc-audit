@@ -266,6 +266,16 @@ def main():
                     print(c)
     except Exception:  # noqa: BLE001
         pass
+    # ---- 5d) 开发工作流提醒（常驻 [建议]，非门禁）：优先用 dev_orchestrate.py ----
+    # 仅在检测到开发面未提交改动时提示（由 release_check.check_dev_orchestrate_usage 判定），
+    # 避免干净树发布时的噪音；非阻断、不升退出码。
+    try:
+        from release_check import check_dev_orchestrate_usage
+        _dor = check_dev_orchestrate_usage()
+        if _dor:
+            rel_info.append(_dor)
+    except Exception:
+        pass
     # ---- 5c) 开发期工具语法守卫（堵盲区）----
     # DEV_TOOLS 被发布面排除集剔除（不参与结构/安全/依赖检查），此处复用 compile_python_file 兜底
     # 语法关，避免「改了 dev 工具却漏编译」导致下次运行直接崩溃。非阻断（INFO/[建议]）。

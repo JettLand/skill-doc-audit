@@ -4,6 +4,15 @@
 
 > 排序：版本号降序（最新在前）。
 
+## 未发布改动（累积发布，待授权后统一升版）
+
+- **dev_orchestrate.py 三项增强（前序会话，已 21/21 测试）**：① `bump` 中文小节走 `--section-file`（多字节/转义移出命令行，模板内 `{version}` 占位符用 `replace` 替换，未提供则回退简化模板并告警）；② `run-plan` 新增 `run` op（白名单执行仓库内 `.py`，单进程压缩 patch→verify→compile→run 全链路）；③ `doctor` 比对部署副本版本（synced/STALE），零 shell 依赖。
+- **tests/test_dev_orchestrate.py**：全覆盖测试 21/21 全绿（沙箱隔离、不碰真实仓库），覆盖 patch/verify/compile/bump 文件版与内联版、run-plan 四步串联、grep 截断、status 真实 git 仓库 vs 非 git 目录退出码差异、doctor 版本比对、selftest 正反路径。
+- **[agent-todo] #8（开发工作流提醒）**：`release_check.check_dev_orchestrate_usage` 检测未提交开发面改动时发 `[建议]` 提醒优先用 dev_orchestrate（仅 [建议]、非阻断、不升退出码）；`dev_self_audit.py` 在 check-bump 后追加该提醒到 `rel_info`。
+- **DEVELOPMENT.md 校对**：新增「开发编排层（dev_orchestrate.py）」节；修正 `DEV_TOOLS` 计数漂移（9→10，补 `dev_orchestrate.py` / `dev_commit.py`，与 `core.py:108` 代码单一真相源对齐）；`[agent-todo]` 指令清单补 #8 并同步 #4–7 / 当前 8 类 编号。
+- **验证**：`self_validate.py` 全 PASS；`dev_self_audit --strict` EXIT 0 / ERROR 0 / WARN 0（doc-llm agent 模式 dossier 无漂移；9/9 检查器 OK）。
+
+
 ## 1.34.8 打磨明细（dev_docs 节制扫描：CHANGELOG 只扫最新 3 节）
 
 - **改动（model.py，发布面）**：`analyze_skill._add_doc` 新增 `head_sections` 参数——前缀截断至第 K+1 个 `^## ` 小节标题前（保留文件前缀，finding 行号与原文件一致）；`dev_docs` 条目支持 `(path, head_sections)` 元组（纯字符串路径向后兼容，`--dev-docs` CLI 行为不变）。

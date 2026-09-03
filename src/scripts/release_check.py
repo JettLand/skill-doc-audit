@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import glob
+import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))   # <root>/src/scripts
 SRC = os.path.dirname(HERE)                           # <root>/src
@@ -134,6 +135,46 @@ def check_temp_residue():
         "detail": "发现 %d 个可能过期的临时/备份文件：%s" % (len(found), ", ".join(found[:8])),
         "todo": "及时清理 temp/ 测试残留与 *.bak 备份（*.bak 默认保留最近 3 个、更早的删除）；"
                 "⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）",
+    }
+
+
+
+
+def check_dev_orchestrate_usage():
+    """常驻 [建议] 开发工作流提醒：开发面改动优先用 dev_orchestrate.py。
+
+    仅在检测到未提交改动触及「开发面文件」（SKILL.md / src/scripts / src/references /
+    CHANGELOG.md / DEVELOPMENT.md / README.md）时提示，避免干净树发布时的噪音。
+    返回 finding dict 或 None。非阻断、不升退出码。
+    """
+    dev_paths = ("src/SKILL.md", "src/scripts", "src/references",
+                 "CHANGELOG.md", "DEVELOPMENT.md", "README.md")
+    touched = set()
+
+    def _match(p):
+        return any(p.startswith(d) for d in dev_paths)
+
+    try:
+        out = subprocess.run(["git", "-C", ROOT, "status", "--porcelain"],
+                              capture_output=True, text=True, timeout=10)
+        if out.returncode == 0:
+            for line in out.stdout.splitlines():
+                p = line[3:].strip()
+                if _match(p):
+                    touched.add(p)
+    except Exception:
+        pass
+    if not touched:
+        return None
+    return {
+        "blocking": False,
+        "severity": "建议",
+        "title": "开发期改动优先用 dev_orchestrate.py（多字节/转义内容走文件）",
+        "detail": "检测到未提交改动涉及开发面文件：%s" % "、".join(sorted(touched)[:6]),
+        "todo": "改 SKILL.md/脚本/CHANGELOG/DEVELOPMENT.md 时，优先用 "
+                "python src/scripts/dev_orchestrate.py 的 patch / verify / compile / "
+                "bump / run-plan 子命令；旧值/新值/待匹配串一律走 --*-file（规避 Edit 工具 "
+                "phantom success 与工具调用参数传输层丢参）。纯 ASCII 简单串可用内联 --old/--new。",
     }
 
 

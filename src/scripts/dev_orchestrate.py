@@ -210,9 +210,21 @@ def cmd_bump(args):
     _write_text(sources_py, src_text)
     sys.stderr.write("bump: SKILL.md %s->%s, sources.py UA 替换 %d 处\n" % (old, new, cnt))
     # 3) CHANGELOG 小节（插在排序说明之后）
+    # 中文/转义内容一律走文件（--section-file），符合本工具「多字节移出命令行」原则；
+    # 文件内 {version} 占位符替换为新版本号（用 replace 而非 format，避免正文花括号被误解析）。
+    # 未提供文件时回退简化模板并告警——房屋风格要求「## X.Y.Z 打磨明细（副标题）」，须人工补齐。
     cl = _read_text(changelog)
-    section = ("\n## %s 打磨明细\n\n- **改动**：%s\n- **验证**：dev_self_audit --strict 全绿。\n"
-               % (new, args.section or "(待补)"))
+    sf = getattr(args, "section_file", None)
+    if sf:
+        body = _read_text(sf).replace("{version}", new)
+        if not body.endswith("\n"):
+            body += "\n"
+        section = "\n" + body + "\n"
+    else:
+        sys.stderr.write("bump WARN: 未提供 --section-file，已写简化模板；"
+                         "须人工补齐「## X.Y.Z 打磨明细（副标题）」与验证行\n")
+        section = ("\n## %s 打磨明细\n\n- **改动**：%s\n- **验证**：dev_self_audit --strict 全绿。\n"
+                   % (new, args.section or "(待补)"))
     anchor = "> 排序：版本号降序（最新在前）。"
     if anchor in cl:
         cl = cl.replace(anchor, anchor + section, 1)
@@ -263,18 +275,49 @@ def cmd_doctor(args):
     rows = []
     rows.append(("python", "%d.%d.%d" % sys.version_info[:3]))
     rows.append(("git", "in PATH" if shutil.which("git") else "MISSING"))
-    deploy = os.path.expanduser("~/.workbuddy/skills/skill-doc-audit/SKILL.md")
-    rows.append(("deploy-copy", "exists" if os.path.isfile(deploy) else "MISSING"))
     try:
         v1 = _VERSION_RE.search(_read_text(os.path.join(root, "src", "SKILL.md"))).group(1)
         v2 = _UA_RE.search(_read_text(os.path.join(root, "src", "scripts", "auditlib", "sources.py"))).group(1)
         rows.append(("version-anchors", "consistent(%s)" % v1 if v1 == v2 else "MISMATCH %s/%s" % (v1, v2)))
     except Exception as e:
+        v1 = None
         rows.append(("version-anchors", "ERROR %s" % e))
+    # 部署副本：存在性 + 与源码版本比对（等价 dev_self_audit 的同步校验，但零 shell）
+    deploy = os.path.expanduser("~/.workbuddy/skills/skill-doc-audit/SKILL.md")
+    if not os.path.isfile(deploy):
+        rows.append(("deploy-copy", "MISSING"))
+    elif v1:
+        try:
+            dv = _VERSION_RE.search(_read_text(deploy)).group(1)
+            rows.append(("deploy-copy", "synced(%s)" % dv if dv == v1 else "STALE %s(src %s)" % (dv, v1)))
+        except Exception as e:
+            rows.append(("deploy-copy", "ERROR %s" % e))
+    else:
+        rows.append(("deploy-copy", "exists"))
     for k, v in rows:
         sys.stderr.write("doctor: %s = %s\n" % (k, v))
     bad = [k for k, v in rows if ("MISSING" in v) or ("MISMATCH" in v) or v.startswith("ERROR")]
     return 1 if bad else 0
+
+
+# ── run（单进程内执行仓库内脚本，供 run-plan 编排）─────────────────────────────────
+def cmd_run(args):
+    script = args.script
+    if not os.path.isabs(script):
+        script = os.path.join(_repo_root(), script)
+    # 白名单：仅仓库内已存在的 .py（相对路径按仓库根解析），不执行任意命令 / shell 字符串
+    if not script.endswith(".py") or not os.path.isfile(script):
+        sys.stderr.write("run FAIL: 仅执行仓库内 .py 脚本，未找到 %s\n" % script)
+        return 2
+    argv = [sys.executable, script] + list(getattr(args, "argv", None) or [])
+    r = subprocess.run(argv, cwd=_repo_root(), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.stdout:
+        sys.stdout.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
+    sys.stderr.write("run: %s rc=%d\n" % (os.path.basename(script), r.returncode))
+    return r.returncode
 
 
 # ── run-plan（单进程批量，压缩 bash 往返）─────────────────────────────────────────
@@ -290,7 +333,8 @@ def cmd_run_plan(args):
                       ("new", None), ("count", 0), ("once", False),
                       ("contains", []), ("not_contains", []),
                       ("contains_file", []), ("not_contains_file", []),
-                      ("root", None), ("section", ""), ("path", None), ("max", 0)):
+                      ("root", None), ("section", ""), ("path", None), ("max", 0),
+                      ("script", None), ("argv", []), ("section_file", None)):
             if not hasattr(a, k):
                 setattr(a, k, dv)
         # 把文件路径相对仓库根解析
@@ -306,6 +350,8 @@ def cmd_run_plan(args):
             rc = cmd_compile(a) or rc
         elif op == "bump":
             rc = cmd_bump(a) or rc
+        elif op == "run":
+            rc = cmd_run(a) or rc
         else:
             sys.stderr.write("plan: 未知 op %s，跳过\n" % op)
             rc = rc or 2
@@ -365,7 +411,10 @@ def build_parser():
 
     bp = sub.add_parser("bump", help="版本号三锚点 + CHANGELOG")
     bp.add_argument("--version", required=True)
-    bp.add_argument("--section", default="")
+    bp.add_argument("--section-file", default=None,
+                    help="CHANGELOG 小节模板文件（中文/转义内容走文件，规避参数传输层丢参；"
+                         "可含 {version} 占位符）")
+    bp.add_argument("--section", default="", help="小节内容内联（仅简单 ASCII 用）")
     bp.set_defaults(func=cmd_bump)
 
     gp = sub.add_parser("grep", help="纯 Python grep")
@@ -379,6 +428,11 @@ def build_parser():
 
     dp = sub.add_parser("doctor", help="纯 Python 环境探针")
     dp.set_defaults(func=cmd_doctor)
+
+    rnp = sub.add_parser("run", help="执行仓库内 .py 脚本（单进程编排用）")
+    rnp.add_argument("--script", required=True, help="仓库相对路径或绝对路径，须为 .py")
+    rnp.add_argument("argv", nargs="*", help="传给脚本的参数")
+    rnp.set_defaults(func=cmd_run)
 
     rp = sub.add_parser("run-plan", help="单进程批量执行 JSON 计划")
     rp.add_argument("--plan", required=True)
