@@ -8,22 +8,19 @@ dev_market_bench.py —— 市场质量基准实测器（dev-only 辅助开发�
   市场长尾技能的质量分布长什么样——这些必须用批量实测验证，而不能只靠单测 fixture。
   本工具把「批量实测」流程固化成可重复命令，任何人都跑得出来、口径一致。
 
-取样口径（与旧 run_market_audit 的关键区别 · 用户 2026-09-01 要求）：
-  旧：按市场 `score`（热度）升序取最低 50（实测全 score=0 长尾）。
-  新：按 **TRACE 官方质量评测分**（overall，5.0 分制）取样——取值方法与 trace-selfcheck
-      的 `benchmark_official.py` 同源：`fetch_evaluation(slug)` → `parse_eval` → overall。
-  规则：从「质量分最低的 1000 个候选」里随机抽取 50 做审计，避免每次采到重复样本。
-
-为什么是近似（受 13.3 万技能规模约束，已在代码中实测确认）：
-  市场列表接口只支持 score/downloads/stars/updatedAt 排序、**不返回质量分字段**；且全量
-  逐个拉评测（13 万次请求）不可行。故采用「随机均匀抽样候选池 + 逐个取质量分 + 池内取
-  最低 1000」的近似：候选池为全市场随机页偏移抽样的 pool 个 slug（默认 1000，散布随机页
-  避免热度偏差），在其质量分内取最低 1000、再随机抽 50。这是「质量最低区间」的工程化近似，
-  非字面全局最低 1000（全局最低需爬全量评测，不现实）。
+取样口径（用户 2026-09-03 推翻原「质量分近似」规则，改为直接随机取样）：
+  原规则（已废弃）：先 `index` 构建质量索引（候选池随机抽→逐个拉 TRACE 评测取质量分→缓存）
+    → `run` 在「质量最低 1000」里抽 50。该路径对评测接口依赖重（约 1000 次评测请求）、
+    且 13 万技能规模下「质量最低区间」只是工程化近似，并非真全局最低。
+  新规则：直接用官方市场列表 API（`lightmake.site/api/skills` 或 `api.skillhub.cn/api/skills`）
+    **随机页偏移抽样 50 个 slug** → 下载 → 全量审计 → 报告。不依赖任何质量分 / 评测接口，
+    取样即「市场随机 50 个技能」，口径简单、可复现（--seed）、可去重（--dedup）。
+  为什么可行：列表接口返回 `data.total`（市场总量）与分页 `data.skills[]`，按随机页号 +
+    页内打乱即可均匀覆盖全市场，避免热度偏差；单次 run 仅 ~2-4 次列表请求 + 50 次下载，
+    对官方接口压力远低于原质量索引路径。
 
 子命令：
-  index          构建/刷新质量索引：随机抽候选池 → 逐个 fetch_evaluation 取质量分 → 缓存
-  run            采样（最低质量 1000 中抽 50）→ 下载 → 全量审计 → 报告（默认缺索引时自动 index）
+  run            随机页偏移抽 50 个 slug → 下载 → 全量审计 → 报告（默认；可 --sample / --seed / --dedup）
   check-bump     版本监测：当前版本较记录版本出现次/主版本变动时，打印 [agent-todo] 建议
 
 不进自动调度（用户明确要求）：
@@ -39,19 +36,19 @@ dev_market_bench.py —— 市场质量基准实测器（dev-only 辅助开发�
   下载合法性以官方端点为准，**不依赖任何内部/未公开路径**；本地优先短路同时降低对官方
   接口的请求频次（呼应「避免过于频繁请求引来审查」的诉求）。
 
-请求密度控制（用户 2026-09-02 定稿）：
-  index 拉取质量分采用 **8 线程并发**（`--workers`，默认 8）；如需进一步降低瞬时请求密度，
-  可用 `--delay <秒>` 让每个评测请求前额外等待（默认 0，即不额外等待）。并发与限速均为
-  显式参数，默认行为与用户确认的「8 线程并发」一致。
+请求密度控制（2026-09-03 更新）：
+  新取样规则不再逐个拉评测（原 `--workers` / `--delay` 已废弃），单次 run 仅约 2-4 次列表
+  请求 + 50 次下载，对官方接口压力远低于原质量索引路径；如仍需降低列表请求瞬时密度，
+  可减小 `--page-size` 或减少 `--sample`。
 
 退出码：
   0 正常；2 参数/路径错误；run 下被审技能出现 ERROR 属被测现象、不升退出码（与 run_market_audit 一致）。
 
 典型用法：
-  python src/scripts/dev_market_bench.py index            # 刷新质量索引（重随机候选池，约 1000 次评测请求）
-  python src/scripts/dev_market_bench.py run              # 采样最低质量 1000 中 50 个 → 审计 → 报告
-  python src/scripts/dev_market_bench.py run --sample 50 --seed 7   # 可复现抽样
-  python src/scripts/dev_market_bench.py check-bump       # 版本监测（由 dev_self_audit 自动调用）
+  python src/scripts/dev_market_bench.py run                       # 随机抽 50 个市场技能 → 审计 → 报告
+  python src/scripts/dev_market_bench.py run --sample 50 --seed 7 # 可复现抽样（50 个）
+  python src/scripts/dev_market_bench.py run --dedup 0            # 不去重（允许重复历史样本）
+  python src/scripts/dev_market_bench.py check-bump               # 版本监测（由 dev_self_audit 自动调用）
 """
 import argparse
 import concurrent.futures as futures
@@ -77,7 +74,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 from _devcommon import candidate_roots, resolve_python  # noqa: E402
 CACHE = os.path.join(ROOT, "bench", "market_bench")          # 运行时缓存（gitignore：不进版本库）
-INDEX_JSON = os.path.join(CACHE, "quality_index.json")
+# INDEX_JSON 已于 2026-09-03 随质量索引废弃而移除（新取样规则不再维护质量索引）。
 HISTORY_JSON = os.path.join(CACHE, "sampled_history.json")
 LAST_VERSION = os.path.join(CACHE, "last_bench_version.txt")
 SKILLS_DIR = os.path.join(CACHE, "skills")
@@ -99,10 +96,7 @@ LIST_ENDPOINTS = [
     "https://api.skillhub.cn/api/skills?pageSize={size}&page={page}",
     "https://lightmake.site/api/skills?pageSize={size}&page={page}",
 ]
-EVAL_ENDPOINTS = [
-    "https://api.skillhub.cn/api/v1/skills/{slug}/evaluation",
-    "https://lightmake.site/api/v1/skills/{slug}/evaluation",
-]
+# EVAL_ENDPOINTS 已于 2026-09-03 移除：新取样规则（直接随机抽列表）不再依赖评测接口。
 UA = "skill-doc-audit-market-bench/1.0"
 
 
@@ -111,7 +105,7 @@ def log(msg):
     sys.stderr.flush()
 
 
-# ── TRACE 质量分取值（与 trace-selfcheck/benchmark_official.py 同源）──────────
+# ── 官方市场列表 API 封装（随机页偏移抽样用）────────────────────────────────
 def _get_json(url, timeout=25, retries=2):
     last = None
     for _ in range(retries + 1):
@@ -146,34 +140,11 @@ def fetch_list_page(page, size=100):
     return []
 
 
-def fetch_quality(slug):
-    """返回 slug 的 TRACE 质量分（overall，0–5.0）；无评测/失败返回 None。
-
-    取值逻辑与 trace-selfcheck 的 fetch_official_trace.fetch_evaluation + parse_eval 一致：
-      dimensions -> 各子项 score 均值 -> 维度均值 -> 综合 = 各维度均值之均值。
-    """
-    for tpl in EVAL_ENDPOINTS:
-        try:
-            d = _get_json(tpl.format(slug=slug), timeout=20)
-        except Exception:  # noqa: BLE001
-            continue
-        dims = (d or {}).get("dimensions", {})
-        if not isinstance(dims, dict) or not dims:
-            return None
-        dim_avgs = []
-        for dv in dims.values():
-            items = dv.get("items", {}) if isinstance(dv, dict) else {}
-            sc = [iv.get("score") for iv in items.values()
-                  if isinstance(iv, dict) and isinstance(iv.get("score"), (int, float))]
-            if sc:
-                dim_avgs.append(sum(sc) / len(sc))
-        if not dim_avgs:
-            return None
-        return round(sum(dim_avgs) / len(dim_avgs), 3)
-    return None
+# fetch_quality 已于 2026-09-03 移除：新取样规则（直接随机抽列表）不再依赖评测接口；
+# 其函数体（dimensions → 各子项 score 均值 → 综合分）一并废弃。
 
 
-# ── 质量索引（候选池 + 质量分缓存）────────────────────────────────────────────
+# ── 随机候选池（全市场随机页偏移抽样，供 run 直接取样）────────────────────────
 def collect_pool(pool, page_size=100, total=None):
     """从全市场随机页偏移抽 pool 个不重复 slug（散布随机页，避免热度偏差）。"""
     if total is None:
@@ -202,60 +173,7 @@ def collect_pool(pool, page_size=100, total=None):
     return slugs
 
 
-def _quality_task(slug, delay=0.0):
-    """并发拉取质量分的单个任务；delay>0 时先等待，用于降低对官方接口的请求密度。"""
-    if delay and delay > 0:
-        time.sleep(delay)
-    return fetch_quality(slug)
-
-
-def build_index(pool, page_size=100, workers=8, delay=0.0):
-    os.makedirs(CACHE, exist_ok=True)
-    total = fetch_total()
-    log("[index] 市场技能总数 ≈ %d；随机抽候选池 %d（page_size=%d）" % (total, pool, page_size))
-    slugs = collect_pool(pool, page_size, total)
-    if not slugs:
-        log("[index] 候选池为空：无法访问市场列表接口。")
-        return {}
-    workers = max(1, int(workers))
-    log("[index] 候选池实采 %d 个 slug；%d 线程并发拉取 TRACE 质量分（每请求前等待 %.2fs）…"
-        % (len(slugs), workers, max(0.0, float(delay))))
-    results = {}
-    done = 0
-    with futures.ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {ex.submit(_quality_task, s, delay): s for s in slugs}
-        for fu in futures.as_completed(futs):
-            s = futs[fu]
-            try:
-                q = fu.result()
-            except Exception:  # noqa: BLE001
-                q = None
-            results[s] = q
-            done += 1
-            if done % 200 == 0 or done == len(slugs):
-                nq = sum(1 for v in results.values() if v is not None)
-                log("[index] 已取 %d/%d（有质量分 %d）" % (done, len(slugs), nq))
-    save_index(results)
-    nq = sum(1 for v in results.values() if v is not None)
-    log("[index] 完成：候选 %d，有质量分 %d，无评测 %d → %s"
-        % (len(results), nq, len(results) - nq, INDEX_JSON))
-    return results
-
-
-def load_index():
-    if not os.path.isfile(INDEX_JSON):
-        return None
-    try:
-        with open(INDEX_JSON, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def save_index(idx):
-    os.makedirs(CACHE, exist_ok=True)
-    with open(INDEX_JSON, "w", encoding="utf-8") as f:
-        json.dump(idx, f, ensure_ascii=False, indent=2)
+# 质量索引（_quality_task / build_index / load_index / save_index）已于 2026-09-03 随取样规则改为直接随机抽列表而废弃移除
 
 
 # ── 采样历史（避免每次采到重复样本）────────────────────────────────────────────
@@ -544,25 +462,21 @@ def write_report(summary, meta):
     lines.append("# 市场质量基准实测报告")
     lines.append("")
     lines.append("- 生成时间：%s" % meta["ts"])
-    lines.append("- 取样口径：**TRACE 官方质量评测分（overall，5.0 分制）**——与 trace-selfcheck 同源"
-                 "（`fetch_evaluation(slug)` → `parse_eval` → overall）。")
-    lines.append("- 取样规则：候选池 %d 个 slug（全市场随机页偏移抽样、避免热度偏差）→ 有质量分 %d 个"
-                 " → 升序取**质量最低 %d** → 随机抽 %d（seed=%s，去重近 %d 次运行）。"
-                 % (meta["pool"], meta["scored"], meta["lowest_n"], meta["sample"],
-                    meta["seed"], meta["dedup"]))
+    lines.append("- 取样口径：**直接用官方市场列表 API 随机页偏移抽样**（2026-09-03 推翻原「质量分近似」规则）。")
+    lines.append("- 取样规则：列表接口取 `data.total`（市场总量）→ 随机页号 + 页内打乱均匀抽候选"
+                 " → 排除近 %d 次已采 → 取前 %d 个（seed=%s，全市场均匀、无热度偏差）。"
+                 % (meta["dedup"], meta["sample"], meta["seed"]))
     lines.append("- 工具：`skill-doc-audit` 全量检查 `--all-checks --deadcode-mode vulture --doc-llm-mode agent`")
-    lines.append("- 意义：质量最低区间最可能存在文档/代码漂移、frontmatter 不规范；同时验证当前工作树"
-                 "在规模化场景能否稳定点名 UNKNOWN/FAILED、doc-llm 修复后是否真执行。")
-    lines.append("- 注意：受 13.3 万技能规模约束，列表接口无质量排序、全量爬评测不可行；本采样是"
-                 "「候选池内质量最低 1000」的工程化近似，非字面全局最低 1000。")
+    lines.append("- 意义：随机 %d 个市场技能最贴近「真实世界长尾」，可验证当前工作树在规模化场景"
+                 "能否稳定点名 UNKNOWN/FAILED、doc-llm 修复后是否真执行。" % meta["sample"])
+    lines.append("- 注意：本取样不依赖评测接口，单次 run 仅约 2-4 次列表请求 + %d 次下载，"
+                 "对官方接口压力远低于原质量索引路径（约 1000 次评测请求）。" % meta["sample"])
     lines.append("")
     lines.append("## 总览")
     lines.append("")
     lines.append("| 指标 | 值 |")
     lines.append("| --- | --- |")
-    lines.append("| 候选池 slug 数 | %d |" % meta["pool"])
-    lines.append("| 有质量分（进入排序）| %d |" % meta["scored"])
-    lines.append("| 质量最低区间取数 | %d |" % meta["lowest_n"])
+    lines.append("| 市场技能总量 | %d |" % meta["total"])
     lines.append("| 实际抽取测试 | %d |" % meta["sample"])
     lines.append("| 下载成功并审计 | %d |" % summary["n_dl_ok"])
     lines.append("| 下载失败 | %d |" % summary["n_dl_fail"])
@@ -584,7 +498,7 @@ def write_report(summary, meta):
     lines.append("## 问题最突出 / 未跑成的技能")
     lines.append("")
     lines.append("| slug | 状态 | 名称 |")
-    lines.append("| --- | --- | --- |")
+    lines.append("| --- | --- |")
     for slug, st, name in summary["worst"][:30]:
         lines.append("| %s | %s | %s |" % (slug, st, name))
     lines.append("")
@@ -595,30 +509,37 @@ def write_report(summary, meta):
 
 
 # ── run 子命令 ────────────────────────────────────────────────────────────────
-def run_bench(sample=50, seed=None, dedup=3, pool=1000, refresh=False, no_index=False,
-              workers=8, delay=0.0):
-    if refresh or (not no_index and not os.path.isfile(INDEX_JSON)):
-        if no_index and not os.path.isfile(INDEX_JSON):
-            log("[run] 质量索引缺失且 --no-index，退出。请先 `index`。")
-            return 2
-        build_index(pool, workers=workers, delay=delay)
-    idx = load_index() or {}
-    scored = {s: q for s, q in idx.items() if isinstance(q, (int, float))}
-    if not scored:
-        log("[run] 索引中无有效质量分，无法取样。请先 `index`。")
+def run_bench(sample=50, seed=None, dedup=3, page_size=100):
+    """直接用官方市场列表 API 随机页偏移抽 sample 个 slug → 下载 → 全量审计 → 报告。
+
+    取样规则（2026-09-03 推翻原「质量分近似」）：不再构建质量索引、不再依赖评测接口；
+    仅用列表接口的 data.total 决定随机页范围，collect_pool 在随机页上均匀抽候选
+    （含去重余量），再排除近 dedup 次已采、取前 sample 个做实测。
+    """
+    total = fetch_total()
+    if total <= 0:
+        log("[run] 无法从市场列表接口取得总数（检查网络 / 端点可用性），退出。")
         return 2
-    ranked = sorted(scored.items(), key=lambda x: x[1])
-    lowest_n = min(1000, len(ranked))
-    cand = [s for s, _ in ranked[:lowest_n]]
+    # 候选池留出去重余量：默认至少 120 或 sample*2，确保去重后仍够 sample 个
+    cand_pool = max(int(sample) * 2, 120)
+    slugs = collect_pool(cand_pool, page_size=page_size, total=total)
+    if not slugs:
+        log("[run] 未从市场取得任何 slug，退出（检查网络 / 端点可用性）。")
+        return 2
+    log("[run] 随机页偏移抽得候选 %d 个 slug（page_size=%d）" % (len(slugs), page_size))
+    picked = slugs
     if dedup and dedup > 0:
         recent = recent_sampled(dedup)
-        avail = [s for s in cand if s not in recent]
+        avail = [s for s in slugs if s not in recent]
         if len(avail) >= sample:
-            cand = avail
-            log("[run] 去重：排除近 %d 次已采 %d 个，候选余 %d" % (dedup, len(recent), len(cand)))
+            picked = avail
+            log("[run] 去重：排除近 %d 次已采 %d 个，候选余 %d" % (dedup, len(recent), len(picked)))
+        else:
+            log("[run] 去重后不足 %d（仅 %d），放宽去重保留全量" % (sample, len(avail)))
     rng = random.Random(seed)
-    picked = rng.sample(cand, min(sample, len(cand)))
-    log("[run] 质量最低区间 %d 个 → 抽 %d（seed=%s）" % (lowest_n, len(picked), seed))
+    rng.shuffle(picked)            # 候选顺序本就随机；再洗一次使 --seed 可复现
+    picked = picked[:sample]
+    log("[run] 最终抽取 %d 个 slug（seed=%s）" % (len(picked), seed))
 
     os.makedirs(SKILLS_DIR, exist_ok=True)
     locals_roots = local_candidate_dirs()
@@ -638,14 +559,14 @@ def run_bench(sample=50, seed=None, dedup=3, pool=1000, refresh=False, no_index=
         except Exception:  # noqa: BLE001
             pass
     out = {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-           "sample_by": "trace_quality", "skills": list(done.values())}
+           "sample_by": "random_market_list", "skills": list(done.values())}
     t0 = time.time()
     for i, slug in enumerate(picked, 1):
         log("[%02d/%d] %s" % (i, len(picked), slug))
         if slug in done:
             log("   已审计，跳过")
             continue
-        rec = {"slug": slug, "quality": scored.get(slug)}
+        rec = {"slug": slug}
         skill_dir, derr = download_and_extract(slug, dl_stats)
         if derr:
             rec["download_error"] = derr
@@ -670,8 +591,8 @@ def run_bench(sample=50, seed=None, dedup=3, pool=1000, refresh=False, no_index=
         _flush(out)
 
     summary = summarize_results(out["skills"])
-    meta = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "pool": len(idx),
-            "scored": len(scored), "lowest_n": lowest_n, "sample": len(picked),
+    meta = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "total": total,
+            "sample_by": "random_market_list", "sample": len(picked),
             "seed": seed, "dedup": dedup,
             "local_hits": dl_stats.get("local", 0),
             "remote_downloads": dl_stats.get("remote", 0)}
@@ -792,40 +713,22 @@ def main():
     ap = argparse.ArgumentParser(description="市场质量基准实测器（dev-only）")
     sub = ap.add_subparsers(dest="cmd")
 
-    p_idx = sub.add_parser("index", help="构建/刷新质量索引（随机候选池 + 逐个取质量分）")
-    p_idx.add_argument("--pool", type=int, default=1000, help="候选池大小（默认 1000）")
-    p_idx.add_argument("--page-size", type=int, default=100, help="列表分页大小（默认 100）")
-    p_idx.add_argument("--workers", type=int, default=8,
-                       help="拉取质量分的并发线程数（默认 8）")
-    p_idx.add_argument("--delay", type=float, default=0.0,
-                       help="每个评测请求前额外等待秒数（默认 0；用于降低请求密度）")
-
-    p_run = sub.add_parser("run", help="采样最低质量 1000 中 50 → 审计 → 报告")
+    p_run = sub.add_parser("run", help="随机页偏移抽 50 → 下载 → 全量审计 → 报告（默认抽 50）")
     p_run.add_argument("--sample", type=int, default=50, help="抽取数量（默认 50）")
     p_run.add_argument("--seed", type=int, default=None, help="随机种子（指定可复现；默认每次不同）")
     p_run.add_argument("--dedup", type=int, default=3,
                        help="排除近 N 次已采 slug（默认 3；0=不排除）")
-    p_run.add_argument("--pool", type=int, default=1000, help="index 候选池大小（默认 1000）")
-    p_run.add_argument("--workers", type=int, default=8,
-                       help="自动 index 时拉取质量分的并发线程数（默认 8）")
-    p_run.add_argument("--delay", type=float, default=0.0,
-                       help="自动 index 时每个评测请求前额外等待秒数（默认 0）")
-    p_run.add_argument("--refresh-index", action="store_true", help="强制重建质量索引")
-    p_run.add_argument("--no-index", action="store_true", help="索引缺失时直接报错（不自动 index）")
+    p_run.add_argument("--page-size", type=int, default=100, help="列表分页大小（默认 100）")
 
     sub.add_parser("check-bump", help="版本监测：次/主版本变动时打印 [agent-todo] 建议")
 
     args = ap.parse_args()
-    if args.cmd == "index":
-        build_index(args.pool, args.page_size, workers=args.workers, delay=args.delay)
-        return 0
     if args.cmd == "run":
         return run_bench(sample=args.sample, seed=args.seed, dedup=args.dedup,
-                         pool=args.pool, refresh=args.refresh_index, no_index=args.no_index,
-                         workers=args.workers, delay=args.delay)
+                         page_size=args.page_size)
     if args.cmd == "check-bump":
         return check_bump()
-    # 无子命令：默认 run
+    # 无子命令：默认 run（随机抽 50）
     return run_bench()
 
 
