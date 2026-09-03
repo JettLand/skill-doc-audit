@@ -76,7 +76,7 @@ python src/scripts/dev_market_bench.py check-bump                # 版本监测�
 
 1. **同步校验**：复用 `sync_deploy._verify()` 确认「部署副本 ↔ 最新源码 `src/`」字节一致；不一致说明有未提交改动或钩子未触发，明确告警。
 2. **审计最新源码**：一律对 `src/`（最新提交）跑全量检查器，而非部署副本——避免审计过时产物。
-3. **开发文档纳入漂移**：`--dev-docs` 递归扫描 `src/` 内全部 `.md` 描述性文档（含 `README.md` / `CHANGELOG.md` / `references/*.md` / `examples` 等）交 `doc`（A1 裸文件名 `EXTERNAL_REF` 提示）+ `doc-llm`（语义漂移 dossier）扫描；默认（不带此旗标）仅扫 `SKILL.md` + `references/*.md`。
+3. **开发文档纳入漂移**：`--dev-docs` 递归扫描 `src/` 内全部 `.md` 描述性文档（含 `README.md` / `CHANGELOG.md` / `references/*.md` / `examples` 等）交 `doc`（A1 裸文件名 `EXTERNAL_REF` 提示）+ `doc-llm`（语义漂移 dossier）扫描；默认（不带此旗标）仅扫 `SKILL.md` + `references/*.md`。另 `dev_self_audit.py` 额外写死纳入仓库根三份 out-of-tree 开发文档：`README.md` / `DEVELOPMENT.md` 全文、`CHANGELOG.md` 仅**最新 3 节**（`model.py` 通用机制：`dev_docs` 条目可传 `(path, head_sections)`，前缀截断至第 4 个 `^## ` 标题前，finding 行号与原文件一致）——历史节描述的是当时的退出码/枚举/路径，拿当前代码审计只会产出假阳性漂移；最新节才是漂移风险最高的新写内容。
 4. **只扫发布面**：排除 `DEV_TOOLS`（`sync_deploy.py` / `self_validate.py` / `make_fixtures.py` / `dev_self_audit.py` / `dev_market_bench.py` / `_devcommon.py` / `release_check.py` / `dev_commit.py` / `bump_audit.py`），使结果与发布质量对齐，不被 dev 工具噪音干扰。
 5. **开发期工具语法守卫**：`DEV_TOOLS` 不进发布面扫描，故 `_guard_dev_tools()` 对每个 dev 工具单独 `py_compile` 兜底语法关（改坏 dev 工具会立刻崩、却逃过检查器）；命中即打印 `[dev-tools] ⚠` 并追加一条 `[建议]` 非阻断项，不升退出码、不拦 push。
 

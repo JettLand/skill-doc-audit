@@ -174,15 +174,22 @@ def main():
     )
     # DEVELOPMENT.md 一并纳入：它是开发指令清单/CI 口径文档，历史上曾漂移（v1.34.2 手工发现）
     # 而审计未覆盖；纳入后 doc 检查器与 doc-llm dossier 同源收口。
-    dev_docs = [os.path.join(ROOT, "README.md"), os.path.join(ROOT, "CHANGELOG.md"),
+    # CHANGELOG 只扫最新 3 节（前缀截断，行号不变）：历史节描述的是当时的
+    # 退出码/枚举/路径，拿当前代码审计只会产出假阳性漂移；最新节才是漂移风险
+    # 最高的「新写内容」。（model.py 通用机制：dev_docs 条目可传 (path, head_sections)）
+    dev_docs = [os.path.join(ROOT, "README.md"),
+                (os.path.join(ROOT, "CHANGELOG.md"), 3),
                 os.path.join(ROOT, "DEVELOPMENT.md")]
 
     print("[audit] 审计目标：%s（最新源码）" % SRC)
     print("[audit] deadcode 精度模式：%s（最大精度；缺失自动安装，失败回退 ast 并告警）" % deadcode_mode
           if deadcode_mode == "vulture" else
           "[audit] deadcode 精度模式：%s（显式指定，不联网）" % deadcode_mode)
+    def _dd_name(d):
+        return os.path.basename(d[0] if isinstance(d, tuple) else d)
+
     print("[audit] 开发者模式：递归扫描 %s 内全部 .md + 显式开发文档：%s"
-          % (SRC, ", ".join(os.path.basename(d) for d in dev_docs)))
+          % (SRC, ", ".join(_dd_name(d) for d in dev_docs)))
     print("[audit] 排除开发期工具：%s" % ", ".join(sorted(DEV_TOOLS)))
 
     result = analyze_skill(

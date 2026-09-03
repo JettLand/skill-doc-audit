@@ -4,6 +4,14 @@
 
 > 排序：版本号降序（最新在前）。
 
+## 1.34.8 打磨明细（dev_docs 节制扫描：CHANGELOG 只扫最新 3 节）
+
+- **改动（model.py，发布面）**：`analyze_skill._add_doc` 新增 `head_sections` 参数——前缀截断至第 K+1 个 `^## ` 小节标题前（保留文件前缀，finding 行号与原文件一致）；`dev_docs` 条目支持 `(path, head_sections)` 元组（纯字符串路径向后兼容，`--dev-docs` CLI 行为不变）。
+- **改动（dev_self_audit.py，dev-only）**：CHANGELOG.md 以 `(path, 3)` 传入——历史节描述的是当时的退出码/枚举/路径，拿当前代码审计只会产出假阳性漂移（如 1.34.7 节已含已删除的 `devkit.py` 路径）；最新节才是漂移风险最高的新写内容。README.md / DEVELOPMENT.md 仍全文扫描。修复回显 `os.path.basename` 不认元组的 TypeError。
+- **文档收口**：`DEVELOPMENT.md` 第 3 条追加 out-of-tree dev_docs 写死清单与 CHANGELOG 截断口径。
+- **验证**：`self_validate.py` 全 PASS；`dev_self_audit --strict` EXIT 0 / ERROR 0 / WARN 0 / INFO 37（INFO 45→37，旧节 EXTERNAL_REF 噪音如期收敛；9/9 检查器 OK）。
+
+
 ## 1.34.7 打磨明细（devkit 重命名为 dev_orchestrate：开发编排层定位 + 纠正故障根因诊断）
 
 - **改动（dev 工具层重定位，不进部署副本）**：`devkit.py` 重命名为 `dev_orchestrate.py`（「开发编排层」定位——不是替代 bash，而是把开发期对 shell 的脆弱依赖压缩到最小：多字节/转义内容走 `--*-file` 从文件读、启动行只剩 ASCII 路径；`run-plan` 单进程批量执行压缩 shell 往返；幂等可重跑 + 跨 shell 工具冗余）。同步删除旧 `devkit.py` / `devkit_design.md`，`core.py` `DEV_TOOLS` 收口为仅列 `dev_orchestrate.py`。设计文档落盘 `dev_orchestrate_design.md`（仓库根，dev-only）。

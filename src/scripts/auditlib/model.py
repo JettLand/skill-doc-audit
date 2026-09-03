@@ -170,7 +170,7 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
     extra_roots = []
     _seen_doc = {os.path.abspath(doc_path)}   # 已加入文档的绝对路径，去重（防 walk 重复加 SKILL.md/references）
 
-    def _add_doc(abs_path, name=None, extra_root=None):
+    def _add_doc(abs_path, name=None, extra_root=None, head_sections=None):
         ap = os.path.abspath(abs_path)
         if ap in _seen_doc or not os.path.isfile(ap):
             return
@@ -179,6 +179,16 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
                 _c = _fh.read()
         except Exception:
             return
+        if head_sections:
+            # 前缀截断至第 head_sections+1 个「^## 」小节标题之前：保留文件前缀，
+            # finding 行号与原文件保持一致；历史节描述的是当时状态，拿当前代码审计
+            # 它们只会产出假阳性漂移，故大文件型日志（CHANGELOG）只扫最新几节。
+            _n = 0
+            for _m in re.finditer(r"^## ", _c, re.M):
+                _n += 1
+                if _n == head_sections + 1:
+                    _c = _c[:_m.start()]
+                    break
         _seen_doc.add(ap)
         docs.append({"name": name or os.path.basename(ap), "content": _c})
         if extra_root:
@@ -202,7 +212,9 @@ def analyze_skill(skill_dir, enabled, args=None, do_backup=False, backup_limit=B
                 _rel = os.path.relpath(_fp, skill_dir).replace(os.sep, "/")
                 _add_doc(_fp, name=_rel)
         for dd in (dev_docs or []):
-            _add_doc(dd, extra_root=os.path.dirname(os.path.abspath(dd)))
+            _dd_path, _dd_head = dd if isinstance(dd, tuple) else (dd, None)
+            _add_doc(_dd_path, extra_root=os.path.dirname(os.path.abspath(_dd_path)),
+                     head_sections=_dd_head)
 
     # 声明式外部工具名（MCP / 插件工具）：frontmatter 的 allowed-tools / tools 字段，
     # 以及全仓库 .md 中出现的 mcp__*__<name> 标记。这些名称只出现在文档/声明里、不在本地
