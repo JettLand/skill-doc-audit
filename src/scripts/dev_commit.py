@@ -57,6 +57,23 @@ def main():
               file=sys.stderr)
         return 2
 
+    # 1.5) 残留告警：位置参数模式只 add 指定路径（v1.34.7 实测漏提交三锚点的教训），
+    #      若仍有其它已跟踪文件改动未暂存，显著回显防止静默漏提交（仅告警，不阻断——
+    #      有意拆分提交属合法用法）。
+    st = _run(["git", "status", "--short"])
+    leftover = []
+    for line in (st.stdout or "").splitlines():
+        # 未跟踪(??)不算；首列（暂存区）为空格且次列非空格 = 已跟踪改动未暂存
+        if len(line) >= 2 and line[0] != "?" and line[0] == " " and line[1] != " ":
+            leftover.append(line.strip())
+    if leftover:
+        print("[dev_commit] ⚠ 注意：仍有 %d 个已跟踪文件改动未暂存，本次提交不包含：" % len(leftover),
+              file=sys.stderr)
+        for it in leftover:
+            print("    " + it, file=sys.stderr)
+        print("    （如需一并提交：去掉文件位置参数重跑（默认 git add -u），或 --all）",
+              file=sys.stderr)
+
     # 2) 空提交保护：git diff --cached --quiet 在「无暂存改动」时返回 0
     diff = _run(["git", "diff", "--cached", "--quiet"])
     if diff.returncode == 0:
