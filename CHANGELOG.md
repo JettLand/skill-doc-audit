@@ -1,9 +1,15 @@
 # 变更明细（CHANGELOG）
 
-本文件收录各版本的「打磨明细」（改动 + 验证），作为开发 / QA 留档。README 的「版本与评测」表仅保留要点摘要。
+本文件收录各版本的「打磨明细」（改动 + 验证），作为开发 / QA 留档。版本变动信息统一在本文件记录，README 不再保留版本摘要表（仅指向本文件）。
 
 > 排序：版本号降序（最新在前）。
 
+
+## 1.33.1 打磨明细（README 版本摘要段落移除：版本变动信息统一收口 CHANGELOG）
+
+- **改动**：按用户要求精简 README——移除「版本摘要」大表（约 1.8.0→1.33.0 共 77 行，与 CHANGELOG 重复），README 末尾仅保留一行指向 CHANGELOG 的指引；版本变动信息此后只记录于 CHANGELOG，不再在 README 维护版本表。同步更新本文件顶部说明，删除 README 版本表相关措辞。
+- **约定变更**：版本号一致性锚点由四处缩减为三处——`src/SKILL.md` frontmatter `version`、`src/scripts/auditlib/sources.py` User-Agent、`CHANGELOG.md` 表头；README 不再作为版本锚点。
+- **验证**：bump 触发 `dev_self_audit` 9/9 ERROR 0/WARN 0；部署副本同步一致；README 精简后无死链、无版本锚点残留。三处版本号一致 1.33.1。
 
 ## 1.33.0 打磨明细（ask 模式层级2+3：非交互未决策升级 ERROR 硬失败，契约驱动弹窗取代散文软依赖）
 
