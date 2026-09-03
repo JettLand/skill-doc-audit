@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.32.0 打磨明细（doc-llm/examples 回参告知与 deadcode 一致；--doc-llm-mode 默认值归位 ask）
+
+- **问题**：① `--doc-llm-mode` 在 `cli.py` 中 `default=None`，虽借 `raw or "ask"` 维持默认行为，但与 `--deadcode-mode`/`--examples-mode` 的 `default="ask"` 不一致，可读性差且易被误判为「无 ask 模式」；② doc-llm/examples 检查器缺少与 deadcode 一致的「已采用 X 模式」反参告知（stderr + `checker_runs[name].mode`），agent 无法确定性读取实际生效模式，存在静默代决隐患。
+- **修复**：① `cli.py` 将 `--doc-llm-mode` 的 `default=None` 改为 `default="ask"`，与另两档统一；同步将 `check_doc_llm` 的回交判定由 `if degraded and not explicit:` 改为 `if degraded:`（因 `default="ask"` 后 `raw_mode` 恒非 None，`explicit` 不再能区分「显式传入 / 默认」；降级标记 `degraded` 已能完整表征「非交互 ask 回退」，等价保留 `user_decision` 挂载逻辑，行为不变）。② `doc_llm.py` 与 `examples.py` 的 check 函数新增反参告知：每次运行向 stderr 打印「已采用 <mode> 模式」，并将 `mode`/`mode_desc` 写入 `ctx["_meta"]`，由 `model.py` 合并进 `checker_runs[doc-llm]`/`checker_runs[examples]`，与 deadcode 完全对齐。三档（deadcode 精度 / doc-llm 语义 / examples 沙箱）自此回参一致。
+- **验证**：非 TTY 跑 `audit_docs.py --all-checks`，确认 doc-llm 跳过时 stderr 打印「[doc-llm] 已采用 off 模式」并挂载 `user_decision`、agent 档打印「已采用 agent 模式」；examples 非交互降级打印「[examples] 已采用 static 模式」；`checker_runs` 三档均含 `mode` 字段。`dev_self_audit --strict` 9/9 检查器 ERROR 0/WARN 0/INFO（含 doc + doc-llm agent）。
+
 ## 1.31.0 打磨明细（deadcode ask 流程重构：vulture 检测收归脚本、反参告知实际精度）
 
 - **问题**：v1.30.0 的「非 TTY 绝不自动 vulture、一律回退 ast」过度保守，且 vulture 检测仍由 Agent 侧 `python -c "import vulture"` 承担，违反「绝不替用户决定」的同时把本应脚本自决的事推给 Agent。用户明确要求：vulture 检测必须由静态脚本完成（不调用 agent）；vulture 已装则直接采用高精度、未装才进入正常 ask 流程问询用户；且无论采用哪种精度模式都必须回参告知（ast/vulture/off）。

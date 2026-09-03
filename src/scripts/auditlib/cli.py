@@ -23,7 +23,7 @@ def main():
                     help="单文件超过此字节数跳过扫描（默认 %d）" % MAX_FILE_SIZE)
     ap.add_argument("--deadcode-mode", default="ask", choices=list(DEADCODE_MODES),
                     help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / off(本次不运行)")
-    ap.add_argument("--doc-llm-mode", default=None, choices=list(DOCLLM_MODES),
+    ap.add_argument("--doc-llm-mode", default="ask", choices=list(DOCLLM_MODES),
                     help="doc-llm 语义漂移检测模式（v1.24.0 起由 agent 直接接手，不再依赖外部 LLM；v1.24.1 起移除 preview 选项）：ask(默认,交互终端呈现实选项：1)默认模式 2)agent接手(会占用 agent 推理 token，但不向外部 LLM 付费)，30 秒超时自动回退默认模式) / off(不运行) / agent(直接由 agent 接手：脚本写 dossier + 打印 AGENT_TAKEOVER 哨兵，agent 读取后自行比对)。Agent 经 AskUserQuestion 收到用户选择后显式传入")
     ap.add_argument("--examples-mode", default="ask", choices=list(EXAMPLES_MODES),
                     help="examples 检查器模式（v1.26.0 新增，泛用版文档示例校验）：ask(默认,交互终端询问是否允许沙箱试运行,30秒超时或本地非交互一律回退 static 并 INFO 标注降级) / static(纯静态解析,零执行/零网络/零 token,检查示例引用的文件是否存在/参数是否声明/外部CLI是否声明/是否含危险命令) / run(受限沙箱试运行带 expected 标注的示例:仅白名单解释器+技能内脚本+超时保护) / off(本次不运行)")

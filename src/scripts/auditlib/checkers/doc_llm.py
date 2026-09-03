@@ -144,9 +144,16 @@ def check_doc_llm(ctx):
       - agent → 写 dossier + 打印 `[doc-llm] AGENT_TAKEOVER: <path>` 哨兵，由 agent 接手。
     """
     args = ctx.get("args")
-    raw_mode = getattr(args, "doc_llm_mode", None) if args else None
-    explicit = raw_mode is not None  # 用户是否显式传入 --doc-llm-mode
     mode, degraded, _ = _resolve_doc_llm_mode(args)
+    # 反参告知：无论采用哪种模式（agent / off），都显式回参，供 human（stderr 行）与
+    # agent（checker_runs["doc-llm"].mode）确定性读取，杜绝静默代决（与 deadcode/examples 一致）。
+    _MODE_DESC = {
+        "agent": "agent 接手语义漂移检测（占用 agent 推理 token，不依赖外部 LLM）",
+        "off": "关闭（跳过 doc-llm 语义漂移检测）",
+    }
+    _mode_desc = _MODE_DESC.get(mode, mode)
+    sys.stderr.write("[doc-llm] 已采用 %s 模式：%s\n" % (mode, _mode_desc))
+    ctx["_meta"] = {"mode": mode, "mode_desc": _mode_desc}
     findings = []
     if mode == "agent":
         dossier = _write_doc_llm_dossier(ctx)
@@ -162,7 +169,7 @@ def check_doc_llm(ctx):
         ))
         return findings
     if mode == "off":
-        if degraded and not explicit:
+        if degraded:
             # --all-checks 全量自带、非交互环境无法询问 → INFO 提示，不升 WARN
             # 结构化 user_decision 同步注入（见 report.build_json），让 agent 确定性弹窗。
             findings.append(finding(

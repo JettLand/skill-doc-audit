@@ -416,6 +416,16 @@ def check_examples(ctx):
     findings = []
     args = ctx.get("args")
     mode, degraded, reason = _resolve_examples_mode(args)
+    # 反参告知：无论采用哪种模式（static / run / off），都显式回参，供 human（stderr 行）与
+    # agent（checker_runs["examples"].mode）确定性读取，杜绝静默代决（与 deadcode/doc-llm 一致）。
+    _MODE_DESC = {
+        "static": "纯静态检查（零执行 / 零网络 / 零 token）",
+        "run": "受限沙箱试运行（白名单软隔离，绝不执行任意 shell / 外部命令）",
+        "off": "关闭（跳过 examples 检查）",
+    }
+    _mode_desc = _MODE_DESC.get(mode, mode)
+    sys.stderr.write("[examples] 已采用 %s 模式：%s\n" % (mode, _mode_desc))
+    ctx["_meta"] = {"mode": mode, "mode_desc": _mode_desc}
     if mode == "off":
         return findings
     if reason == "consent_missing":
