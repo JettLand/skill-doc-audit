@@ -447,24 +447,43 @@ def check_examples(ctx):
             )))
         return findings
     if degraded:
-        findings.append(finding(
-            "examples", SEVERITY_INFO, "examples_degraded",
-            "示例执行验证已降级（examples_degraded）：当前为非交互（agent/自动化）环境、ask 模式"
-            "无法向用户弹窗确认，已仅做纯静态检查。是否允许受限沙箱试运行属安全确认，须由用户决定——"
-            "请 agent 用提问工具向用户确认（选项：允许沙箱试运行 / 仅静态检查），再按用户选择以显式"
-            " --examples-mode run --examples-consent（允许）或 --examples-mode static --examples-consent（拒绝）"
-            "重新调用本检查器；切勿静默代用户默认。",
-            suggestion="run 模式为白名单软沙箱（非 OS 级隔离），执行的技能内脚本仍以当前用户权限运行，"
-                       "可能读写本地文件或发起网络访问；仅对信任的技能选 run。与 doc-llm 的 agent 接手约定一致："
-                       "非交互环境的决策须交由用户确认，而非脚本静默替决。",
-            user_decision=user_decision(
-                "examples",
-                "示例执行验证是否允许受限沙箱试运行？（ask 模式、非交互环境无法询问，已降级为纯静态检查）",
-                [("1", "仅静态检查（默认，零执行 / 零网络 / 零 token）"),
-                 ("2", "受限沙箱试运行（白名单软隔离，绝不执行任意 shell / 外部命令）")],
-                default="1",
-                rerun_hint="python audit_docs.py --skill <技能目录> --examples-mode run --examples-consent   # 或 static --examples-consent",
-            )))
+        if reason and "非交互" in reason:
+            # 层级3（非交互硬失败）：ask 默认档 + 非交互环境无法询问且未获显式 --examples-mode
+            # 授权 -> 直接 ERROR（退出码 1）挂起决策，不再静默软回退 static。代码级硬约束取代散文软依赖；
+            # 交互 Agent 仍可经 user_prompts 契约弹窗确认后显式 --examples-mode --examples-consent 重跑。
+            findings.append(finding(
+                "examples", SEVERITY_ERROR, "ask_undecided",
+                "示例执行验证决策被挂起（ask_undecided）：ask 模式处于非交互（自动化）环境、无法向用户询问且未获显式 --examples-mode 授权，已仅做纯静态检查；是否允许受限沙箱试运行须由用户决定。请 agent 以提问工具向用户确认后显式 --examples-mode --examples-consent 重跑。",
+                suggestion="run 模式为白名单软沙箱（非 OS 级隔离），执行的技能内脚本仍以当前用户权限运行；仅对信任的技能选 run。",
+                user_decision=user_decision(
+                    "examples",
+                    "示例执行验证（ask 非交互未决策，已硬失败挂起）：是否允许受限沙箱试运行？",
+                    [("1", "仅静态检查（默认，零执行 / 零网络 / 零 token）"),
+                     ("2", "受限沙箱试运行（白名单软隔离，绝不执行任意 shell / 外部命令）")],
+                    default="1",
+                    rerun_hint="python audit_docs.py --skill <技能目录> --examples-mode run --examples-consent   # 或 static --examples-consent",
+                ),
+            ))
+        else:
+            # 交互超时：INFO 软告警（不阻断退出码），仍挂载 user_decision 供确认。
+            findings.append(finding(
+                "examples", SEVERITY_INFO, "examples_degraded",
+                "示例执行验证已降级（examples_degraded）：当前为交互环境超时/无输入、ask 模式"
+                "无法在窗口内确认，已仅做纯静态检查。是否允许受限沙箱试运行属安全确认，须由用户决定——"
+                "请 agent 用提问工具向用户确认（选项：允许沙箱试运行 / 仅静态检查），再按用户选择以显式"
+                " --examples-mode run --examples-consent（允许）或 --examples-mode static --examples-consent（拒绝）"
+                "重新调用本检查器；切勿静默代用户默认。",
+                suggestion="run 模式为白名单软沙箱（非 OS 级隔离），执行的技能内脚本仍以当前用户权限运行，"
+                           "可能读写本地文件或发起网络访问；仅对信任的技能选 run。与 doc-llm 的 agent 接手约定一致："
+                           "非交互环境的决策须交由用户确认，而非脚本静默替决。",
+                user_decision=user_decision(
+                    "examples",
+                    "示例执行验证是否允许受限沙箱试运行？（ask 模式、交互超时未决策，已降级为纯静态检查）",
+                    [("1", "仅静态检查（默认，零执行 / 零网络 / 零 token）"),
+                     ("2", "受限沙箱试运行（白名单软隔离，绝不执行任意 shell / 外部命令）")],
+                    default="1",
+                    rerun_hint="python audit_docs.py --skill <技能目录> --examples-mode run --examples-consent   # 或 static --examples-consent",
+                )))
 
     skill_dir = ctx["skill_dir"]
     scripts_dir = ctx["scripts_dir"]

@@ -61,6 +61,7 @@ skillhub publish <技能目录> --changelog "..." --json
 ## 版本摘要
 | 版本 | 说明 |
 | --- | --- |
+| 1.33.0 | **ask 模式层级2+3 硬约束（非交互未决策升级 ERROR ask_undecided 硬失败；JSON `user_prompts` 契约驱动主 Agent 弹窗，取代 SKILL.md 散文软依赖）**：检查器 `ask` 默认档在非交互(Agent/CI)未获显式 `--X-mode` 授权时直接 ERROR(退出码1)挂起决策，强制显式指定；交互终端仍弹菜单。四处版本号一致 1.33.0 |
 | 1.32.0 | **doc-llm/examples 回参告知与 deadcode 一致 + --doc-llm-mode 默认值归位 ask（一致性修复，小版本级）**：`cli.py` 将 `--doc-llm-mode` 的 `default=None` 改为 `default="ask"`（与 `--deadcode-mode`/`--examples-mode` 统一），`check_doc_llm` 回交判定同步改为基于 `degraded`（行为不变）；`doc_llm.py`/`examples.py` 新增「已采用 X 模式」反参告知（stderr + `checker_runs[name].mode`），三档回参至此完全对齐，杜绝静默代决。四处版本号一致 1.32.0 |
 | 1.31.0 | **deadcode ask 流程重构（行为修复，小版本级）**：vulture 检测收归脚本静态完成（不调用 agent）；vulture 已装直接采用高精度并回参告知，未装才进入正常 ask 流程问询用户；无论采用哪种精度模式都回参告知实际模式（ast/vulture/off，写 stderr + checker_runs[deadcode].mode），杜绝静默代决。SKILL.md 移除「Agent 须自行探测 vulture」旧指引。四处版本号一致 1.31.0 |
 | 1.30.0 | **根治 Agent 非交互环境静默替用户决定 deadcode 精度（行为修复，小版本级）**：用户开新对话由 Agent 全量检测技能时全程无弹窗、Agent 替用户做了所有决定，违反「绝不替用户决定」。根因 `deadcode` `ask` 模式在非 TTY 下若环境已装 `vulture` 会静默自动采用高精度（无提示、无 `user_decision`），而 Agent 托管 Python 恰装有 `vulture`；`doc-llm`/`examples` 虽挂载 `user_prompts`+「⚠ 需用户决策」块但 SKILL.md 未强制 Agent 回交。修复：`deadcode.py` 非 TTY 下绝不自动 `vulture`、一律回退 `ast` 并挂 `user_decision`；SKILL.md 新增「Agent 非交互运行须知」强制运行前提问、运行后回交。四处版本号一致 1.30.0 |

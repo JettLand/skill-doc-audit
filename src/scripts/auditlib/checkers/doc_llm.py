@@ -170,15 +170,16 @@ def check_doc_llm(ctx):
         return findings
     if mode == "off":
         if degraded:
-            # --all-checks 全量自带、非交互环境无法询问 → INFO 提示，不升 WARN
-            # 结构化 user_decision 同步注入（见 report.build_json），让 agent 确定性弹窗。
+            # 层级3（非交互硬失败）：ask 默认档 + 非交互环境无法询问且未获显式 --doc-llm-mode
+            # 授权 -> 直接 ERROR（退出码 1）挂起决策，不再静默软跳过。代码级硬约束取代散文软依赖；
+            # 交互 Agent 仍可经 user_prompts 契约弹窗确认后显式重跑。
             findings.append(finding(
-                "doc-llm", SEVERITY_INFO, "doc_llm_skipped",
-                "doc-llm（语义漂移检测）已纳入本次全量检测，但当前为非交互环境、无法向用户询问，已跳过（未调用任何 LLM、零成本）。Vector 1 确定性检查仍生效。",
-                suggestion="JSON 输出 user_prompts 已含语义检测决策请求；请 agent 向用户确认后显式重跑。",
+                "doc-llm", SEVERITY_ERROR, "ask_undecided",
+                "doc-llm 语义检测决策被挂起（ask_undecided）：ask 模式处于非交互（自动化）环境、无法向用户询问且未获显式 --doc-llm-mode 授权，已跳过语义检测（Vector 1 确定性检查仍生效，但语义漂移检测未运行）。请 agent 以提问工具向用户确认后显式 --doc-llm-mode 重跑。",
+                suggestion="JSON 输出 user_prompts 已含语义检测决策请求；非交互环境请以显式 --doc-llm-mode agent/off 重跑，避免依赖 ask 软回退。",
                 user_decision=user_decision(
                     "doc-llm",
-                    "doc-llm 语义漂移检测是否由 agent 接手？（ask 模式、非交互环境无法询问，已跳过）",
+                    "doc-llm 语义漂移检测（ask 非交互未决策，已硬失败挂起）：是否由 agent 接手？",
                     [("1", "纯脚本检查（默认，0 token）"),
                      ("2", "由 agent 接手语义检测（占用 agent 推理 token）")],
                     default="1",

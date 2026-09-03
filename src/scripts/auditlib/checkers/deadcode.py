@@ -76,22 +76,23 @@ def _resolve_deadcode_mode(args):
             sys.stderr.write("[deadcode] 未检测到 vulture 库，尝试自动安装 vulture……\n")
             if _try_install_vulture() is not None:
                 sys.stderr.write("[deadcode] vulture 安装成功，采用高精度模式\n")
-                return "vulture", False
+                return "vulture", False, None
             sys.stderr.write("[deadcode] ⚠ 未检测到 vulture 库且自动安装失败，回退零依赖 AST 模式（精度降级）\n")
-            return "ast", True
-        return mode, False
+            return "ast", True, "explicit_install_fail"
+        return mode, False, None
     # ---- ask 模式：脚本静态检测 vulture（不调用 agent）----
     if _vulture_module() is not None:
         # vulture 已安装：直接采用高精度，回参告知（绝不重复询问、绝不替用户决定精度档）
         sys.stderr.write("[deadcode] 静态检测到 vulture 库，ask 模式直接采用高精度 vulture 模式\n")
-        return "vulture", False
+        return "vulture", False, None
     # vulture 未安装：进入正常 ask 流程问询用户
     if is_interactive():
-        return _prompt_deadcode_mode()
+        m, d = _prompt_deadcode_mode()
+        return m, d, None
     # 非交互（Agent / 管道 / CI）：无法从 stdin 询问，挂载 user_decision 交由 agent 弹窗，
     # 临时回退零依赖 ast（degraded=True 触发 check_deadcode 注入 user_decision）。
     sys.stderr.write("[deadcode] ⚠ 非交互环境且未检测到 vulture，已挂载精度模式决策请求（暂以零依赖 AST 代行）\n")
-    return "ast", True
+    return "ast", True, "ask_noninteractive"
 
 def _prompt_deadcode_mode():
     """交互询问 deadcode 精度模式；30 秒超时/无输入默认零依赖 ast（不安装）。
@@ -109,22 +110,22 @@ def _prompt_deadcode_mode():
         timeout=30)
     if not key:
         sys.stderr.write("\n[deadcode] 超时/无输入，默认零依赖 AST 模式（精度降级）\n")
-        return "ast", True
+        return "ast", True, None
     if key == "1":
         if _vulture_module() is None:
             sys.stderr.write("[deadcode] 未检测到 vulture 库，尝试自动安装 vulture……\n")
             if _try_install_vulture() is not None:
                 sys.stderr.write("[deadcode] vulture 安装成功，采用高精度模式\n")
-                return "vulture", False
+                return "vulture", False, None
             sys.stderr.write("[deadcode] ⚠ 未检测到 vulture 库且自动安装失败，回退零依赖 AST 模式（精度降级）\n")
-            return "ast", True
-        return "vulture", False
+            return "ast", True, None
+        return "vulture", False, None
     if key == "3":
-        return "off", False
-    return "ast", False
+        return "off", False, None
+    return "ast", False, None
 
 def check_deadcode(ctx):
-    mode, degraded = _resolve_deadcode_mode(ctx.get("args"))
+    mode, degraded, reason = _resolve_deadcode_mode(ctx.get("args"))
     # 反参告知：无论采用哪种精度模式，都显式回参 ast / vulture / off，
     # 供 human（stderr 行）与 agent（checker_runs[deadcode].mode）确定性读取，杜绝静默代决。
     _MODE_DESC = {
@@ -137,24 +138,42 @@ def check_deadcode(ctx):
     ctx["_meta"] = {"mode": mode, "mode_desc": _mode_desc}
     findings = []
     if degraded:
-        # 降级（未装 vulture 且自动安装失败，回退零依赖 ast）→ 显著提示精度下降，
-        # 让自动化评测/调用方能够「看见」降级与诱因，而非无提示地以低精度结果蒙混过关。
-        # 结构化 user_decision 同步注入，供 build_json 提升为顶层 user_prompts ->
-        # agent 据此确定性弹窗，不再依赖 SKILL.md 散文约定（见 report.build_json）。
-        findings.append(finding(
-            "deadcode", SEVERITY_WARN, "precision_degraded",
-            "deadcode 精度降级：vulture 库不可用（未安装；或用户未显式选择而回退，或自动安装失败），已回退至零依赖 AST 模式（精度较低、易误报）。",
-            suggestion="修复网络/权限后重跑，或确认接受 ast 精度；JSON 输出 user_prompts 已含精度模式决策请求，请 agent 向用户确认后显式重跑。",
-            user_decision=user_decision(
-                "deadcode",
-                "deadcode 精度模式选择（ask 模式、非交互环境无法询问，已降级为 AST）：希望以哪种精度运行？",
-                [("1", "安装 vulture 后以 --deadcode-mode vulture 高精度运行（推荐）"),
-                 ("2", "零依赖 AST（易误报，无需安装）"),
-                 ("3", "跳过 deadcode 检查")],
-                default="2",
-                rerun_hint="python audit_docs.py --skill <技能目录> --deadcode-mode vulture   # 或 ast / off",
-            ),
-        ))
+        if reason == "ask_noninteractive":
+            # 层级3（非交互硬失败）：ask 默认档 + 非交互环境无法询问且未获显式 --deadcode-mode
+            # 授权 -> 直接 ERROR（退出码 1）挂起决策，不再静默软回退 ast。这是代码级硬约束，
+            # 取代对 SKILL.md 散文的软依赖；交互 Agent 仍可经 user_prompts 契约弹窗确认后显式重跑。
+            findings.append(finding(
+                "deadcode", SEVERITY_ERROR, "ask_undecided",
+                "deadcode 精度模式决策被挂起（ask_undecided）：ask 模式处于非交互（自动化）环境、无法向用户询问且未获显式 --deadcode-mode 授权，本次以零依赖 AST 代行但结果不可作为最终结论。请 agent 以提问工具向用户确认精度档位后，显式 --deadcode-mode 重跑。",
+                suggestion="JSON 输出 user_prompts 已含精度模式决策请求；非交互环境请以显式 --deadcode-mode vulture/ast/off 重跑，避免依赖 ask 软回退。",
+                user_decision=user_decision(
+                    "deadcode",
+                    "deadcode 精度模式（ask 非交互未决策，已硬失败挂起）：希望以哪种精度运行？",
+                    [("1", "安装 vulture 后以 --deadcode-mode vulture 高精度运行（推荐）"),
+                     ("2", "零依赖 AST（易误报，无需安装）"),
+                     ("3", "跳过 deadcode 检查")],
+                    default="2",
+                    rerun_hint="python audit_docs.py --skill <技能目录> --deadcode-mode vulture   # 或 ast / off",
+                ),
+            ))
+        else:
+            # 显式档装不上 / 交互超时：WARN 软告警（不阻断退出码），仍挂载 user_decision 供确认。
+            # 结构化 user_decision 同步注入，供 build_json 提升为顶层 user_prompts ->
+            # agent 据此确定性弹窗，不再依赖 SKILL.md 散文约定（见 report.build_json）。
+            findings.append(finding(
+                "deadcode", SEVERITY_WARN, "precision_degraded",
+                "deadcode 精度降级：vulture 库不可用（用户显式要求 vulture 但缺失且自动安装失败），已回退至零依赖 AST 模式（精度较低、易误报）。",
+                suggestion="修复网络/权限后重跑，或确认接受 ast 精度；JSON 输出 user_prompts 已含精度模式决策请求，请 agent 向用户确认后显式重跑。",
+                user_decision=user_decision(
+                    "deadcode",
+                    "deadcode 精度模式选择（显式 vulture 但安装失败，已降级为 AST）：希望以哪种精度运行？",
+                    [("1", "安装 vulture 后以 --deadcode-mode vulture 高精度运行（推荐）"),
+                     ("2", "零依赖 AST（易误报，无需安装）"),
+                     ("3", "跳过 deadcode 检查")],
+                    default="2",
+                    rerun_hint="python audit_docs.py --skill <技能目录> --deadcode-mode vulture   # 或 ast / off",
+                ),
+            ))
     if mode == "off":
         return findings
     skill_dir = ctx["skill_dir"]

@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.33.0 打磨明细（ask 模式层级2+3：非交互未决策升级 ERROR 硬失败，契约驱动弹窗取代散文软依赖）
+
+- **问题**：原 `ask` 默认档在非交互（Agent / 管道 / CI）环境仅「透明回退 + 挂载 `user_decision`」并以正常退出码收场，约束完全依赖 SKILL.md 散文「Agent 必须弹窗」——别的 Agent 不读或不遵守即失效（静默代决隐患未根除）。用户要求以硬约束取代散文软依赖。
+- **修复**：① 三检查器（deadcode / doc-llm / examples）在 `ask` 默认档且非交互（无 TTY）且未获显式 `--X-mode` 授权时，不再静默软回退，直接产出 `ask_undecided` 错误（退出码 1）挂起决策，强制调用方显式指定档位后再跑（层级3 代码级硬失败）；`deadcode` 额外区分 `ask_noninteractive`（→ERROR）与 `explicit_install_fail`/交互超时（→WARN `precision_degraded`，不阻断），`examples` 按 `reason` 含「非交互」精确区分 ERROR / INFO。② 结构化 `user_prompts` 契约（顶层 JSON 字段，含 `question/options/default/rerun_hint`）作为层级2「契约驱动弹窗」权威——主 Agent 解析 `user_prompts` 非空即必须调用提问工具（如 WorkBuddy `AskUserQuestion`）逐项确认后显式重跑，取代对散文的软依赖。退出码复用现有 ERROR→1，不新增退出码（doc/code 退出码集合仍 {0,1,2,130} 一致）。
+- **验证**：`dev_self_audit --strict`（显式 vulture/agent/run）9/9 检查器 ERROR 0/WARN 0；`self_validate` 黄金快照通过（仅确定性 checker + examples 显式 static，不触发）；monkeypatch `is_interactive=False` 跑非交互 ask 模式确认产出 `ask_undecided` ERROR + `user_prompts` 契约、退出码 1。
+
 ## 1.32.0 打磨明细（doc-llm/examples 回参告知与 deadcode 一致；--doc-llm-mode 默认值归位 ask）
 
 - **问题**：① `--doc-llm-mode` 在 `cli.py` 中 `default=None`，虽借 `raw or "ask"` 维持默认行为，但与 `--deadcode-mode`/`--examples-mode` 的 `default="ask"` 不一致，可读性差且易被误判为「无 ask 模式」；② doc-llm/examples 检查器缺少与 deadcode 一致的「已采用 X 模式」反参告知（stderr + `checker_runs[name].mode`），agent 无法确定性读取实际生效模式，存在静默代决隐患。
