@@ -172,7 +172,10 @@ def main():
         examples_consent=True,
         max_file_size=2_000_000,
     )
-    dev_docs = [os.path.join(ROOT, "README.md"), os.path.join(ROOT, "CHANGELOG.md")]
+    # DEVELOPMENT.md 一并纳入：它是开发指令清单/CI 口径文档，历史上曾漂移（v1.34.2 手工发现）
+    # 而审计未覆盖；纳入后 doc 检查器与 doc-llm dossier 同源收口。
+    dev_docs = [os.path.join(ROOT, "README.md"), os.path.join(ROOT, "CHANGELOG.md"),
+                os.path.join(ROOT, "DEVELOPMENT.md")]
 
     print("[audit] 审计目标：%s（最新源码）" % SRC)
     print("[audit] deadcode 精度模式：%s（最大精度；缺失自动安装，失败回退 ast 并告警）" % deadcode_mode

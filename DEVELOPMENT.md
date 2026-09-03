@@ -178,7 +178,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 **真实打印样例**（本机一次提交后）：
 
-```
+```text
 [sync_deploy] deploy dir: C:\Users\admin\.workbuddy\skills\skill-doc-audit (resolved via candidate_root:C:\Users\admin\.workbuddy\skills)
 [sync_deploy] already up-to-date; verify: OK
 ```
@@ -228,7 +228,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 **提示块的实际打印格式**（来自 `dev_self_audit.py:153-165`，以「版本不一致」为例的真实渲染）：
 
-```
+```text
 ========================================================================
 发布前待办（Agent 提示 · 由 pre-push 钩子与 dev-qa 工作流发出）
 ========================================================================
@@ -246,7 +246,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 > - 检测基线存于 `bench/market_bench/last_bench_version.txt`（gitignore，不进版本库）；每次运行都刷新为当前版本，故同一版本变动只提示一次。
 > - 真实渲染样例（次版本 1.24.0 → 1.25.7 触发；第 4 类上架授权进 `rel_block` 阻断、第 5/6/7 类进 `rel_info` 不阻断；补丁号样例附后）：
 
-```
+```text
 
   [agent-todo][必须] 上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）
     SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish
@@ -287,7 +287,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 - **`[agent-todo]` 块**：来自 `publish-gate` job → `dev_self_audit.py --strict --no-sync-check`，7 类提示（release_check 产 #1-3 + check-bump 产 #4-7）的文案、渲染格式同上「本地 CI（`pre-push` 钩子）发出什么」节，**逐字一致**。唯一差别是少了「`[sync] ⚠ 不一致`」那行（CI 机器无部署副本，`_verify` 被跳过）。
 - **`[PASS]` / `[FAIL]` / `[SKIP]` 行**：来自 `checker-regression` job → `self_validate.py`，**逐 fixture** 比对黄金快照，真实打印形如：
 
-```
+```text
 [PASS] dirty-skill  (summary: error=13 warn=3 info=0 pass=0)
 [FAIL] tricky-clean
        - summary.error: expected=0 got=1
