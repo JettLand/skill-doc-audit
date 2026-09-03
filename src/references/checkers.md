@@ -101,7 +101,7 @@
 | examples | `EXAMPLE_OUTPUT_DRIFT` | 示例执行结果与标注期望不符 | run 模式执行示例后，退出码 / 标准输出 / 标准错误与 `expected-*` 标注不一致 | WARN |
 | examples | `EXAMPLE_RUN_FAIL` | 示例执行失败/超时 | run 模式执行示例抛异常或超时（> `--examples-timeout`，默认 20s） | WARN |
 | examples | `EXAMPLE_RUN_LIMIT` | 示例执行已达上限 | 单技能执行示例数已达 `--examples-max-cmd`（默认 12），其余标注示例未执行 | INFO |
-| examples | `examples_degraded` | 示例执行验证已降级为纯静态 | 非交互环境且未显式授权执行，回退纯静态并显式标注（绝不静默代决） | INFO |
+| examples | `examples_degraded` | 示例执行验证已降级为纯静态 | 交互环境 30s 超时/无输入，ask 回退 static 并显式标注（非交互环境改走 `ask_undecided` 硬失败，ERROR，须显式 --examples-mode 重跑） | INFO |
 | examples | `examples_run_noop` | 沙箱已启用但无标注示例 | 已启用 run 模式，但文档中没有任何带 `expected` 标注的示例块，本次未执行任何命令 | INFO |
 
 ## 平台豁免字段 `target_platform`
@@ -258,14 +258,14 @@ examples 检查器（检查器 #9，v1.26.0 起纳入 `--all-checks` 全量集�
 | `--all` | 批量审计 `~/.workbuddy/skills/` 下全部已安装技能 |
 | `--check <名称>` | 仅启用指定检查器（可重复），`doc` 常驻默认开 |
 | `--all-checks` | 启用全部检查器（含 deadcode） |
-| `--deadcode-mode {ask,vulture,ast,off}` | deadcode 精度模式；`ask` 默认已装 vulture 则自动高精度(不询问)，未装则交互询问、30s 超时或非交互回退 `ast`（**不安装**）；显式 `vulture` 或交互选 vulture 缺库时先自动安装、失败回退 `ast` 并 WARN 告警；`ast`/`off` 绝不联网安装 |
+| `--deadcode-mode {ask,vulture,ast,off}` | deadcode 精度模式；`ask` 默认已装 vulture 则自动高精度(不询问)，未装则交互询问、30s 超时回退 `ast`（**不安装**）；非交互环境无法征询 → 硬失败挂起 `ask_undecided`（ERROR），须显式 --deadcode-mode 重跑；显式 `vulture` 或交互选 vulture 缺库时先自动安装、失败回退 `ast` 并 WARN 告警；`ast`/`off` 绝不联网安装 |
 | `--preview` | 只预览将运行的检查器与将扫描的文件，不产出发现，退出码 0（适合首次审计前心里有数） |
 | `--strict` | WARN 也计入退出码（CI 门禁用） |
 | `--json` | 额外输出 JSON 机读结果（每条含 checker/severity/category/category_cn/message/file/line/suggestion） |
 | `--timeout <秒>` | 整体超时保护，超时优雅终止（退出码 130）而非卡死 |
 | `--max-file-size <字节>` | 超大文件跳过阈值，避免拖慢 |
 | `--backup` / `--backup-limit N` | 审计前备份 SKILL.md（默认最多保留 3 个备份） |
-| `--examples-mode {static,ask,run,off}` | examples 检查器模式；`ask` 默认(交互询问是否沙箱试运行，30s 超时/非交互回退 static 并 INFO 标注)，`static` 纯静态(零执行/零网络/零 token)，`run` 受限沙箱试运行带 expected 标注的示例，`off` 跳过 |
+| `--examples-mode {static,ask,run,off}` | examples 检查器模式；`ask` 默认(交互询问是否沙箱试运行；交互 30s 超时回退 static 并 `examples_degraded` INFO 标注；非交互无法征询 → 硬失败挂起 `ask_undecided`（ERROR），须显式 --examples-mode 重跑)，`static` 纯静态(零执行/零网络/零 token)，`run` 受限沙箱试运行带 expected 标注的示例，`off` 跳过 |
 | `--examples-timeout <秒>` | examples run 模式下单条示例命令执行超时（默认 20） |
 | `--examples-max-cmd <条>` | examples run 模式下单技能最多执行示例命令条数（默认 12，防突刺） |
 | `--doc-llm-mode {ask,agent,off}` | doc-llm 语义检测模式；`ask` 默认（交互终端问询是否 agent 接手，30s 超时回退 off；非交互环境无法征询 → 硬失败挂起 `ask_undecided`（ERROR），须显式 `--doc-llm-mode agent/off` 重跑），`agent` 写 dossier 由 agent 接手比对，`off` 跳过 |

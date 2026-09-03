@@ -5,6 +5,11 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.34.4 打磨明细（同源收口 examples / deadcode 文档表述，与代码 ask_undecided 硬失败一致）
+
+- **改动（文档收口，补丁级）**：1.34.3 修复 `is_interactive` 伪交互判定后，examples / deadcode 非交互 ask 同样走 `ask_undecided` 硬失败（ERROR），但 `SKILL.md` / `references/checkers.md` 中 examples / deadcode 段落仍写「非交互回退 static/ast 并发 INFO」，与代码不一致（examples 非交互→以 static 代行并硬失败挂起、deadcode 非交互缺 vulture→以 ast 代行并硬失败挂起；交互 30s 超时仍降级 static/ast 并发 `examples_degraded` INFO，不变）。本次同源收口：将 examples / deadcode 各处的「非交互回退 … 并发 INFO」统一改为「非交互环境无法征询 → 硬失败挂起 `ask_undecided`（ERROR），须显式 `--examples-mode` / `--deadcode-mode` 重跑」，并保留交互超时降级（examples_degraded INFO）的说明；`ask_undecided` 中文标签（1.34.3 已加）使三检查器回执显示一致。
+- **验证**：`dev_self_audit.py --strict` 仍 EXIT 0、ERROR 0 / WARN 0 / INFO 39（文档改动不影响确定性检查；doc-llm 仍走 agent 模式）；非交互复现 `audit_docs.py --all --all-checks` 对 examples / deadcode 同样即时硬失败（不再 30s 静默超时）。本次仅改用户文档，无代码逻辑变动。
+
 ## 1.34.3 打磨明细（修复 doc-llm / examples / deadcode 非交互伪交互判定 + 回执诚实化）
 
 - **改动（检查器行为修正，补丁级）**：① 根治 `is_interactive()` 伪交互判定（`core.py:429`）——原仅查 `sys.stdin.isatty()`，Agent 后台 / CI 把 stdout/stderr 重定向到日志而 stdin 仍可能是 TTY，被误判可交互 → 弹菜单到不可见流 → 卡满 30s 超时后以「用户放弃」伪装软跳过（doc-llm 此前非交互批量审计静默 30s×N 后空转、回执仍 `✓doc-llm`）。改为要求 stdin **与** stderr 均为 TTY；否则走非交互降级 / 硬失败路径，不再静默超时。deadcode / examples 共用此函数，一并受益。② 回执诚实化（`report.py`）：`mode=off`（跳过）的检查器由 `✓` 改标 `⚠` 并点名「未实际运行」，逐检查器块注解「非交互降级 / 显式 off」（`doc_llm.py:167` 把 `degraded` 写入 `_meta`）。③ 分类收敛：doc-llm 非交互降级统一走 `ask_undecided`（ERROR，与 deadcode/examples 层级3 一致），`core.py` 补 `ask_undecided` 中文标签；清理已死 `doc_llm_skipped` 描述，修正 `SKILL.md` / `references/checkers.md` 文档漂移（原误写「记 INFO doc_llm_skipped」）。
