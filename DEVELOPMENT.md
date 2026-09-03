@@ -20,7 +20,7 @@
 | 正式名称 | 脚本 | 职责 | 触发方式 |
 |---|---|---|---|
 | 源码自审计器 | `src/scripts/dev_self_audit.py` | 守**发布质量**：同步校验（副本↔src）+ 审计最新源码发布面 + dev 文档漂移 + 发布就绪检查（`[agent-todo]`） | 每次 `git commit`（post-commit 同步 + 版本 bump 提交经 `bump_audit` 自动跑它作早期反馈）/ `git push`（pre-push 门禁）/ 推 PR（dev-qa CI）；也手动跑 |
-| 市场质量基准实测器 | `src/scripts/dev_market_bench.py` | 守**「规模化真实世界」**：按 TRACE 质量分抽样、批量跑全量检查，验证检查器在长尾技能上的稳定性与 doc-llm 真实执行 | **不进自动调度**：仅人工要求时启用；或 `dev_self_audit` 监测到次/主版本变动时打印 `[agent-todo]` 建议、由 agent 评估后决定是否运行 |
+| 市场质量基准实测器 | `src/scripts/dev_market_bench.py` | 守**「规模化真实世界」**：按 TRACE 质量分抽样、批量跑全量检查，验证检查器在长尾技能上的稳定性与 doc-llm 真实执行 | **不进自动调度**：仅人工要求时启用；`check-bump` 子命令供 `dev_self_audit` 在版本变动 / 未提交时打印 `[agent-todo]` 提示，绝不直接触发 `run` |
 
 > 其余 `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `_devcommon.py` / `bump_audit.py` 为检查器回归护栏、fixture 生成、副本同步、发布就绪检查、共享样板等基础设施，不属于「两套辅助开发工具」本身，但支撑前述两套工具运转。
 
@@ -35,7 +35,7 @@
 1. **取样指标改为质量分（非热度）**：旧脚本按市场 `score`（热度）升序取最低 50（实测全 `score=0` 长尾）；新工具按 **TRACE 官方质量评测分**（`overall`，5.0 分制）取样——取值方法与 trace-selfcheck 的 `benchmark_official.py` 同源：`fetch_evaluation(slug)` → `parse_eval` → overall。
 2. **取样规则**：从候选池（全市场**随机页偏移**抽样 `pool` 个 slug，默认 1000，避免热度偏差）→ 逐个 `fetch_evaluation` 取质量分 → 升序取**质量最低 1000** → 随机抽 50 做审计。默认不固定种子（每次天然不同）+ 维护采样历史（`sampled_history.json`）排除近 3 次已采 slug，进一步避免重复样本。
 3. **规模约束与近似（已在代码中实测确认）**：市场技能 13.3 万；列表接口仅支持 `score/downloads/stars/updatedAt` 排序、**不返回质量分字段**；全量爬评测（13 万次请求）不可行。故「质量最低 1000」是候选池内的工程化近似，非字面全局最低 1000（已在报告头部显式标注，避免误读）。
-4. **不进自动调度**：实际跑基准（`run`）只在人工要求或 agent 评估重大版本变动后建议时执行；`check-bump` 子命令供 `dev_self_audit` 在次/主版本变动时打印建议（best-effort、不失败 CI、绝不触发 `run`）。
+4. **不进自动调度**：实际跑基准（`run`）只在人工要求时执行；`check-bump` 子命令供 `dev_self_audit` 在版本变动 / 未提交改动时打印 `[agent-todo]` 提示（best-effort、不失败 CI、绝不触发 `run`）。
 5. **请求密度控制**（用户 2026-09-02 定稿）：`index` 拉取质量分采用 **8 线程并发**（`--workers`，默认 8）；如需进一步降低瞬时请求密度，可用 `--delay <秒>` 让每个评测请求前额外等待（默认 0，即不额外等待）。并发与限速均为显式参数，默认行为与用户确认的「8 线程并发」一致。候选池默认 1000（同日由 3000 下调，降低单次 `index` 的评测请求总量）。
 6. **下载口径（与官方 find-skills 一致）**：下载前先遍历本地候选源（`local_candidate_dirs()`）——环境变量 `SKILL_MARKET_BENCH_LOCAL_DIRS`（`os.pathsep` 分隔，最高优先）> 官方本地技能市场 `~/.workbuddy/skills-marketplace/skills` > `~/.workbuddy/skills`、`~/.codebuddy/skills` > IDE 市场插件缓存 `~/.workbuddy/plugins/marketplaces/*/plugins/*/skills`——命中即复制、**完全不发网络请求**；未命中才走官方端点 `https://lightmake.site/api/v1/download?slug=<slug>`。产物落 bench 临时目录、**只读本地副本、绝不改动或安装进实时技能目录**；`run` 结束会打印「本地命中 / 远端下载」计数并写入报告 meta。
 
@@ -124,8 +124,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | dev 工具自身（DEV_TOOLS 全 9 个：`sync_deploy` / `self_validate` / `make_fixtures` / `dev_self_audit` / `dev_market_bench` / `_devcommon` / `release_check` / `dev_commit` / `bump_audit`） | `dev_self_audit.py` 内置 `_guard_dev_tools()` 逐个 `py_compile` 兜底语法关（非阻断 `[建议]`） | `self_validate.py` | dev 工具不进发布面，`self_validate` 审计的是用户技能行为、与 dev 工具改动无关；语法盲区由 `dev_self_audit` 守卫补上 |
 | 发布前（统一动作） | `dev_self_audit.py --strict` **+** `self_validate.py` | — | 一键全量：先质量门禁、再检查器回归（也可靠 CI 钩子自动覆盖） |
 | 版本迭代 / 发布前收尾 | （`dev_self_audit.py` 内置 `release_check` 自动提示） | 手动记忆 | 版本号一致性(SKILL.md↔sources.py) / CHANGELOG 收口 / temp 清理 / **上架前取得用户授权**——改为门禁输出 `[agent-todo]`，不再依赖记忆 |
-| 次版本/主版本变动（x.y / X.y） | （`dev_self_audit.py` 末尾 best-effort 调 `dev_market_bench.py check-bump` 自动提示） | 手动记忆 | 是否运行「市场质量基准实测器」`run` 由 agent 评估决定——仅打印 `[agent-todo]` 建议，**不自动跑基准**（基准实测只在人工要求或该建议触发时启用） |
-| 想验证检查器在规模化真实世界的稳定性 / 长尾技能质量分布 | `dev_market_bench.py run` | 自动调度 | 人工要求或前述版本变动建议触发；非日常改动必跑项 |
+| 想验证检查器在规模化真实世界的稳定性 / 长尾技能质量分布 | `dev_market_bench.py run` | 人工要求 | 仅在人工要求时运行（`run`）；基准实测不进自动调度、也不由 `check-bump` 自动触发 |
 | 准备 `git commit` | （`post-commit` 钩子自动 `sync_deploy`） | 手动 | 提交即同步部署副本 |
 | `git push origin main` | （`pre-push` 钩子自动跑 `dev_self_audit --strict` + `self_validate`） | 手动 | 本地发布门禁，失败拦截 push |
 | 推到 GitHub / 开 PR 到 `main` | （GitHub Actions `dev-qa.yml` 自动跑 `dev_self_audit --strict --no-sync-check` + `self_validate`） | 手动 | 远程兜底，防绕过 |
@@ -209,23 +208,21 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 > 注：第 6/7 类（`[agent-todo]`）的**审计执行**自 v1.27.19 起已由上表第 6 步 `dev_self_audit --strict` 自动覆盖，v1.27.21 起不再作为「agent 必须手动跑命令」的指令打印（见下方指令清单表后说明），避免与钩子重复、且误导为手动门禁。
 
-> 下列「指令清单」汇总本地 CI **所有可能发出的 `[agent-todo]`**，逐项给出：触发条件、发出的指令（可照做动作）、严重度与是否阻断。其中第 1–4 类来自 `release_check.py`，第 5–8 类来自 `dev_market_bench.py check-bump`（第 5 类仅在次/主版本变动时打印；**第 6–7 类在任何版本变化时都打印**，含补丁号——因为任何版本都可能需要上架；**第 8 类为常驻通用提示，检测未提交改动、不依赖版本变动**）。
+> 下列「指令清单」汇总本地 CI **所有可能发出的 `[agent-todo]`**，逐项给出：触发条件、发出的指令（可照做动作）、严重度与是否阻断。其中第 1–3 类来自 `release_check.py`（版本一致性 / CHANGELOG 收口 / temp 清理），第 4–6 类来自 `dev_market_bench.py check-bump`（第 4 类上架授权为 `[必须]` 阻断、任何版本变化都打印；第 5 类文档无版本叙述、第 6 类未提交提示为 `[建议]` 不阻断；第 6 类常驻、不依赖版本变动）。
 
 | # | 标识 / 严重度 | 触发条件 | 发出的 `[agent-todo]` 指令（原文要点） | 阻断 |
 |---|---|---|---|---|
 | 1 | `[agent-todo][ERROR]` | `SKILL.md version` ≠ `sources.py` 第144行 `User-Agent` | `将 src/scripts/auditlib/sources.py 第144行的 User-Agent 改为 skill-doc-audit/<SKILL版本>` | **是** |
-| 2 | `[agent-todo][ERROR]` | `README.md`「版本摘要」表最新版本行 ≠ `SKILL.md version` | `在 README.md「版本摘要」表顶部补一行 '| <SKILL版本> | （本次改动说明） |'，或修正已有行版本号`（解析不到版本表行时不误拦） | **是** |
-| 3 | `[agent-todo][WARN]` | `SKILL.md version` 高于 `CHANGELOG.md` 最高版本节 | `将 CHANGELOG.md 的「未发布改动」节提升为 '<SKILL版本> 打磨明细' 节后再提交` | **是** |
-| 4 | `[agent-todo][INFO]` | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py`；或仓库根/`src` 下存在 `*.bak`/`*.bak.*` 过时备份 | `及时清理 temp/ 测试残留与 `*.bak` 备份（默认保留最近 3 个、更早的删除）；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` | 否 |
-| 5 | `[agent-todo][建议]` | 次/主版本（x.y.z 中 x 或 y）变动 | `⚠ 决策点：是否运行「市场质量基准实测器」？默认不自动跑；若本次涉及检查器逻辑 / 误报抑制 / 风险口径改动，建议运行验证规模化行为稳定：python src/scripts/dev_market_bench.py run`（仅人工要求或本建议触发时启用，不进自动调度） | 否 |
-| 6 | `[agent-todo][必须]`（阻断） | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）`：SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish。→ 先询问用户取得授权；获准后 `skillhub publish <技能目录> --changelog "..." --json`（发布目录内**不得含 `dist/` 或任何 `.zip`**：市场自行重打包，目录内含 zip 会返回 400「不允许的文件类型」） | **是** |
-| 7 | `[agent-todo][建议]` | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `版本变动时用户文档（SKILL.md / references/*）无需写入版本变动叙述`：如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身。→ 发版前复核 SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除 | 否 |
-| 8 | `[agent-todo][建议]` | 仓库存在未提交改动（`git status --porcelain` 非空） | `检测到未提交的本地改动，请立即本地 commit`：本地提交即触发 post-commit 钩子同步部署副本，避免 src 与部署副本 / 版本号长期脱节；提交与发布解耦，未上架也可随时提交。→ `python src/scripts/dev_commit.py -m "<有意义说明>"`（静态提交助手：自动 git add -u + commit，commit 触发 post-commit 同步部署副本；新增文件加 --all 或显式传路径） | 否 |
+| 2 | `[agent-todo][WARN]` | `SKILL.md version` 高于 `CHANGELOG.md` 最高版本节 | `将 CHANGELOG.md 的「未发布改动」节提升为 '<SKILL版本> 打磨明细' 节后再提交` | **是** |
+| 3 | `[agent-todo][INFO]` | `temp/` 下有 `*_test*.py`/`*.mhtml`/`_eval*.txt`/`stress*`/`_rezip*`/`*.py`；或仓库根/`src` 下存在 `*.bak`/`*.bak.*` 过时备份 | `及时清理 temp/ 测试残留与 `*.bak` 备份（默认保留最近 3 个、更早的删除）；⚠ 清理前先确认这些文件非你手动放入，再删除（遵循 temp/ 管理约定）` | 否 |
+| 4 | `[agent-todo][必须]`（阻断） | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）`：SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish。→ 先询问用户取得授权；获准后 `skillhub publish <技能目录> --changelog "..." --json`（发布目录内**不得含 `dist/` 或任何 `.zip`**：市场自行重打包，目录内含 zip 会返回 400「不允许的文件类型」） | **是** |
+| 5 | `[agent-todo][建议]` | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `版本变动时用户文档（SKILL.md / references/*）无需写入版本变动叙述`：如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身。→ 发版前复核 SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除 | 否 |
+| 6 | `[agent-todo][建议]` | 仓库存在未提交改动（`git status --porcelain` 非空） | `检测到未提交的本地改动，请立即本地 commit`：本地提交即触发 post-commit 钩子同步部署副本，避免 src 与部署副本 / 版本号长期脱节；提交与发布解耦，未上架也可随时提交。→ `python src/scripts/dev_commit.py -m "<有意义说明>"`（静态提交助手：自动 git add -u + commit，commit 触发 post-commit 同步部署副本；新增文件加 --all 或显式传路径） | 否 |
 
 > **旧第 6 / 7 类已于 v1.27.21 退役（与 `pre-push` 钩子的执行重叠）**：`pre-push` 在每次推 `main` 前已自动跑 `dev_self_audit.py --strict`（其内硬编码 doc-llm agent 模式、dev_docs 写死含 README/CHANGELOG）+ `self_validate.py`，并对 doc-llm 确定性「正向覆盖缺口」做门禁、落盘报告 `bench/agent_audit_report.md`。因此旧第 6 类（补丁号 doc+doc-llm 文档自审计）与旧第 7 类（次/主版本全量自审计）的**执行已被钩子 100% 覆盖**——继续把它们作为 `[agent-todo][必须]`（阻断）的「agent 必须手动跑命令」指令，既与钩子重复、又误导为手动门禁，故 v1.27.21 从 `dev_market_bench.py check-bump` 移除这两条打印：
 > - 审计的**门禁**由钩子跑审计后的检查器结果决定（如确有 doc 漂移，doc 检查器报错即拦 push），不依赖 agent 手动跑命令；
 > - agent 的**保留职责是语义判读**：仅当钩子拦截（打印 dossier / 报告路径）时读取并决定「补文档 or 确认缺口有意（`SKILL_AUDIT_SKIP_DOC_LLM_GATE=1` 放行）」；
-> - 真正只能 agent 做、无法自动化的是第 6 类（上架授权，须问用户）——它保留为 `[必须]`（阻断），见上表。
+> - 真正只能 agent 做、无法自动化的是第 4 类（上架授权，须问用户）——它保留为 `[必须]`（阻断），见上表。
 >
 > **报告文件生命周期（代码强制，不依赖 agent 记忆）**：`bench/agent_audit_report.md` 由钩子每次运行开始时 `rm -f` 自清理上一轮，且 `bench/` 已 gitignore——即便意外残留也不进版本库；doc-llm dossier 写在系统临时目录、由 OS 清理。**agent 只需读取、不应手动删除**（删除权归钩子）。这避免了「靠记忆删除」的脆弱模式。
 
@@ -242,20 +239,14 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 ⚠ 存在阻断项，发布前须先解决（--strict 下将失败）。
 ```
 
-> 第 5–8 类 `[agent-todo]` 均来自 `dev_market_bench.py check-bump`（第 5 类规模化基准 / 第 6 类上架授权 / 第 7 类文档无版本叙述 / 第 8 类常驻未提交提示），由 `dev_self_audit.py` 经 `_parse_check_bump` 解析后并入同一「发布前待办」块（[必须] 进 rel_block 阻断、[建议] 进 rel_info 不阻断），**不再纯透传 stdout**；rel_info 项现以「非阻断项（请逐项确认是否适用）」小标题分组呈现，避免被阻断项淹没；与上面的 release_check 提示合并显示。
-> - **第 5 类**仅当次版本 / 主版本（x.y.z 中的 x 或 y）发生变动时才打印（规模化基准建议，非阻断）；**第 6 类（上架授权）与第 7 类（文档无版本叙述）为任何版本变化均打印**；第 8 类（未提交改动）为常驻提示。旧第 6/7 类（补丁号 doc+doc-llm、次/主版本全量自审计）已于 v1.27.21 退役——其执行由 pre-push 钩子自动覆盖，不再在此提醒。
-> - **第 6–7 类是例外：任何版本变化（含补丁号）都打印**——第 6 类因任何版本都可能需要上架、而上架属对外公开动作须先经用户授权（不能只在次/主版本提醒，否则补丁版本会被静默上架）；第 7 类因版本变动叙述在任何级别的版本迭代中都可能被误写入用户文档，故同样全版本提醒。
-> - 严重度标签语义：第 5 类打 `[建议]`（非阻断，**不升退出码、不拦 push**）——基准实测 `run` 只在人工要求或 agent 评估后执行，check-bump 对它「建议、绝不自动跑」；第 6 类打 `[必须]`（阻断，**`--strict` 下升退出码、拦 push**）——仅上架授权（覆盖任意版本，上架属对外公开动作、须用户授权）；第 7 类（文档无版本叙述）、第 8 类（未提交改动）为 `[建议]` 不阻断。审计门禁已由 pre-push 钩子跑 `dev_self_audit --strict` 的检查器结果承担，不再由 `[agent-todo]` 提醒 agent 手动跑命令。
-> - **第 8 类为常驻通用提示（不依赖版本变动）**：只要 `git status --porcelain` 非空（有未提交改动）就打印，旨在防止长期开发中因记忆漂移遗漏本地 commit、使 src 与部署副本 / 版本号脱节；属 `[建议]` 不阻断、不升退出码。仓库已干净时不打印（与其余版本变动提示正交，任何版本 / 任何状态都可能触发）。
+> 第 4–6 类 `[agent-todo]` 均来自 `dev_market_bench.py check-bump`（第 4 类上架授权 / 第 5 类文档无版本叙述 / 第 6 类常驻未提交提示），由 `dev_self_audit.py` 经 `_parse_check_bump` 解析后并入同一「发布前待办」块（[必须] 进 rel_block 阻断、[建议] 进 rel_info 不阻断），**不再纯透传 stdout**；rel_info 项现以「非阻断项（请逐项确认是否适用）」小标题分组呈现，避免被阻断项淹没；与上面的 release_check 提示合并显示。
+> - **第 4 类（上架授权）为任何版本变化（含补丁号）都打印**，且为 `[必须]` 阻断：任何版本都可能需要上架、而上架属对外公开动作须先经用户授权（不能只在次/主版本提醒，否则补丁版本会被静默上架）；第 5 类（文档无版本叙述）同样任何版本变化都打印（版本变动叙述在任何级别迭代中都可能误写入用户文档）。
+> - 严重度标签语义：第 4 类打 `[必须]`（阻断，**`--strict` 下升退出码、拦 push**）——仅上架授权（覆盖任意版本，上架属对外公开动作、须用户授权）；第 5 类（文档无版本叙述）、第 6 类（未提交改动）为 `[建议]` 不阻断。审计门禁已由 pre-push 钩子跑 `dev_self_audit --strict` 的检查器结果承担，不再由 `[agent-todo]` 提醒 agent 手动跑命令。
+> - **第 6 类为常驻通用提示（不依赖版本变动）**：只要 `git status --porcelain` 非空（有未提交改动）就打印，旨在防止长期开发中因记忆漂移遗漏本地 commit、使 src 与部署副本 / 版本号脱节；属 `[建议]` 不阻断、不升退出码。仓库已干净时不打印（与其余版本变动提示正交，任何版本 / 任何状态都可能触发）。
 > - 检测基线存于 `bench/market_bench/last_bench_version.txt`（gitignore，不进版本库）；每次运行都刷新为当前版本，故同一版本变动只提示一次。
-> - 真实渲染样例（次版本 1.24.0 → 1.25.7 触发；第 6 类上架授权进 `rel_block` 阻断、第 5/7/8 类进 `rel_info` 不阻断；补丁号样例附后）：
+> - 真实渲染样例（次版本 1.24.0 → 1.25.7 触发；第 4 类上架授权进 `rel_block` 阻断、第 5/6 类进 `rel_info` 不阻断；补丁号样例附后）：
 
 ```
-检测到次版本变动 v1.24.0 → v1.25.7（次/主版本变更须先取得上架授权；发布质量自审计由 pre-push 钩子自动覆盖）
-
-  [agent-todo][建议] ⚠ 决策点：次/主版本变动——是否运行「市场质量基准实测器」？
-    默认不自动跑；但若本次涉及检查器逻辑 / 误报抑制 / 风险口径改动，建议运行以验证规模化行为稳定
-    → python src/scripts/dev_market_bench.py run（仅人工要求或本建议触发时启用，不进自动调度）
 
   [agent-todo][必须] 上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）
     SkillHub 上架属对外公开动作，须用户点头；未获授权前只能本地 commit/push，不得 publish
@@ -266,7 +257,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
     如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身
     → 发版前复核：SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除、仅留行为/能力描述
 
-（补丁号样例：1.27.2 → 1.27.3，仅上架授权（第 6 类）+ 文档无版本叙述（第 7 类）触发，次/主版本 #5 仍触发）
+（补丁号样例：1.27.2 → 1.27.3，仅上架授权（第 4 类）+ 文档无版本叙述（第 5 类）触发）
 
   [agent-todo][必须] 上架 SkillHub 前须先获得用户明确授权同意（不得自动发布）
     …（同上，任意版本均触发）
@@ -279,7 +270,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
     …（同上，任意版本均触发）
 ```
 
-> ⚠ 历史坑位：`check-bump` 曾因 `current_version()` 读出的版本带 YAML 引号（`"1.25.7"`）导致 `_ver_tuple` 解析失败、`is_minor_or_major_bump` 恒为 `False`、次/主版本变动也**从不提示**（形同虚设）。已修复（`current_version()` 去引号 + `_ver_tuple` 健壮性增强），修复后次/主版本变动能正确打印第 5、7 类（旧 #7 为全量自审计 `[必须]` 阻断、#5 为基准 `[建议] 不阻断）；补丁号变动则打印第 6 类（doc+doc-llm，`[必须]` 阻断）。三者（旧 #6/#7 审计提醒）已于 v1.27.21 退役，执行改由 pre-push 钩子自动覆盖；当前清单第 6 类为「上架授权」、第 7 类为「文档无版本叙述」、第 8 类为「未提交改动」。
+> ⚠ 历史坑位：`check-bump` 曾因 `current_version()` 读出的版本带 YAML 引号（`"1.25.7"`）导致 `_ver_tuple` 解析失败、`is_minor_or_major_bump` 恒为 `False`、次/主版本变动也**从不提示**（形同虚设）。已修复（`current_version()` 去引号 + `_ver_tuple` 健壮性增强），修复后次/主版本变动能正确打印第 5、7 类（旧 #7 为全量自审计 `[必须]` 阻断、#5 为基准 `[建议] 不阻断）；补丁号变动则打印第 6 类（doc+doc-llm，`[必须]` 阻断）。三者（旧 #6/#7 审计提醒）已于 v1.27.21 退役，执行改由 pre-push 钩子自动覆盖；彼时清单第 6 类为「上架授权」、第 7 类为「文档无版本叙述」、第 8 类为「未提交改动」；v1.34.1 起进一步精简为 6 类（上架授权=第4类、文档无版本叙述=第5类、未提交改动=第6类）。
 
 > 注：`release_check` 自身异常或被 import 失败时，只发一条 `INFO` 提示「发布就绪检查不可用 / 手动核对版本号·CHANGELOG·temp」，绝不因此阻断门禁。
 
@@ -289,7 +280,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 `dev-qa.yml` 有两个 job，调用命令与本地 `pre-push` **完全相同**（仅 `dev_self_audit` 多一个 `--no-sync-check`）。因此它发出的提示 **与本地 CI 同源、内容一致**：
 
-- **`[agent-todo]` 块**：来自 `publish-gate` job → `dev_self_audit.py --strict --no-sync-check`，8 类提示（release_check 产 #1-4 + check-bump 产 #5-8）的文案、渲染格式同上「本地 CI（`pre-push` 钩子）发出什么」节，**逐字一致**。唯一差别是少了「`[sync] ⚠ 不一致`」那行（CI 机器无部署副本，`_verify` 被跳过）。
+- **`[agent-todo]` 块**：来自 `publish-gate` job → `dev_self_audit.py --strict --no-sync-check`，6 类提示（release_check 产 #1-3 + check-bump 产 #4-6）的文案、渲染格式同上「本地 CI（`pre-push` 钩子）发出什么」节，**逐字一致**。唯一差别是少了「`[sync] ⚠ 不一致`」那行（CI 机器无部署副本，`_verify` 被跳过）。
 - **`[PASS]` / `[FAIL]` / `[SKIP]` 行**：来自 `checker-regression` job → `self_validate.py`，**逐 fixture** 比对黄金快照，真实打印形如：
 
 ```

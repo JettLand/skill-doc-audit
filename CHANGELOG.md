@@ -5,6 +5,15 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.34.1 打磨明细（清理过时 [agent-todo] 指令：清单由 8 条重编号为 6 条）
+
+- **改动**：清理两条过时 / 失效的 `[agent-todo]` 发布前待办指令，指令清单由 8 条重编号为 6 条：
+  - **删除第 2 条（README 版本摘要表一致性）**：`release_check.py::check_readme_version` 检测 `README.md`「版本摘要」表最新版本行 == `SKILL.md version`；但该版本表已于 v1.33.1 随 README 精简被删除，此检查自此恒返回 `None`（僵尸代码，解析不到版本表行时不误拦）。删除该函数及其在 `CHECKS` 中的注册，版本一致性锚点由「四处」收口为「三处」（SKILL.md / sources.py User-Agent / CHANGELOG）。
+  - **删除第 5 条（市场质量基准实测器建议）**：`dev_market_bench.py check_bump` 在次/主版本变动时打印「是否运行基准实测」建议。经实证该机制本身未失效（模拟次版本变动能正确打印），但 `LAST_VERSION` 缓存会被 agent 在 bump 版本后、commit 前的手动 `dev_self_audit --strict` 验证运行提前推进到新版本，导致 post-commit 的 `bump_audit` 再跑 `check_bump` 时 `last==cur`、不再重发——即第 5 条在手动验证阶段已「消耗」，post-commit 不再出现，用户侧长期观察为「从不触发」。该建议指向 dev-only 基准器（现已改为官方 API 随机取样），属低频噪音，按用户要求退役；同步删除仅此使用的 `is_minor_or_major_bump` / `_ver_tuple`（dev_market_bench.py 内）死函数，更新模块文档串与 `dev_self_audit.py` 的 5b) 注释。
+- **验证**：`release_check.py` / `dev_market_bench.py` / `dev_self_audit.py` 均 `py_compile` 通过；`grep` 确认无 `check_readme_version` / `is_minor_or_major_bump` 残留；模拟次版本 `1.33.0 → 1.34.0` 跑 `check_bump` 确认第 5 条基准建议已消失、上架授权（现第 4 条）/ 文档无版本叙述（现第 5 条）/ 未提交提示（现第 6 条）正常打印。三处版本号一致 1.34.1。
+- **DEVELOPMENT.md**：指令清单表重编号为 6 条（#1 版本一致性 / #2 CHANGELOG 收口 / #3 temp 清理 / #4 上架授权[必须] / #5 文档无版本叙述 / #6 未提交[常驻]），同步更新清单说明与渲染样例标注。
+
+
 ## 1.34.0 打磨明细（doc-llm dossier 比对要点扩展：吸收 TRACE 互补维度，零逻辑改动）
 
 - 改动：落地 task #69 的 P0——扩展 `doc_llm.py::_write_doc_llm_dossier` 的「比对要点」模板，在原有「一致性（Vector 2：文档↔代码）」两条要点之外，新增「内容完整性 / 质量门槛」10 条要点（R1 异常处理、R2/R3 功能完整·运行稳定、A2 触发方式、C2 文档质量、C3 渐进式披露、E1 输出准确性、E4 开箱即用度、T1 国内适配性可选），均来自 trace-selfcheck 评测体系的互补维度（本检查器原只做一致性，不覆盖「写得好不好」）。纯模板增量、不改执行逻辑，无新增 ERROR/WARN 风险。

@@ -21,11 +21,11 @@ dev_market_bench.py —— 市场质量基准实测器（dev-only 辅助开发�
 
 子命令：
   run            随机页偏移抽 50 个 slug → 下载 → 全量审计 → 报告（默认；可 --sample / --seed / --dedup）
-  check-bump     版本监测：当前版本较记录版本出现次/主版本变动时，打印 [agent-todo] 建议
+  check-bump     版本监测：检测版本变动/未提交改动，打印上架授权与文档约定等 [agent-todo] 提示
 
 不进自动调度（用户明确要求）：
   实际跑基准（run）只在「人工要求」或「agent 评估重大版本变动后建议」时执行；
-  check-bump 供 dev_self_audit 在次版本/大版本变动时打印建议（绝不动触发 run，不自动跑基准）。
+  check-bump 供 dev_self_audit 打印版本变动/未提交相关 [agent-todo] 提示（绝不动触发 run，不自动跑基准）。
 
 下载口径（与官方 find-skills 技能一致 · 用户 2026-09-02 确认）：
   样本技能先遍历本地候选源（`local_candidate_dirs()`：环境变量覆盖 > 官方本地技能市场
@@ -622,19 +622,6 @@ def current_version():
     return m.group(1) if m else None
 
 
-def _ver_tuple(v):
-    try:
-        return tuple(int(x) for x in str(v).strip().strip('"').strip("'").split(".")
-                     if x.strip() != "")
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def is_minor_or_major_bump(old, new):
-    a, b = _ver_tuple(old), _ver_tuple(new)
-    if not a or not b or len(a) < 2 or len(b) < 2:
-        return False
-    return b[0] != a[0] or b[1] != a[1]
 
 
 def _git_uncommitted():
@@ -673,16 +660,6 @@ def check_bump():
         except Exception:  # noqa: BLE001
             pass
         return 0
-    if is_minor_or_major_bump(last, cur):
-        kind = "主" if _ver_tuple(cur)[0] != _ver_tuple(last)[0] else "次"
-        print("检测到%s版本变动 v%s → v%s（次/主版本变更须先取得上架授权；发布质量自审计由 pre-push 钩子自动覆盖）" % (kind, last, cur))
-        print("[agent-todo][建议] ⚠ 决策点：次/主版本变动——是否运行「市场质量基准实测器」？")
-        print("  默认不自动跑；但若本次涉及检查器逻辑 / 误报抑制 / 风险口径改动，建议运行以验证规模化行为稳定")
-        print("  → python src/scripts/dev_market_bench.py run（仅人工要求或本建议触发时启用，不进自动调度）")
-        # 注：次/主版本的全量自审计（旧第 7 类）与补丁号的 doc+doc-llm 文档自审计（旧第 6 类）
-        # 自 v1.27.19 起已由 pre-push 钩子自动跑 `dev_self_audit --strict` 覆盖，v1.27.21 起
-        # 不再在此打印提醒——避免与钩子执行重复、且误导为「agent 必须手动跑」。门禁由钩子
-        # 跑审计后的检查器结果决定，无需 agent 手动跑命令。
     if cur != last:
         # 任何版本变化（含补丁）都须先取得用户授权才允许上架——上架是外部公开动作。
         print("")
@@ -721,7 +698,7 @@ def main():
                        help="排除近 N 次已采 slug（默认 3；0=不排除）")
     p_run.add_argument("--page-size", type=int, default=100, help="列表分页大小（默认 100）")
 
-    sub.add_parser("check-bump", help="版本监测：次/主版本变动时打印 [agent-todo] 建议")
+    sub.add_parser("check-bump", help="版本监测：版本变动/未提交改动时打印 [agent-todo] 提示")
 
     args = ap.parse_args()
     if args.cmd == "run":

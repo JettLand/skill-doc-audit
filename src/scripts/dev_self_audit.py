@@ -239,7 +239,7 @@ def main():
                                      "title": "发布就绪检查不可用",
                                      "detail": str(e),
                                      "todo": "手动核对版本号/CHANGELOG/dist/temp"}]
-    # ---- 5b) 版本变动提示（次/主版本）：解析 dev_market_bench.check-bump 输出 ----
+    # ---- 5b) 版本变动提示：解析 dev_market_bench.check-bump 输出 ----
     # 必须项([必须])并入 rel_block（阻断，--strict 下失败 → 拦 push）；
     # 建议项([建议])并入 rel_info（不阻断）。其它上下文行（版本变动标题）原样打印。
     # best-effort：脚本缺失 / 无网络 / 缓存目录不可写均静默跳过，不影响门禁退出码。
