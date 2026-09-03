@@ -4,6 +4,14 @@
 
 > 排序：版本号降序（最新在前）。
 
+## 1.34.7 打磨明细（devkit 重命名为 dev_orchestrate：开发编排层定位 + 纠正故障根因诊断）
+
+- **改动（dev 工具层重定位，不进部署副本）**：`devkit.py` 重命名为 `dev_orchestrate.py`（「开发编排层」定位——不是替代 bash，而是把开发期对 shell 的脆弱依赖压缩到最小：多字节/转义内容走 `--*-file` 从文件读、启动行只剩 ASCII 路径；`run-plan` 单进程批量执行压缩 shell 往返；幂等可重跑 + 跨 shell 工具冗余）。同步删除旧 `devkit.py` / `devkit_design.md`，`core.py` `DEV_TOOLS` 收口为仅列 `dev_orchestrate.py`。设计文档落盘 `dev_orchestrate_design.md`（仓库根，dev-only）。
+- **改动（根因诊断纠正）**：纠正上轮对工具调用故障的误诊——真实根因是**工具调用参数传输层间歇丢任意字符串参数**（`command` / `file_path` 随机变 undefined，`echo ok` 也失败，Bash / PowerShell / Read 均可能中招），与 bash 引号 / 中文内容无关、与系统重启无关。`dev_orchestrate.py` 模块 docstring 按此口径落笔。
+- **新增（doctor 探针）**：`dev_orchestrate.py doctor` 纯 Python 环境探针（python 版本 / git 在 PATH / 部署副本在位 / 三锚点版本一致性），零 shell 依赖，用于传输层故障时的环境自检。
+- **验证**：`dev_orchestrate.py` `py_compile` 通过；`selftest` OK（patch / verify 正反路径）；`doctor` 三锚点一致；`dev_self_audit --strict` EXIT 0 / ERROR 0 / WARN 0（9/9 检查器 OK，doc-llm agent 模式 dossier 语义比对无漂移——用户文档零 devkit 残留）。
+
+
 
 ## 1.34.6 打磨明细（执行前一次性决策门 + vulture 保持合法高精度档）
 
