@@ -5,6 +5,12 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.34.2 打磨明细（修正基准实测器文档描述 + 恢复次/主版本基准实测 [agent-todo]（#6））
+
+- **改动**：① 修正 `DEVELOPMENT.md`「市场质量基准实测器」小节——原描述仍写旧的「质量分近似」取样逻辑（`LIST`/`index` 子命令、`--workers`、`quality_index.json`、TRACE overall 5.0 分），与 `dev_market_bench.py` 实测逻辑（官方列表 API 随机页偏移取样、`run` 子命令、`AUDIT_FLAGS` = `--all-checks --deadcode-mode vulture --doc-llm-mode agent --examples-mode static --examples-consent --json`）不符，已据源码重写（取样规则 / 规模约束 / 全量审计 / 下载口径 / 不进自动调度五点 + 子命令块 + 缓存清单）。② 恢复次/主版本变动时的「市场质量基准实测器」`[agent-todo]` 决策点提示：在 `dev_market_bench.py::check_bump` 的 `if cur != last:` 分支内、`is_minor_or_major_bump(last, cur)` 命中时打印（`[建议]`，非阻断），并重新加回 `_ver_tuple` / `is_minor_or_major_bump` 两个辅助函数；未提交改动提示由第 6 类顺移为第 7 类，指令清单现为 7 条（#1 版本一致性 / #2 CHANGELOG 收口 / #3 temp 清理 / #4 上架授权[必须] / #5 文档无版本叙述[建议] / #6 基准实测建议[建议·次主版本] / #7 未提交[建议·常驻]）。
+- **验证**：`dev_market_bench.py` `py_compile` 通过；单元验证 `is_minor_or_major_bump`（`1.34.0→1.35.0`=True、`1.34.0→1.34.1`=False、`1.34.0→2.0.0`=True、带 YAML 引号 `"1.34.0"→1.35.0`=True）；`dev_self_audit --strict` 9/9 ERROR 0 / WARN 0 / INFO 验证；模拟次版本变动跑 `check_bump` 确认第 6 类基准实测建议正确打印、第 4/5/7 类正常。三处版本号一致 1.34.2。
+- **DEVELOPMENT.md**：重编号指令清单表为 7 条，更新渲染样例标注与历史坑位注（v1.34.2 恢复第 6 类基准实测建议、未提交顺移第 7 类）。
+
 ## 1.34.1 打磨明细（清理过时 [agent-todo] 指令：清单由 8 条重编号为 6 条）
 
 - **改动**：清理两条过时 / 失效的 `[agent-todo]` 发布前待办指令，指令清单由 8 条重编号为 6 条：

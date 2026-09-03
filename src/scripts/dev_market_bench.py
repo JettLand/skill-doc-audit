@@ -641,6 +641,26 @@ def _git_uncommitted():
     return bool(out.stdout.strip())
 
 
+def _ver_tuple(v):
+    """解析 `x.y.z` 版本为三元组；带 YAML 引号或非法返回 None。"""
+    if not v:
+        return None
+    m = re.match(r"^\s*\"?(\d+)\.(\d+)\.(\d+)\"?\s*$", str(v))
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+
+def is_minor_or_major_bump(old, new):
+    """次版本（y）或主版本（x）变动返回 True；补丁号（z）变动返回 False。"""
+    if old is None or new is None:
+        return False
+    to, tn = _ver_tuple(old), _ver_tuple(new)
+    if to is None or tn is None:
+        return False
+    return (tn[0] != to[0]) or (tn[1] != to[1])
+
+
 def check_bump():
     cur = current_version()
     if not cur:
@@ -671,6 +691,13 @@ def check_bump():
         print("  [agent-todo][建议] 版本变动时，用户文档（SKILL.md / references/*）无需写入版本变动叙述")
         print("  如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身")
         print("  → 发版前复核：SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除、仅留行为/能力描述")
+        # 次/主版本变动：提醒 agent 评估是否运行完整基准实测（[建议]，非阻断）
+        if is_minor_or_major_bump(last, cur):
+            print("")
+            print("  [agent-todo][建议] ⚠ 决策点：次/主版本变动——是否运行「市场质量基准实测器」做完整实测？")
+            print("  次/主版本属质量高风险点（检查器逻辑 / 误报抑制 / 风险口径可能变动）；建议评估是否运行一次规模化基准以验证稳定性：")
+            print("  → python src/scripts/dev_market_bench.py run （默认随机抽 50 个市场技能全量审计；可 --sample / --seed / --dedup）")
+            print("  （仅在人工要求或本建议触发时启用，不进自动调度、绝不由 check-bump 自动触发 run）")
     # 通用提示（不依赖版本变动）：长期开发易因记忆漂移遗漏本地 commit，
     # 导致 src 与部署副本 / 版本号长期脱节（post-commit 钩子本应同步部署副本）。
     # 检测到未提交改动即提示立即本地 commit；[建议] 不阻断、不升退出码。
