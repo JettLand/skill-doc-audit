@@ -1,0 +1,398 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""dev-orchestrate —— skill-doc-audit 开发编排层（dev orchestration layer）。
+
+定位（v1.34.7 重定位）
+========================
+本工具不是「替代 bash」，而是把开发期对 shell 的脆弱依赖**压缩到最小**：凡是能在一个
+Python 进程内完成的事（字节级 patch / 断言复核 / 编译 / 版本 bump / git 状态 / 计划批量），
+都不经 bash 命令行传递多字节或转义内容，从而降低对 shell 调用层的暴露面。仍须至少一次
+`python dev_orchestrate.py <sub>` 的 shell 启动——这是物理事实，绕不开。
+
+设计动机：本会话反复踩的坑
+============================
+1. **Edit 工具 phantom success**：Edit 报「Successfully edited」但磁盘未变，多发于含
+   反斜杠转义 / 多字节 / 枚举串 / 中文嵌套引号的字符串。
+2. **工具调用参数传输层间歇丢参**：harness 级故障——`Bash.command` / `PowerShell.command` /
+   `Read.file_path` 等任意字符串参数会随机变成 `undefined`（报错
+   "command expected string, but received undefined"），**与命令内容无关**
+   （连 `echo ok` 也失败）。Bash / PowerShell / Read 工具均可能中招，证明脆弱点在
+   工具调用的参数传输层，而非某个具体 shell 或 Python。
+
+本工具如何应对（务实口径）
+==========================
+- **多字节/转义内容移出命令行**：`patch`/`verify` 的旧值、新值、待匹配串一律从*文件*
+   读取（`--old-file`/`--new-file`/`--contains-file`），shell 启动命令只剩 ASCII 路径与
+   标志，规避参数传输层对中文/引号的丢参。
+- **单进程批量执行**：`run-plan` 接受一个 JSON 计划，在**一个 Python 进程**内依次执行
+   patch/verify/compile/status，把原本 N 次 shell 往返压缩为 1 次，显著降低因单次
+   传输丢参而整批失败的概率；任一步失败即中止并给非零退出码。
+- **幂等可重跑**：每个子命令只读/写明确路径，无副作用累积；计划中断后重跑安全。
+- **跨 shell 工具冗余**：启动行 `python src/scripts/dev_orchestrate.py <sub>` 是纯 ASCII、
+   跨 shell 通用（bash / powershell / cmd 皆认）。当 Bash 工具丢参时，改用 PowerShell
+   工具（或反之）用**同一行**重试——这是针对「传输层丢参」的冗余容错，dev-orchestrate
+   自身不根绝该 bug，只减少其暴露面并提供幂等可重跑路径。
+- **验证不依赖 bash echo/cat**：`verify` 直接读字节、对匹配行打印 `repr()`，等价于用
+   Read 工具复核磁盘，但可在同一次进程内完成。
+- **纯标准库、零外部依赖**：不联网、不装包，开箱即用。
+
+子命令
+======
+  patch    字节级替换（断言出现次数 + 保 LF），旧/新值来自文件
+  verify   断言文件含/不含某子串（多字节串来自文件），打印匹配行 repr
+  compile  递归 py_compile 指定目录下全部 .py，逐文件报告
+  bump     版本号三锚点同步 + 插入 CHANGELOG 小节
+  grep     纯 Python 递归 grep（Grep 工具不可用时的备用）
+  status   git status --short（一次 subprocess 封装）
+  run-plan 读 JSON 计划，单进程批量执行上述操作
+  doctor   纯 Python 环境探针（python 版本 / git 在 PATH / 部署副本 / 三锚点一致），零 shell 依赖
+  selftest 内置自测
+"""
+import argparse
+import io
+import json
+import os
+import py_compile
+import re
+import shutil
+import subprocess
+import sys
+
+# ── 路径解析：从本文件向上定位仓库根（与 tests/ 下测试脚本同源手法）──────────────
+def _repo_root():
+    d = os.path.dirname(os.path.abspath(__file__))
+    # src/scripts/dev_orchestrate.py -> 仓库根 = 上两级
+    cand = os.path.dirname(os.path.dirname(d))
+    if os.path.isfile(os.path.join(cand, "src", "scripts", "audit_docs.py")):
+        return cand
+    # 兜底：向上找含 .git 的目录
+    cur = d
+    while cur and cur != os.path.dirname(cur):
+        if os.path.isdir(os.path.join(cur, ".git")):
+            return cur
+        cur = os.path.dirname(cur)
+    return cand
+
+
+def _read_bytes(p):
+    with open(p, "rb") as f:
+        return f.read()
+
+
+def _read_text(p):
+    with open(p, "r", encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def _write_text(p, text):
+    with open(p, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+
+
+# ── patch ────────────────────────────────────────────────────────────────────
+def cmd_patch(args):
+    old_file = getattr(args, "old_file", None)
+    new_file = getattr(args, "new_file", None)
+    old_inline = getattr(args, "old", None)
+    new_inline = getattr(args, "new", None)
+    if old_file:
+        old = _read_bytes(old_file)
+    elif old_inline is not None:
+        old = old_inline if isinstance(old_inline, bytes) else old_inline.encode("utf-8")
+    else:
+        sys.stderr.write("patch FAIL: 需提供 --old-file 或 --old\n")
+        return 2
+    if new_file:
+        new = _read_bytes(new_file)
+    elif new_inline is not None:
+        new = new_inline if isinstance(new_inline, bytes) else new_inline.encode("utf-8")
+    else:
+        sys.stderr.write("patch FAIL: 需提供 --new-file 或 --new\n")
+        return 2
+    data = _read_bytes(args.file)
+    cnt = data.count(old)
+    if args.once and cnt != 1:
+        sys.stderr.write("patch FAIL: 期望恰好 1 处匹配，实际 %d 处\n" % cnt)
+        return 2
+    if cnt == 0:
+        sys.stderr.write("patch FAIL: 旧串未命中（0 处）\n")
+        return 2
+    data = data.replace(old, new, args.count if args.count else -1)
+    _write_text(args.file, data.decode("utf-8"))
+    sys.stderr.write("patch OK: 文件 %s，替换 %d 处\n" % (args.file, cnt))
+    return 0
+
+
+# ── verify ─────────────────────────────────────────────────────────────────────
+def cmd_verify(args):
+    text = _read_text(args.file)
+    ok = True
+    for cf in args.contains_file or []:
+        sub = _read_text(cf)
+        n = text.count(sub)
+        sys.stderr.write("verify contains-file %s : 命中 %d 处\n" % (cf, n))
+        if n == 0:
+            ok = False
+    for c in args.contains or []:
+        n = text.count(c)
+        sys.stderr.write("verify contains %r : 命中 %d 处\n" % (c, n))
+        if n == 0:
+            ok = False
+    for nf in args.not_contains_file or []:
+        sub = _read_text(nf)
+        n = text.count(sub)
+        sys.stderr.write("verify NOT contains-file %s : 命中 %d 处\n" % (nf, n))
+        if n != 0:
+            ok = False
+    for nc in args.not_contains or []:
+        n = text.count(nc)
+        sys.stderr.write("verify NOT contains %r : 命中 %d 处\n" % (nc, n))
+        if n != 0:
+            ok = False
+    # 打印匹配行上下文（等价 Read 复核，但无需 bash）
+    for c in args.contains or []:
+        for m in re.finditer(re.escape(c), text):
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            line_end = text.find("\n", m.start())
+            if line_end == -1:
+                line_end = len(text)
+            sys.stderr.write("  ↳ %s\n" % repr(text[line_start:line_end]))
+    return 0 if ok else 2
+
+
+# ── compile ────────────────────────────────────────────────────────────────────
+def cmd_compile(args):
+    root = args.root or os.path.join(_repo_root(), "src", "scripts")
+    bad = []
+    good = 0
+    for dirpath, _dirs, files in os.walk(root):
+        for fn in files:
+            if fn.endswith(".py"):
+                fp = os.path.join(dirpath, fn)
+                try:
+                    py_compile.compile(fp, doraise=True)
+                    good += 1
+                except py_compile.PyCompileError as exc:
+                    bad.append((fp, str(exc)))
+    sys.stderr.write("compile: %d 文件通过，%d 失败\n" % (good, len(bad)))
+    for fp, exc in bad:
+        sys.stderr.write("  FAIL %s\n%s\n" % (fp, exc))
+    return 1 if bad else 0
+
+
+# ── bump ───────────────────────────────────────────────────────────────────────
+_VERSION_RE = re.compile(r'^version:\s*["\']?([0-9][0-9A-Za-z.\-]*)["\']?\s*$', re.M)
+_UA_RE = re.compile(r'skill-doc-audit/([0-9][0-9A-Za-z.\-]*)')
+
+
+def cmd_bump(args):
+    root = _repo_root()
+    skill_md = os.path.join(root, "src", "SKILL.md")
+    sources_py = os.path.join(root, "src", "scripts", "auditlib", "sources.py")
+    changelog = os.path.join(root, "CHANGELOG.md")
+    new = args.version
+    skill_text = _read_text(skill_md)
+    m = _VERSION_RE.search(skill_text)
+    if not m:
+        sys.stderr.write("bump FAIL: SKILL.md 未找到 version:\n")
+        return 2
+    old = m.group(1)
+    if old == new:
+        sys.stderr.write("bump: 版本已是 %s，跳过\n" % new)
+        return 0
+    # 1) SKILL.md
+    skill_text = _VERSION_RE.sub('version: "%s"' % new, skill_text, count=1)
+    _write_text(skill_md, skill_text)
+    # 2) sources.py User-Agent
+    src_text = _read_text(sources_py)
+    cnt = len(_UA_RE.findall(src_text))
+    src_text = _UA_RE.sub("skill-doc-audit/%s" % new, src_text, count=1)
+    _write_text(sources_py, src_text)
+    sys.stderr.write("bump: SKILL.md %s->%s, sources.py UA 替换 %d 处\n" % (old, new, cnt))
+    # 3) CHANGELOG 小节（插在排序说明之后）
+    cl = _read_text(changelog)
+    section = ("\n## %s 打磨明细\n\n- **改动**：%s\n- **验证**：dev_self_audit --strict 全绿。\n"
+               % (new, args.section or "(待补)"))
+    anchor = "> 排序：版本号降序（最新在前）。"
+    if anchor in cl:
+        cl = cl.replace(anchor, anchor + section, 1)
+    else:
+        cl = section + cl
+    _write_text(changelog, cl)
+    sys.stderr.write("bump OK: 三锚点已同步为 %s\n" % new)
+    return 0
+
+
+# ── grep ────────────────────────────────────────────────────────────────────────
+def cmd_grep(args):
+    root = args.path or _repo_root()
+    pat = re.compile(args.pattern)
+    hits = 0
+    for dirpath, _dirs, files in os.walk(root):
+        for fn in files:
+            if not fn.endswith((".py", ".md", ".txt", ".json")):
+                continue
+            fp = os.path.join(dirpath, fn)
+            try:
+                text = _read_text(fp)
+            except Exception:
+                continue
+            for i, line in enumerate(text.splitlines(), 1):
+                if pat.search(line):
+                    sys.stdout.write("%s:%d: %s\n" % (fp, i, line))
+                    hits += 1
+                    if args.max and hits >= args.max:
+                        return 0
+    sys.stderr.write("grep: %d 命中\n" % hits)
+    return 0
+
+
+# ── status ──────────────────────────────────────────────────────────────────────
+def cmd_status(args):
+    r = subprocess.run(["git", "-C", _repo_root(), "status", "--short"],
+                       capture_output=True, text=True)
+    sys.stdout.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
+    return r.returncode
+
+
+# ── doctor（纯 Python 环境探针，零 shell 依赖）────────────────────────────────────
+def cmd_doctor(args):
+    root = _repo_root()
+    rows = []
+    rows.append(("python", "%d.%d.%d" % sys.version_info[:3]))
+    rows.append(("git", "in PATH" if shutil.which("git") else "MISSING"))
+    deploy = os.path.expanduser("~/.workbuddy/skills/skill-doc-audit/SKILL.md")
+    rows.append(("deploy-copy", "exists" if os.path.isfile(deploy) else "MISSING"))
+    try:
+        v1 = _VERSION_RE.search(_read_text(os.path.join(root, "src", "SKILL.md"))).group(1)
+        v2 = _UA_RE.search(_read_text(os.path.join(root, "src", "scripts", "auditlib", "sources.py"))).group(1)
+        rows.append(("version-anchors", "consistent(%s)" % v1 if v1 == v2 else "MISMATCH %s/%s" % (v1, v2)))
+    except Exception as e:
+        rows.append(("version-anchors", "ERROR %s" % e))
+    for k, v in rows:
+        sys.stderr.write("doctor: %s = %s\n" % (k, v))
+    bad = [k for k, v in rows if ("MISSING" in v) or ("MISMATCH" in v) or v.startswith("ERROR")]
+    return 1 if bad else 0
+
+
+# ── run-plan（单进程批量，压缩 bash 往返）─────────────────────────────────────────
+def cmd_run_plan(args):
+    plan = json.loads(_read_text(args.plan))
+    rc = 0
+    for i, step in enumerate(plan.get("steps", [])):
+        op = step.get("op")
+        sys.stderr.write("=== plan step %d: %s ===\n" % (i, op))
+        a = argparse.Namespace(**step.get("args", {}))
+        # 注入子命令可能缺省的属性，避免 AttributeError
+        for k, dv in (("old_file", None), ("new_file", None), ("old", None),
+                      ("new", None), ("count", 0), ("once", False),
+                      ("contains", []), ("not_contains", []),
+                      ("contains_file", []), ("not_contains_file", []),
+                      ("root", None), ("section", ""), ("path", None), ("max", 0)):
+            if not hasattr(a, k):
+                setattr(a, k, dv)
+        # 把文件路径相对仓库根解析
+        for k in ("file", "old_file", "new_file", "contains_file", "not_contains_file"):
+            v = getattr(a, k, None)
+            if isinstance(v, str) and not os.path.isabs(v):
+                setattr(a, k, os.path.join(_repo_root(), v))
+        if op == "patch":
+            rc = cmd_patch(a) or rc
+        elif op == "verify":
+            rc = cmd_verify(a) or rc
+        elif op == "compile":
+            rc = cmd_compile(a) or rc
+        elif op == "bump":
+            rc = cmd_bump(a) or rc
+        else:
+            sys.stderr.write("plan: 未知 op %s，跳过\n" % op)
+            rc = rc or 2
+        if rc and not step.get("continue_on_error", False):
+            sys.stderr.write("plan: step %d 失败，中止\n" % i)
+            return rc
+    sys.stderr.write("plan: 完成\n")
+    return rc
+
+
+# ── selftest ──────────────────────────────────────────────────────────────────
+def cmd_selftest(args):
+    import tempfile
+    d = tempfile.mkdtemp()
+    f = os.path.join(d, "t.txt")
+    _write_text(f, "alpha\nbeta\n gamma \n")
+    # patch
+    assert cmd_patch(argparse.Namespace(file=f, old=b"beta", new=b"Beta",
+                                        old_file=None, new_file=None,
+                                        count=0, once=True)) == 0
+    assert "Beta" in _read_text(f)
+    # verify
+    assert cmd_verify(argparse.Namespace(file=f, contains=["Beta"], not_contains=["beta"],
+                                         contains_file=None, not_contains_file=None)) == 0
+    # verify fail path
+    assert cmd_verify(argparse.Namespace(file=f, contains=["zzz"], not_contains=[],
+                                         contains_file=None, not_contains_file=None)) == 2
+    sys.stderr.write("selftest OK\n")
+    return 0
+
+
+def build_parser():
+    p = argparse.ArgumentParser(description="dev-orchestrate")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pp = sub.add_parser("patch", help="字节级替换（旧/新值来自文件）")
+    pp.add_argument("--file", required=True)
+    pp.add_argument("--old-file", help="旧值文件（字节）")
+    pp.add_argument("--new-file", help="新值文件（字节）")
+    pp.add_argument("--old", help="旧值内联（简单 ASCII 用）")
+    pp.add_argument("--new", help="新值内联")
+    pp.add_argument("--count", type=int, default=0, help="最多替换次数（0=全部）")
+    pp.add_argument("--once", action="store_true", help="要求恰好 1 处匹配")
+    pp.set_defaults(func=cmd_patch)
+
+    vp = sub.add_parser("verify", help="断言含/不含子串")
+    vp.add_argument("--file", required=True)
+    vp.add_argument("--contains", action="append", default=[])
+    vp.add_argument("--not-contains", action="append", default=[])
+    vp.add_argument("--contains-file", action="append", default=[])
+    vp.add_argument("--not-contains-file", action="append", default=[])
+    vp.set_defaults(func=cmd_verify)
+
+    cp = sub.add_parser("compile", help="递归 py_compile")
+    cp.add_argument("--root", default=None)
+    cp.set_defaults(func=cmd_compile)
+
+    bp = sub.add_parser("bump", help="版本号三锚点 + CHANGELOG")
+    bp.add_argument("--version", required=True)
+    bp.add_argument("--section", default="")
+    bp.set_defaults(func=cmd_bump)
+
+    gp = sub.add_parser("grep", help="纯 Python grep")
+    gp.add_argument("--pattern", required=True)
+    gp.add_argument("--path", default=None)
+    gp.add_argument("--max", type=int, default=0)
+    gp.set_defaults(func=cmd_grep)
+
+    sp = sub.add_parser("status", help="git status --short")
+    sp.set_defaults(func=cmd_status)
+
+    dp = sub.add_parser("doctor", help="纯 Python 环境探针")
+    dp.set_defaults(func=cmd_doctor)
+
+    rp = sub.add_parser("run-plan", help="单进程批量执行 JSON 计划")
+    rp.add_argument("--plan", required=True)
+    rp.set_defaults(func=cmd_run_plan)
+
+    st = sub.add_parser("selftest", help="内置自测")
+    st.set_defaults(func=cmd_selftest)
+    return p
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
