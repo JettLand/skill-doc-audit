@@ -5,6 +5,13 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.34.0 打磨明细（doc-llm dossier 比对要点扩展：吸收 TRACE 互补维度，零逻辑改动）
+
+- 改动：落地 task #69 的 P0——扩展 `doc_llm.py::_write_doc_llm_dossier` 的「比对要点」模板，在原有「一致性（Vector 2：文档↔代码）」两条要点之外，新增「内容完整性 / 质量门槛」10 条要点（R1 异常处理、R2/R3 功能完整·运行稳定、A2 触发方式、C2 文档质量、C3 渐进式披露、E1 输出准确性、E4 开箱即用度、T1 国内适配性可选），均来自 trace-selfcheck 评测体系的互补维度（本检查器原只做一致性，不覆盖「写得好不好」）。纯模板增量、不改执行逻辑，无新增 ERROR/WARN 风险。
+- 架构边界：严格落实研究结论——skill-doc-audit 不引入 5.0 分制评分，dossier 仅要求 agent 定性判读缺口，不给分项、不报风格问题；TRACE 总分仍归 trace-selfcheck 独立承担。
+- 验证：dossier 生成测试通过（含 R1..R3/A2/C2/C3/E1/E4/T1 全部要点）；`dev_self_audit --strict` 9/9 ERROR 0 / WARN 0 / INFO 38，退出码 0。
+- P1/P2（doc 检查器新增 FAQ/边界/反模式/隐私 确定性检查）经评估**暂缓**：见 `docs/research-trace-extraction.md` 评估段，需先解决自家技能 INFO 噪音与标记正则健壮性后再落地。
+
 ## 1.33.1 打磨明细（README 版本摘要段落移除：版本变动信息统一收口 CHANGELOG）
 
 - **改动**：按用户要求精简 README——移除「版本摘要」大表（约 1.8.0→1.33.0 共 77 行，与 CHANGELOG 重复），README 末尾仅保留一行指向 CHANGELOG 的指引；版本变动信息此后只记录于 CHANGELOG，不再在 README 维护版本表。同步更新本文件顶部说明，删除 README 版本表相关措辞。
