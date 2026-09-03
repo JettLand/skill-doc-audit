@@ -4,7 +4,7 @@
 
 > 排序：版本号降序（最新在前）。
 
-## 未发布改动（累积发布，待授权后统一升版）
+## 1.34.9 打磨明细（dev_orchestrate 增强 + [agent-todo] #8 + DEV_TOOLS 收口）
 
 - **dev_orchestrate.py 三项增强（前序会话，已 21/21 测试）**：① `bump` 中文小节走 `--section-file`（多字节/转义移出命令行，模板内 `{version}` 占位符用 `replace` 替换，未提供则回退简化模板并告警）；② `run-plan` 新增 `run` op（白名单执行仓库内 `.py`，单进程压缩 patch→verify→compile→run 全链路）；③ `doctor` 比对部署副本版本（synced/STALE），零 shell 依赖。
 - **tests/test_dev_orchestrate.py**：全覆盖测试 21/21 全绿（沙箱隔离、不碰真实仓库），覆盖 patch/verify/compile/bump 文件版与内联版、run-plan 四步串联、grep 截断、status 真实 git 仓库 vs 非 git 目录退出码差异、doctor 版本比对、selftest 正反路径。
