@@ -5,6 +5,13 @@
 > 排序：版本号降序（最新在前）。
 
 
+## 1.34.6 打磨明细（执行前一次性决策门 + vulture 保持合法高精度档）
+
+- **改动（诉求①：三检查器默认 ask + 执行前一次性决策门）**：deadcode / doc-llm / examples 三者默认值保持 `ask`；非交互（agent / CI）且仍有 ask 默认检查器时，在执行 `analyze_skill` 之前发射**一次性合并决策请求**（`PRE_RUN_DECISION_JSON` 哨兵行 + 人类可读块，退出码 130 交 Agent 显式重跑），请求中含风险警告——doc-llm `agent` 模式「⚠ 可能产生不可控 token 消耗」、examples `run` 模式「⚠ 可能耗时极长且风险不可控」、deadcode（vulture 可装时提供高精度档，屏蔽/未安装时仅 ast/off）。显式 `--doc-llm-mode / --examples-mode / --deadcode-mode`（含显式 ask）始终优先、决策门不触发，故一次决策后不再逐个询问。CI 环境（`CI`/`GITHUB_ACTIONS`）无代理时自动选安全档（doc_llm=off / examples=static / deadcode=ast）避免挂死。`cli.py` 新增 `_ci_env` / `_apply_ci_safe_defaults` / `_emit_prerun_decision` / `_vulture_available` 四个 helper。
+- **改动（诉求②澄清：vulture 仍为合法高精度档）**：用户澄清第 2 点本意是「在**屏蔽 / 卸载 vulture** 的限定条件下测试 deadcode ask 模式流程」（验证用），并非永久禁用 vulture。故本版**还原上轮误禁**——`deadcode.py`/`dev_self_audit.py`/`dev_market_bench.py` 恢复 vulture 支持（`DEADCODE_MODES` 含 vulture，`--deadcode-mode vulture` 为合法高精度档：已装即自动采用、未装时显式请求先尝试自动安装、失败回退 ast 并告警）；决策门仅在该库不可用时把 deadcode 选项收敛为 ast/off，避免给出不可达项。新增测试 `test_deadcode_vulture_blocked.py`（屏蔽 `import vulture`）覆盖非交互决策门 / 显式 ast / 显式 vulture 优雅回退 / 交互提示取值 / `_vulture_available` 五条路径，全部 PASS，证明屏蔽 vulture 条件下 deadcode ask 模式流程全绿、无崩溃。
+- **文档收口**：`SKILL.md` / `references/checkers.md` / `core.py` docstring 同步——删「v1.34.6 vulture 已禁用」旧表述，改述「vulture 为合法高精度档、决策门 vulture 感知」与「执行前一次性决策门」机制；`--deadcode-mode` / `--all-checks` help 同步修正。
+- **验证**：`dev_self_audit --strict` EXIT 0 / ERROR 0 / WARN 0 / INFO 39（9/9 检查器 OK，doc-llm 走 agent 模式）；屏蔽 vulture 测试 5/5 PASS。
+
 ## 1.34.5 打磨明细（--all-checks 语义补全：全量即全精度，doc-llm 不再静默落空）
 
 - **问题**：用户指出 `--all --all-checks` 下 doc-llm 仍走默认 `ask` 精度，非交互环境里被回退为 off（旧行为）或硬失败挂起 `ask_undecided`，与「全量体检」语义自相矛盾；且文档（SKILL.md / checkers.md / core.py docstring / cli help）仍写「非交互跳过 INFO / 弹菜单 30s 超时默认不启用」，与代码已脱节。

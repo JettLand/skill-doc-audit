@@ -1,8 +1,126 @@
 # cli.py (拆分自 audit_docs.py)
+import os
+import json
+import sys
 from auditlib.core import *
 from auditlib.model import *
 from auditlib.report import *
 from auditlib.sources import *
+
+
+def _ci_env():
+    """判断是否 CI 环境（无真人 / Agent 代理，应自动选安全档位而非挂起决策）。"""
+    return (os.environ.get("CI") == "true"
+            or "GITHUB_ACTIONS" in os.environ
+            or os.environ.get("CONTINUOUS_INTEGRATION") == "true")
+
+
+def _vulture_available():
+    """探测 vulture 库是否可导入（不联网、不安装）。deadcode 高精度档依赖它。"""
+    try:
+        import vulture  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _apply_ci_safe_defaults(args, pending):
+    """CI 环境：非交互且无用户 / Agent 代理时，对仍 ask 的检查器自动选安全档位，避免挂死。"""
+    for c in pending:
+        if c == "doc_llm":
+            args.doc_llm_mode = "off"        # CI 无 Agent 代理，跳过语义检测避免无谓 token 成本
+        elif c == "examples":
+            args.examples_mode = "static"
+            args.examples_consent = True      # 纯静态零执行 / 零网络 / 零 token
+        elif c == "deadcode":
+            args.deadcode_mode = "ast"        # ast 零依赖安全默认（vulture 需安装，CI 不强制）
+    sys.stderr.write(
+        "[prerun] CI 环境自动采用安全档位：doc_llm=off / examples=static / deadcode=ast"
+        "（如需其他档位请显式 --doc-llm-mode / --examples-mode / --deadcode-mode）\n")
+
+
+def _emit_prerun_decision(args, pending):
+    """非交互（agent 调用）且仍有 ask 默认检查器：执行前发射一次性合并决策请求。
+
+    打印人类可读提示 + 机读 JSON（PRE_RUN_DECISION_JSON 哨兵行），退出码 130 交 Agent 显式重跑。
+    含 doc-llm agent 模式「不可控 token 消耗」、examples run 模式「耗时极长且风险不可控」警告。
+    """
+    prompts = []
+    if "doc_llm" in pending:
+        prompts.append({
+            "checker": "doc_llm",
+            "question": "doc-llm 语义漂移检测希望以哪种模式运行？",
+            "options": [
+                {"key": "1", "value": "agent",
+                 "desc": "agent 接手比对（脚本写 dossier + 打印 AGENT_TAKEOVER 哨兵；"
+                         "⚠ 可能产生不可控 token 消耗，占用 agent 推理）"},
+                {"key": "2", "value": "off",
+                 "desc": "跳过 doc-llm 语义漂移检测（最省，无 token 消耗）"},
+            ],
+            "default": "1",
+            "rerun_hint": "--doc-llm-mode agent   # 或 off",
+        })
+    if "examples" in pending:
+        prompts.append({
+            "checker": "examples",
+            "question": "examples 示例执行验证希望以哪种模式运行？",
+            "options": [
+                {"key": "1", "value": "run",
+                 "desc": "受限沙箱试运行带 expected 标注的示例"
+                         "（⚠ 可能耗时极长且风险不可控，仅白名单解释器 + 超时保护）"},
+                {"key": "2", "value": "static",
+                 "desc": "纯静态解析（零执行 / 零网络 / 零 token，检查引用文件 / 参数声明 / 危险命令；推荐）"},
+                {"key": "3", "value": "off", "desc": "跳过 examples 检查"},
+            ],
+            "default": "2",
+            "rerun_hint": "--examples-mode run   # 或 static / off（run/static 须带 --examples-consent）",
+        })
+    if "deadcode" in pending:
+        # vulture 可装时提供高精度档；屏蔽/未安装时仅 ast / off（避免给出不可达选项）
+        if _vulture_available():
+            _dc_opts = [
+                {"key": "1", "value": "vulture",
+                 "desc": "vulture 高精度（需已安装 vulture；未装时检查器会尝试自动安装，失败回退 ast）"},
+                {"key": "2", "value": "ast", "desc": "零依赖 AST（易误报，无需安装；推荐）"},
+                {"key": "3", "value": "off", "desc": "跳过 deadcode 检查"},
+            ]
+            _dc_default = "1"
+            _dc_hint = "--deadcode-mode vulture   # 或 ast / off"
+        else:
+            _dc_opts = [
+                {"key": "1", "value": "ast", "desc": "零依赖 AST（易误报，无需安装；vulture 当前不可用）"},
+                {"key": "2", "value": "off", "desc": "跳过 deadcode 检查"},
+            ]
+            _dc_default = "1"
+            _dc_hint = "--deadcode-mode ast   # 或 off"
+        prompts.append({
+            "checker": "deadcode",
+            "question": "deadcode 死代码检测希望以哪种精度运行？",
+            "options": _dc_opts,
+            "default": _dc_default,
+            "rerun_hint": _dc_hint,
+        })
+    decision = {
+        "type": "prerun_decision",
+        "exit_code": 130,
+        "message": "非交互环境检测到以下交互型检查器仍为默认 ask，需一次性决策"
+                   "（后续显式重跑不再逐个询问）：",
+        "prompts": prompts,
+        "rerun_example": ("python audit_docs.py --skill <技能目录> --doc-llm-mode agent "
+                          "--examples-mode static --deadcode-mode ast"),
+    }
+    sys.stderr.write("\n" + "=" * 72 + "\n")
+    sys.stderr.write("[PRE-RUN DECISION] 非交互环境需一次性决策以下检查器精度（含风险提示）：\n")
+    for p in prompts:
+        sys.stderr.write("  • %s: %s\n" % (p["checker"], p["question"]))
+        for o in p["options"]:
+            warn = " ⚠" if "⚠" in o["desc"] else ""
+            sys.stderr.write("      %s) %s — %s%s\n" % (o["key"], o["value"], o["desc"], warn))
+    sys.stderr.write("  重跑示例: %s\n" % decision["rerun_example"])
+    sys.stderr.write("=" * 72 + "\n")
+    sys.stderr.write("PRE_RUN_DECISION_JSON:" + json.dumps(decision, ensure_ascii=False) + "\n")
+    sys.exit(130)
+
 
 def main():
     global MAX_FILE_SIZE
@@ -11,7 +129,7 @@ def main():
     ap.add_argument("--all", action="store_true", help="审计 ~/.workbuddy/skills 下全部技能")
     ap.add_argument("--check", action="append", metavar="NAME",
                     help="启用插件式检查器(doc/structure/security/runtime/deps/deadcode/portability/doc-llm/examples)，可重复；doc 常驻默认开；doc-llm 默认按 ask 处理（弹菜单询问是否启用语义检测，由 agent 接手），显式 --doc-llm-mode agent 即由 agent 直接接手（不依赖外部 LLM、但会占用 agent 推理 token，输入侧为主）；examples 默认 ask(交互询问是否沙箱试运行，超时/非交互回退 static 零执行/零网络/零 token)，--examples-mode run 方在受限沙箱试运行带 expected 标注的示例")
-    ap.add_argument("--all-checks", action="store_true", help="启用全部检查器并以全精度非交互安全档位运行（doc-llm 默认 ask 自动升为 agent 语义检测、examples 自动升为 static 静态校验并视同已授权、deadcode 自动升为 vulture 高精度；均不弹菜单、不静默落空）；显式 --doc-llm-mode/--examples-mode/--deadcode-mode 优先级更高")
+    ap.add_argument("--all-checks", action="store_true", help="启用全部检查器（doc-llm/examples/deadcode 仍按默认 ask；非交互 agent/CI 环境会在执行前一次性征询精度决策（含 token/耗时/风险警告），显式 --doc-llm-mode/--examples-mode/--deadcode-mode 优先级更高，指定后不再弹决策请求）")
     ap.add_argument("--backup", action="store_true", help="审计前备份 SKILL.md")
     ap.add_argument("--backup-limit", type=int, default=BACKUP_LIMIT,
                     help="SKILL.md 最多保留的备份数（默认 %d）" % BACKUP_LIMIT)
@@ -22,7 +140,7 @@ def main():
     ap.add_argument("--max-file-size", type=int, default=MAX_FILE_SIZE,
                     help="单文件超过此字节数跳过扫描（默认 %d）" % MAX_FILE_SIZE)
     ap.add_argument("--deadcode-mode", default="ask", choices=list(DEADCODE_MODES),
-                    help="deadcode 精度模式：ask(默认,已装vulture则自动高精度否则交互询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / off(本次不运行)")
+                    help="deadcode 精度模式：ask(默认,已装 vulture 则自动高精度、否则交互终端询问,超时30s→ast) / vulture(高精度,需装 vulture) / ast(零依赖,易误报) / off(本次不运行)")
     ap.add_argument("--doc-llm-mode", default="ask", choices=list(DOCLLM_MODES),
                     help="doc-llm 语义漂移检测模式（v1.24.0 起由 agent 直接接手，不再依赖外部 LLM；v1.24.1 起移除 preview 选项）：ask(默认,交互终端呈现实选项：1)默认模式 2)agent接手(会占用 agent 推理 token，但不向外部 LLM 付费)，30 秒超时自动回退默认模式) / off(不运行) / agent(直接由 agent 接手：脚本写 dossier + 打印 AGENT_TAKEOVER 哨兵，agent 读取后自行比对)。Agent 经 AskUserQuestion 收到用户选择后显式传入")
     ap.add_argument("--examples-mode", default="ask", choices=list(EXAMPLES_MODES),
@@ -58,22 +176,9 @@ def main():
                          "其仓库相对引用按文件自身目录解析，降低 DEAD_PATH 误报。"
                          "默认（不带此旗标）仅扫描 SKILL.md + references/*.md。")
     args = ap.parse_args()
-    # --all-checks 语义补全：不仅启用全部检查器，且把默认 ask 的交互型检查器自动升为
-    # 非交互安全全精度档位（与 dev_self_audit.py 约定一致：doc-llm=agent / examples=static+授权 /
-    # deadcode=vulture），杜绝「全量却静默落空 / 非交互硬失败」。仅当用户未显式指定对应
-    # --*-mode 时提升；显式值（含显式 ask）始终优先。
-    _explicit_modes = set()
-    for _m in ("doc_llm_mode", "examples_mode", "deadcode_mode"):
-        if any(_f in sys.argv for _f in ("--" + _m.replace("_", "-"),)):
-            _explicit_modes.add(_m)
-    if args.all_checks:
-        if args.doc_llm_mode == "ask" and "doc_llm_mode" not in _explicit_modes:
-            args.doc_llm_mode = "agent"
-        if args.examples_mode == "ask" and "examples_mode" not in _explicit_modes:
-            args.examples_mode = "static"
-            args.examples_consent = True  # --all-checks 即用户显式授权全量（含示例静态校验）
-        if args.deadcode_mode == "ask" and "deadcode_mode" not in _explicit_modes:
-            args.deadcode_mode = "vulture"
+    # v1.34.6：默认值保持 ask，不在此处静默升档。非交互（agent/CI）下是否以全精度运行，
+    # 改由主流程 enabled 确定后的「执行前一次性合并决策门」处理：仍 ask 的交互型检查器会
+    # 一次性征询决策（含 token/耗时/风险警告）；显式 --*-mode（含显式 ask）始终优先。
 
     MAX_FILE_SIZE = args.max_file_size
 
@@ -128,7 +233,7 @@ def main():
             print("预览：%s" % t)
             print("  启用检查器: %s" % ", ".join("#%02d %s" % (CHECKER_CODES.get(c, 0), c) for c in enabled))
             if "deadcode" in enabled:
-                print("  deadcode 精度模式: %s（ask=已装vulture则自动高精度,否则交互询问30s→ast/非TTY回退ast并提示精度降级）" % args.deadcode_mode)
+                print("  deadcode 精度模式: %s（ask=已装vulture自动高精度,否则交互终端询问30s→ast,非交互经执行前决策门确认）" % args.deadcode_mode)
             if "examples" in enabled:
                 print("  examples 模式: %s（static=纯静态零执行/零网络/零 token；run=受限沙箱试运行带 expected 标注的示例）" % args.examples_mode)
             print("  文档: %s" % ("SKILL.md" if os.path.isfile(d) else "（无）"))
@@ -148,6 +253,21 @@ def main():
             if _skipped:
                 print("  跳过（超大文件）: %s" % ", ".join(sorted(_skipped)[:10]))
         sys.exit(0)
+
+    # v1.34.6：执行前一次性合并决策门（非交互 agent/CI 专用，仅对真正运行检查器的路径生效；
+    # --preview/--report translate 等仅展示/转译路径已在上方提前 return，不触发本门）。
+    # 三个交互型检查器（doc_llm/examples/deadcode）默认值保持 ask；非交互环境若仍有 ask 默认值，
+    # 在执行前一次性征询决策（含 token 消耗 / 耗时与风险警告），避免「逐检查器硬失败挂起」或
+    # 「静默落空却显示通过」。CI 环境（CI/GITHUB_ACTIONS）自动选安全档位避免挂死。
+    # 显式 --*-mode（含显式 ask）始终优先，不触发本门。
+    if not is_interactive():
+        _pending = [c for c in ("doc_llm", "examples", "deadcode")
+                    if c in enabled and getattr(args, c + "_mode", "ask") == "ask"]
+        if _pending:
+            if _ci_env():
+                _apply_ci_safe_defaults(args, _pending)
+            else:
+                _emit_prerun_decision(args, _pending)
 
     results = [analyze_skill(t, enabled, args=args, do_backup=args.backup,
                              backup_limit=args.backup_limit,

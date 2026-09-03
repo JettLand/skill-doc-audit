@@ -18,8 +18,9 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
       deps      依赖与平台声明（外部 CLI 调用未声明 / Windows 专属 API 未标注平台）
       deadcode   死代码检测（未使用定义/导入、不可达代码、孤儿资源文件；运行前询问精度模式）
       portability 跨平台可移植性（硬编码绝对路径/cwd依赖/平台专属shell/解释器锁/编码分隔符假设/Agent平台耦合；按 SKILL.md 的 target_platform 字段豁免对应平台项）
-  - --all-checks  启用全部检查器并以全精度非交互安全档位运行（doc-llm 默认 ask 自动升为 agent 语义检测、
-                  examples 自动升为 static 静态校验、deadcode 自动升为 vulture 高精度；均不弹菜单、不静默落空；显式 --*-mode 优先）
+  - --all-checks  启用全部检查器（doc-llm/examples/deadcode 仍按默认 ask；非交互 agent/CI 环境在执行前
+                  一次性征询三者精度决策（含 token 消耗 / 耗时与风险警告），显式 --*-mode 优先；deadcode
+                  的 vulture 精度档为合法高精度档，已装即自动采用、未装则请求时检查器尝试自动安装（失败回退 ast））
   检查器只扫描不改写；description 四要素、制作质量评分等需语义判断的项仅给提示(INFO)。
 
 退出码：0=未发现 ERROR（--strict 下还需无 WARN）；1=发现 ERROR 或（--strict 下）WARN；2=参数或路径错误
@@ -27,9 +28,9 @@ audit_docs.py —— 技能静态体检（零第三方依赖）
 用法：
   python audit_docs.py --skill <技能目录>                  # 仅运行常驻 doc 检查器
   python audit_docs.py --skill <技能目录> --check structure # doc + structure
-  python audit_docs.py --skill <技能目录> --all-checks     # 全部检查器（doc-llm 自动 agent 语义检测 / examples 自动 static / deadcode 自动 vulture 高精度，均为非交互安全档位，不再弹菜单）
+  python audit_docs.py --skill <技能目录> --all-checks     # 全部检查器（doc-llm/examples/deadcode 仍默认 ask；非交互 agent/CI 在执行前一次性征询精度决策）
   python audit_docs.py --skill <技能目录> --check deadcode # 仅死代码检查
-  python audit_docs.py --skill <目录> --deadcode-mode vulture   # 指定精度模式，跳过交互
+  python audit_docs.py --skill <目录> --deadcode-mode vulture   # 指定精度模式（高精度，需装 vulture；未装检查器会尝试自动安装，失败回退 ast），跳过交互
   python audit_docs.py --all --all-checks                  # 审计全部技能（全检查器）
   python audit_docs.py --skill <目录> --backup             # 审计前先备份 SKILL.md
   python audit_docs.py --skill <目录> --json               # JSON 机读输出（同时仍打印可读报告）

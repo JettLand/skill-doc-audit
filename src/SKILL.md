@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.34.5"
+version: "1.34.6"
 license: MIT
 author: Jett
 agent_created: true
@@ -28,10 +28,10 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 - `security`：安全红线静态子集（硬编码密钥、路径穿越、危险通配删除等）。
 - `runtime`：脚本可运行性（语法 / 引用缺失）。
 - `deps`：依赖与平台声明（未声明外部 CLI / 运行平台）。
-- `deadcode`（运行前按 `--deadcode-mode` 选精度，默认 ask 由脚本静态检测 vulture 决定）：未使用定义 / 导入、不可达代码、孤立资源文件（**vulture 检测由脚本完成、不依赖 agent 探测**，并回参告知实际精度模式 ast/vulture；仅 vulture 缺失且非交互时才挂载决策请求交 agent 弹窗）。
+- `deadcode`（运行前按 `--deadcode-mode` 选精度，默认 ask）：未使用定义 / 导入、不可达代码、孤立资源文件（v1.34.6 起 ask 默认档不再静默代决：已装 vulture 则自动高精度、未装则交互询问 / 非交互经执行前决策门确认；`--deadcode-mode vulture` 显式请求时未装会先尝试自动安装、失败回退 ast 并告警）。非交互 agent 环境经「执行前一次性决策门」确认精度（见下方「Agent 非交互运行须知」）。
 - `portability`（零依赖纯静态）：跨平台可移植性——硬编码绝对路径、`os.getcwd` 依赖、平台专属 shell、解释器锁、编码假设、`agent_coupling`；按 `target_platform` / `target_agent` 豁免。
-- `doc-llm`：自由散文语义漂移检测（由 agent 直接接手、无需外部 LLM）——由 agent 用自身能力比对 SKILL.md 与代码事实；dossier 含「正向覆盖缺口」预分析（与 `doc` 的 `DOC_CAPABILITY_MISSING` 共用 `compute_capability_gaps`，确定性列出代码已注册但文档未写的检查器 / CLI 参数，供 agent 优先核对）；全量检测显式问询，非交互环境（stdout/stderr 任一非 TTY）无法征询 → 硬失败挂起（`ask_undecided`，ERROR），与 deadcode/examples 层级3 一致，须以显式 `--doc-llm-mode agent/off` 重跑；显式 `off` 则静默跳过。
-- `examples`（**检查器 #9**）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 传给脚本的参数是否声明 / 示例调用的外部 CLI 是否声明 / 是否含危险或不可逆命令）。默认 `ask`（交互询问是否沙箱试运行；非交互 / 超时一律回退 `static` 零执行 / 零网络 / 零 token）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。
+- `doc-llm`：自由散文语义漂移检测（由 agent 直接接手、无需外部 LLM）——由 agent 用自身能力比对 SKILL.md 与代码事实；dossier 含「正向覆盖缺口」预分析（与 `doc` 的 `DOC_CAPABILITY_MISSING` 共用 `compute_capability_gaps`，确定性列出代码已注册但文档未写的检查器 / CLI 参数，供 agent 优先核对）；默认 `ask`，非交互 agent 环境经「执行前一次性决策门」确认精度（`agent` 模式会写 dossier + 打印 AGENT_TAKEOVER，⚠ 可能产生不可控 token 消耗；`off` 跳过），须以显式 `--doc-llm-mode agent/off` 重跑；显式 `off` 则静默跳过。
+- `examples`（**检查器 #9**）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 传给脚本的参数是否声明 / 示例调用的外部 CLI 是否声明 / 是否含危险或不可逆命令）。默认 `ask`，非交互 agent 环境经「执行前一次性决策门」确认精度（`run` 模式在受限沙箱试运行带 `expected` 标注的示例，⚠ 可能耗时极长且风险不可控；`static` 纯静态零执行 / 零网络 / 零 token 推荐）；`--examples-mode run` 方在受限沙箱试运行（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。
 
 各检查器的完整项、判定口径与误报抑制细节见 `references/checkers.md`。
 
@@ -54,24 +54,25 @@ tags: [文档审计, 技能体检, 安全审计, 质量检查, 静态分析]
 
 这是本技能的顶层设计原则，所有「可选 / 增强 / 外部依赖」能力（doc-llm 语义检测、deadcode 精度选择）都必须受此约束：
 
-- **默认即零依赖**：任何可选能力的默认路径必须是纯脚本、无外部依赖、不联网、零额外成本（token）。开箱即用不应要求用户安装任何东西或配置任何密钥。用户显式要求高精度能力（如 `--deadcode-mode vulture`）而环境缺库时，先尝试自动补齐该依赖；补齐失败自动回退零依赖模式照常运行。
+- **默认即零依赖**：任何可选能力的默认路径必须是纯脚本、无外部依赖、不联网、零额外成本（token）。开箱即用不应要求用户安装任何东西或配置任何密钥。v1.34.6 起 deadcode 的 vulture 高精度检测已**禁用**（固定零依赖 AST），不再尝试自动安装 vulture；用户显式 `--deadcode-mode vulture` 会被降级为 ast 并告警。
 - **绝不替用户决定**：凡涉及「是否启用增强 / 外部依赖能力」的取舍，必须显式交还用户决策——交互终端呈现可选项（含代价）并等待选择，超时 / 非交互则安全回退默认模式，而**绝不**为省事自动替用户开启联网或消耗资源（超时 / 非交互回退路径**不触发安装**）。
 - **透明兜底**：无法询问（自动化 / Agent / 非 TTY）时，宁可在报告中显著标注「已跳过 / 已降级」（INFO / WARN），也不静默代决。
 
-该原则已在 doc-llm（`--doc-llm-mode` 默认问询、菜单含代价、超时回退默认）与 deadcode（`--deadcode-mode ask` 由**脚本静态检测** vulture：已装则直接高精度、未装则挂载决策请求交还用户，全程回参告知实际精度模式）中落地。
-### Agent 非交互运行须知（决策必须回交用户，禁止静默代决；非交互未决策硬失败）
+该原则已在 doc-llm / examples / deadcode（三者默认均 `ask`）与「执行前一次性决策门」（非交互 agent 环境在执行前一次性征询三者精度决策，含 token 消耗 / 耗时与风险警告，显式 `--X-mode` 始终优先）中落地。
+### Agent 非交互运行须知（决策必须回交用户，禁止静默代决；执行前一次性决策门）
 
-本技能被 Agent 经子进程调用时，**stdin 不是 TTY**，交互菜单无法弹出。为此采用**两层机制**确保「绝不替用户决定」：
+本技能被 Agent 经子进程调用时，**stdin 不是 TTY**，交互菜单无法弹出。为此采用**「执行前一次性决策门」**确保「绝不替用户决定」且「不静默落空」：
 
-- **层级2（契约驱动弹窗，取代散文软依赖）**：检查器需要用户决策时，在 JSON 输出顶层 `user_prompts` 字段写入结构化决策请求（`{checker, question, options, default, rerun_hint}`），人类报告「⚠ 需用户决策」块是其镜像。主 Agent（交互）**读取 `user_prompts` 非空即必须调用提问工具（如 WorkBuddy 的 `AskUserQuestion`）逐项向用户确认**，再以显式 `--deadcode-mode / --doc-llm-mode / --examples-mode` 重跑——契约即权威，不依赖本散文是否被读。
-- **层级3（非交互硬失败，代码级约束）**：`ask` 默认档在**非交互（Agent / 管道 / CI）环境**且未获显式 `--X-mode` 授权时，**不再静默软回退**，直接产出 `ask_undecided` 错误（退出码 1）挂起决策，强制调用方显式指定档位后再跑。这是代码级硬边界，彻底取代「靠散文约束 Agent」的脆弱性；交互终端仍照常弹菜单（层级2 体验）。
+- **执行前一次性决策门（取代逐检查器硬失败）**：进入检查器前，若处于非交互环境（stdout/stderr 任一非 TTY）且 doc-llm / examples / deadcode 任一仍为默认 `ask`，脚本**在执行前一次性**打印合并决策请求（人类可读提示 + 机读 JSON `PRE_RUN_DECISION_JSON` 哨兵行），**退出码 130** 交 Agent 显式重跑；请求中已带风险警告——doc-llm `agent` 模式「⚠ 可能产生不可控 token 消耗」、examples `run` 模式「⚠ 可能耗时极长且风险不可控」、deadcode（vulture 可装时提供高精度档，屏蔽/未安装时仅 ast/off）。主 Agent **读取该决策请求即必须调用提问工具（如 `AskUserQuestion`）向用户一次性确认三者精度档位**，再以显式 `--doc-llm-mode / --examples-mode / --deadcode-mode` 重跑——一次决策后不再逐个询问。契约即权威，不依赖本散文是否被读。
+- **CI 环境自动安全档位**：若检测到 CI 环境变量（`CI=true` / `GITHUB_ACTIONS` / `CONTINUOUS_INTEGRATION=true`），无真人 / Agent 代理时自动选安全档位（doc-llm=off / examples=static / deadcode=ast）并继续，避免挂死；如需其他档位仍须显式 `--X-mode`。
+- **显式 --X-mode 始终优先**：只要显式指定 `--doc-llm-mode / --examples-mode / --deadcode-mode`（含显式 `ask`），决策门不触发，按指定档位运行。交互终端（真人）仍照常逐检查器弹菜单。
 
-1. **运行前无需自行探测 vulture**：deadcode 的 vulture 检测由脚本静态完成，**agent 不要自己跑 `python -c "import vulture"` 去探测**——直接以默认 `ask` 运行即可，脚本会自行决定精度并回参告知。doc-llm / examples 仍按各自约定运行前确认（其取舍不涉及 vulture 安装）：
-   - deadcode 精度：默认 `ask`（脚本检测后决定），如需锁定可显式 `--deadcode-mode vulture/ast/off`；
+1. **运行前无需自行探测 vulture**：v1.34.6 起 deadcode 的 vulture 高精度检测**已禁用**（固定零依赖 AST），agent 不要自己跑 `python -c "import vulture"` 去探测；直接以默认 `ask` 运行即可，脚本经决策门确认精度。doc-llm / examples 仍按各自约定运行前经决策门确认（其取舍不涉及 vulture 安装）：
+   - deadcode 精度：默认 `ask`（经决策门确认），如需锁定可显式 `--deadcode-mode vulture/ast/off`；
    - doc-llm 模式：`agent`（由你接手语义比对）/ `off`（跳过）；
    - examples 模式：`run`（沙箱试运行，须 `--examples-consent`）/ `static`（纯静态）/ `off`（跳过）。
-2. **运行后必查回交（反参告知 + 契约弹窗）**：deadcode 会在 stderr 与 JSON `checker_runs`（deadcode 条目的 `mode` 字段）回参实际采用的精度（ast / vulture / off），agent **必须将该模式明确告知用户**（如「deadcode 以 vulture 高精度模式运行」）。若报告出现「⚠ 需用户决策」块或 `--json` 的 `user_prompts` 非空，必须逐项调用提问工具向用户确认精度取舍，再以显式 `--X-mode` 重跑。**绝不允许静默代决、把决策点悄悄吞掉。** 非交互环境未获显式授权时，检查器已以 `ask_undecided` 错误（退出码 1）硬失败，必须显式指定档位重试。
-3. 代码层兜底：vulture 已安装时 `ask` 直接采用高精度 vulture 并回参告知（不重复询问）；仅当 vulture 缺失且非交互时，才以 `ask_undecided` 错误挂起精度决策，交主 Agent 经 `user_prompts` 契约弹窗确认后以显式 `--deadcode-mode` 重跑——脚本绝不会在 vulture 缺失时静默替用户决定。
+2. **运行后必查回交（反参告知 + 契约弹窗）**：deadcode 会在 stderr 与 JSON `checker_runs`（deadcode 条目的 `mode` 字段）回参实际采用的精度（ast / off），agent **必须将该模式明确告知用户**（如「deadcode 以 ast 零依赖模式运行」）。若报告出现「⚠ 需用户决策」块或 stderr 的 `PRE_RUN_DECISION_JSON` 哨兵（或 `--json` 顶层 `prerun_decision`）非空，必须调用提问工具向用户一次性确认三者精度取舍，再以显式 `--X-mode` 重跑。**绝不允许静默代决、把决策点悄悄吞掉。** 非交互环境未获显式授权时，执行前一次性决策门已以 `prerun_decision`（退出码 130）挂起，须显式指定 --X-mode 重跑。
+3. 代码层兜底：deadcode 默认 `ask`——已装 vulture 则自动高精度、未装则经**执行前一次性决策门**确认（`prerun_decision`，退出码 130）；vulture 可装时决策门提供高精度档，屏蔽/未安装时仅 ast/off，不静默代决、绝不强行联网安装。
 
 
 > **跨平台、跨 Agent 适配，不写死宿主假设。**
@@ -279,7 +280,7 @@ python scripts/audit_docs.py --check doc --skill <技能目录>
 - **误区二：以为远程审计必须 `--source github`。** 其实优先用 `--source url --ref <SKILL.md 的 https 地址>` 即可——标准库直抓、零外部 CLI、绕开 `git clone`，绝大多数远端技能都能审计。仅在需要完整克隆仓库（含嵌套子目录/多技能）时才用 `--source github` / `--source skillhub`。
 - **误区三：报了路径穿越 / 硬编码密钥就是真漏洞。** 多半是上下文盲误报。`security` 检查器对所有正则统一做上下文感知过滤，自动排除注释行、含 `://` 的文档 URL、含 `__file__`/`dirname`/`.asar` 的合法资源上溯；真实漏洞（外部可控字符串拼入落盘路径、文档里真写死密钥）才会保留。
 - **误区四：文档列了退出码但代码从不返回，就是文档错了。** 未必。若标注「已弃用」，那是刻意的向后兼容说明，保留不要删。
-- **误区五：没装 vulture 就跑不了死代码检测 / 整工具用不了。** 不是。没装时 `deadcode` 仍可用：ask 默认路径下脚本不自动安装 vulture，而是以零依赖 ast 代行并硬失败挂起（ask_undecided，ERROR），须显式 --deadcode-mode 重跑；仅显式 vulture 路径才尝试自动安装。装不上或显式选 `ast`/`off` 以零依赖 `ast` 运行（仅死代码精度略低），其余检查器完全不受影响。
+- **误区五：没装 vulture 就跑不了死代码检测 / 整工具用不了。** 不是。没装时 `deadcode` 仍可用：ask 默认路径下非交互环境由「执行前一次性决策门」（退出码 130）接管确认精度、交互环境提示 ast/off 供选择，绝不以「硬失败挂起」或「静默代决」糊弄；仅显式 `--deadcode-mode vulture` 路径才尝试自动安装（失败回退 ast 并告警）。装不上或显式选 `ast`/`off` 以零依赖 `ast` 运行（仅死代码精度略低），其余检查器完全不受影响。
 
 ### 避坑要点
 

@@ -11,10 +11,10 @@
 - `security`：安全红线静态子集
 - `runtime`：脚本可运行性
 - `deps`：依赖与平台声明
-- `deadcode`（运行前按 `--deadcode-mode` 选精度，已装 vulture 则自动高精度、不询问）：死代码检测（未使用定义/导入、不可达代码、孤立资源文件）
+- `deadcode`（运行前按 `--deadcode-mode` 选精度，默认 ask：已装 vulture 则自动高精度、否则交互终端询问（非交互经执行前决策门确认）；v1.34.6 起 ask 默认档不再静默代决）：死代码检测（未使用定义/导入、不可达代码、孤立资源文件）
 - `portability`（零依赖纯静态分析，全部 WARN/INFO 不报 ERROR）：跨平台可移植性——硬编码绝对路径 / 启动目录依赖 / 平台专属 shell / 解释器锁 / 编码分隔符假设 / Agent 平台耦合 / 跨格式可移植性损失（`lossy_port`，Phase 6）。按 SKILL.md 的 `target_platform` 字段豁免对应平台项；`--report portability-matrix` 可打印「源格式 → 各目标格式」的 P/D/L 损失矩阵
-- `doc-llm`（**独立检查器**，v1.23.0 起纳入 `--all-checks` 全量集，v1.24.0 起由 agent 直接接手）：语义漂移增强检测——覆盖 `doc` 触及不到的自由散文语义漂移，由 agent 用自身能力判定（不再调用外部 LLM）；dossier 含「正向覆盖缺口」预分析段（v1.27.0 起，与 `doc` 检查器的 `DOC_CAPABILITY_MISSING` 共用 `compute_capability_gaps()`——确定性列出代码已注册但文档未写的检查器 / CLI 参数，列为 agent 比对要点优先核对，即「doc 出确定性 WARN 兜底 + doc-llm 供语义复核」）与「代码事实清单」（顶层定义 / CLI 参数 / 退出码 / 常量）；默认 `ask` 问询、非交互记 INFO `doc_llm_skipped`。错误码见下方明细 `DOC_LLM_DRIFT` / `doc_llm_agent_handoff` / `doc_llm_skipped`
-- `examples`（**新增检查器 #9**，v1.26.0 起纳入 `--all-checks` 全量集）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 参数是否声明 / 外部 CLI 是否声明 / 是否含危险命令）。默认 `ask`（交互询问是否沙箱试运行；非交互 / 超时回退 `static` 零执行 / 零网络 / 零 token）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。错误码见下方明细 `EXAMPLE_TARGET_MISSING` / `EXAMPLE_DANGEROUS` / `EXAMPLE_FLAG_UNKNOWN` / `EXAMPLE_EXT_CMD` / `EXAMPLE_UNVERIFIED` 等
+- `doc-llm`（**独立检查器**，v1.23.0 起纳入 `--all-checks` 全量集，v1.24.0 起由 agent 直接接手）：语义漂移增强检测——覆盖 `doc` 触及不到的自由散文语义漂移，由 agent 用自身能力判定（不再调用外部 LLM）；dossier 含「正向覆盖缺口」预分析段（v1.27.0 起，与 `doc` 检查器的 `DOC_CAPABILITY_MISSING` 共用 `compute_capability_gaps()`——确定性列出代码已注册但文档未写的检查器 / CLI 参数，列为 agent 比对要点优先核对，即「doc 出确定性 WARN 兜底 + doc-llm 供语义复核」）与「代码事实清单」（顶层定义 / CLI 参数 / 退出码 / 常量）；默认 `ask`，非交互 agent 环境经「执行前一次性决策门」确认精度（见 `SKILL.md`「Agent 非交互运行须知」），退出码 130 交显式重跑；错误码见下方明细 `DOC_LLM_DRIFT` / `doc_llm_agent_handoff`
+- `examples`（**新增检查器 #9**，v1.26.0 起纳入 `--all-checks` 全量集）：文档示例静态校验——校验任意技能文档里写出的命令示例是否站得住脚（脚本引用是否存在 / 参数是否声明 / 外部 CLI 是否声明 / 是否含危险命令）。默认 `ask`，非交互 agent 环境经「执行前一次性决策门」确认精度（`run` 模式⚠ 耗时极长且风险不可控、`static` 零执行 / 零网络 / 零 token 推荐）；`--examples-mode run` 方在受限沙箱试运行带 `expected` 标注的示例（仅白名单解释器 + 技能内脚本 + 超时保护，绝不执行任意 shell）。错误码见下方明细 `EXAMPLE_TARGET_MISSING` / `EXAMPLE_DANGEROUS` / `EXAMPLE_FLAG_UNKNOWN` / `EXAMPLE_EXT_CMD` / `EXAMPLE_UNVERIFIED` 等
 
 ### 检查器执行回执（身份代号 + 调用结果）
 任一检查器被调用时，引擎（`auditlib/model.py` 的 dispatch 循环）都会为它生成一条**执行回执**，明确告知 agent / 使用者「这个检查器到底有没有真跑过」——杜绝 doc-llm 类「静默落空却显示通过」的隐患。
@@ -41,13 +41,13 @@
 | doc | `EXTERNAL_REF` | 外部裸文件名引用 | 裸文件名引用，可能指向技能外文件，需人工确认 | INFO |
 | doc | `B_STATUS` | 运行状态枚举 | 运行状态全集（供 AI 复核） | INFO |
 | doc | `B_CONFIG` | 配置项枚举 | 配置项全集（供 AI 复核） | INFO |
-| doc | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致 | 文档枚举的集合（如 deadcode 模式 `{ask,vulture,ast,off}` 或 `ask/vulture/ast/off`）与代码权威集合 `DEADCODE_MODES` 不符 | WARN |
+| doc | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致 | 文档枚举的集合（如 deadcode 模式 `{ask,vulture,ast,off}` 或 `ask/vulture/ast/off`）与代码权威集合 `DEADCODE_MODES` 不符（DEADCODE_MODES 含 vulture，文档列举 vulture 合法、不触发本项） | WARN |
 | doc | `DOC_COUNT_DRIFT` | 文档数量声明与代码不一致 | 文档「N 个检查器」等数量声明与 `len(ALL_CHECKERS)` 实际计数不符 | WARN |
 | doc | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | 能力声明动词（提供/支持/默认/自动/…）行内的反引号标识符在代码与声明中均不存在（能力可能已移除或拼写有误） | WARN |
 | doc | `DOC_CAPABILITY_MISSING` | 代码声明的能力文档未提及（正向覆盖缺口） | 仅审计本框架技能（代码含 `ALL_CHECKERS`）：注册的每个检查器名 / 用户面向 CLI 参数须出现在 SKILL.md 或 references 文档中，否则提示文档漏更新（与 `DOC_CAPABILITY_DRIFT` 正反向对称） | WARN |
 | doc-llm | `DOC_LLM_DRIFT` | 文档/代码语义漂移（agent 判定） | `doc-llm` 检查器（v1.23.0 起纳入 `--all-checks`，v1.24.0 起由 agent 直接接手）经 agent 用自身能力判定的语义漂移条目，仅作线索（v1.22.1 引入 / 接手机制 v1.24.0） | WARN |
 | doc-llm | `doc_llm_agent_handoff` | 语义漂移检测已转交 agent 接手 | 用户选「agent 接手」或显式 `--doc-llm-mode agent`：脚本写 dossier（SKILL.md 全文 + 代码事实清单 + 正向覆盖缺口预分析 + 比对要点）+ 打印 `AGENT_TAKEOVER` 哨兵，由 agent 读取后自行比对 | INFO |
-| doc-llm | `ask_undecided` | 决策未决（非交互硬失败） | 仅当用户**显式** `--doc-llm-mode ask`（或裸跑默认 ask）且处于非交互环境（stdout/stderr 任一非 TTY）时触发：无法询问 → 硬失败挂起（ERROR，退出码 1），强制以显式 `--doc-llm-mode agent/off` 重跑；`--all-checks` 已把默认 ask 自动升为 agent，不会触发本项。与 deadcode/examples 层级3 一致。不再静默软跳过（旧 `doc_llm_skipped` INFO 已弃用） | ERROR |
+| doc-llm | `ask_undecided` | 决策未决（非交互硬失败，兜底） | 仅当用户**显式** `--doc-llm-mode ask`（或裸跑默认 ask）且处于非交互环境（stdout/stderr 任一非 TTY）、且绕过执行前一次性决策门时触发：无法询问 → 硬失败挂起（ERROR，退出码 1），强制以显式 `--doc-llm-mode agent/off` 重跑。v1.34.6 起非交互默认 ask 由**执行前一次性决策门**（`PRE_RUN_DECISION_JSON` 哨兵、退出码 130）统一接管，本项仅作逐检查器兜底。与 deadcode/examples 一致。不再静默软跳过（旧 `doc_llm_skipped` INFO 已弃用） | ERROR |
 | structure | `name_mismatch` | 名称不一致 | frontmatter name 与目录名不一致 | WARN |
 | structure | `version_missing` | 版本缺失 | 缺少合规 version | ERROR |
 | structure | `name_missing` | 名称缺失 | 缺少 name 声明 | ERROR |
@@ -83,7 +83,7 @@
 | deadcode | `unused_import` | 未使用的导入 | 导入但未使用 | INFO |
 | deadcode | `unreachable` | 不可达代码 | return/raise 之后紧跟的无条件语句 | WARN |
 | deadcode | `orphan_asset` | 孤立资源文件 | `scripts/` 或 `references/` 中从未被引用/加载的文件 | WARN |
-| deadcode | `vulture` | 高精度死代码（可选） | 仅当 `--deadcode-mode vulture` 且环境已安装 vulture 时产出（高精度检测） | WARN |
+| deadcode | `vulture` | 高精度死代码（可选，需 vulture 库） | 仅当 `--deadcode-mode vulture` 且环境已安装 vulture 时产出（高精度检测）；未装 vulture 时检查器会先尝试自动安装、失败回退 ast 并发 precision_degraded WARN | WARN |
 | portability | `hardcoded_abs_path` | 硬编码绝对路径 | 硬编码用户/家目录绝对路径（Windows `C:\...` 或 Unix `/Users/`/`/home/`），非对应平台将失效 | WARN |
 | portability | `cwd_dependence` | 启动目录依赖 | 依赖 `os.getcwd()`/`process.cwd()` 定位资源，从其他目录启动时失败 | WARN |
 | portability | `platform_shell` | 平台专属 shell/命令 | 调用平台专属命令（`cmd.exe`/`powershell` 或 `rm -rf`/`ls`/`mkdir -p` 等），无跨平台分支兜底 | WARN |
@@ -101,7 +101,7 @@
 | examples | `EXAMPLE_OUTPUT_DRIFT` | 示例执行结果与标注期望不符 | run 模式执行示例后，退出码 / 标准输出 / 标准错误与 `expected-*` 标注不一致 | WARN |
 | examples | `EXAMPLE_RUN_FAIL` | 示例执行失败/超时 | run 模式执行示例抛异常或超时（> `--examples-timeout`，默认 20s） | WARN |
 | examples | `EXAMPLE_RUN_LIMIT` | 示例执行已达上限 | 单技能执行示例数已达 `--examples-max-cmd`（默认 12），其余标注示例未执行 | INFO |
-| examples | `examples_degraded` | 示例执行验证已降级为纯静态 | 交互环境 30s 超时/无输入，ask 回退 static 并显式标注（非交互环境改走 `ask_undecided` 硬失败，ERROR，须显式 --examples-mode 重跑） | INFO |
+| examples | `examples_degraded` | 示例执行验证已降级为纯静态 | 交互环境 30s 超时/无输入，ask 回退 static 并显式标注（非交互环境改走**执行前一次性决策门** `prerun_decision`，退出码 130，须显式 --examples-mode 重跑） | INFO |
 | examples | `examples_run_noop` | 沙箱已启用但无标注示例 | 已启用 run 模式，但文档中没有任何带 `expected` 标注的示例块，本次未执行任何命令 | INFO |
 
 ## 平台豁免字段 `target_platform`
@@ -202,9 +202,9 @@
 3. **`# keep` 内联白名单**：在定义行或上一行加 `# keep` 注释，即可保留该定义/导入、不再告警（适用于公开 API、钩子、测试辅助等确属有意的「未直接引用」符号）。
 4. **跨文件引用感知**：`unused_def` 先汇总全技能所有 `.py` 的引用集合，仅当某定义在**全技能范围都未被引用**时才报，避免把「本文件定义、他文件调用」的符号误判为死代码（多文件技能常见场景）。
 
-孤儿资源（`orphan_asset`）判定保守：只要文件名或相对路径（`scripts/x.py`、`references/x.md`）出现在任意文档或代码文本中，**或被技能内其他 `.py` 以模块名 import**，即视为已引用，故只可能漏报、不会把被引用文件误标为孤儿。可选增强 `vulture` 仅在选择 `--deadcode-mode vulture` 时运行：环境已装即直接高精度；未装则先尝试自动 `pip install vulture`（**仅此显式路径会联网安装**——ask 模式的非交互自动回退路径绝不触发安装，避免自动化场景意外联网），装不上再回退零依赖 `ast`；选 `ast`/`off` 或 ask 自动回退时不运行也不安装，不影响默认行为。
+孤儿资源（`orphan_asset`）判定保守：只要文件名或相对路径（`scripts/x.py`、`references/x.md`）出现在任意文档或代码文本中，**或被技能内其他 `.py` 以模块名 import**，即视为已引用，故只可能漏报、不会把被引用文件误标为孤儿。v1.34.6 起 ask 默认档不再静默代决：已装 vulture 则自动高精度、未装则交互终端询问（非交互经执行前决策门确认）；`--deadcode-mode vulture` 显式请求时若未安装会先尝试自动安装、失败回退 ast 并告警，`ast`/`off` 或 ask 自动回退时不运行也不安装，绝不强行联网。
 
-**两种精度模式的分工（避免重复报告）**：`ast` 模式由 AST 负责未使用导入 / 未使用定义 / 不可达代码 + 孤儿资源；`vulture` 模式由 vulture 负责导入 / 定义 / 类 / 方法 / 变量检测（高精度、低噪声），并叠加 AST 独有的不可达代码与孤儿资源检测，**不再重复报告 AST 的导入/定义项**。两种模式均支持 `# keep` 内联白名单（vulture 分支同样按定义行/上一行判定 `# keep` 并跳过）。vulture 分析若异常（如版本 API 不兼容），会在 stderr 打印告警并跳过该步、不影响其余检查器。
+**精度模式（`ask` 默认：已装 vulture 则自动高精度、未装则交互询问 / 非交互经执行前决策门确认）**：`ast` 模式由 AST 负责未使用导入 / 未使用定义 / 不可达代码 + 孤儿资源（零依赖、易误报、无需安装）。`vulture` 高精度档（需装 vulture）由 vulture 负责导入 / 定义 / 类 / 方法 / 变量检测，并叠加 AST 独有的不可达代码与孤儿资源检测；未装 vulture 时显式 `--deadcode-mode vulture` 请求会先尝试自动安装、失败回退 ast 并告警。`ast` 模式支持 `# keep` 内联白名单（按定义行/上一行判定 `# keep` 并跳过）。
 
 ## examples 检查器：功能与风险详解
 
@@ -258,17 +258,17 @@ examples 检查器（检查器 #9，v1.26.0 起纳入 `--all-checks` 全量集�
 | `--all` | 批量审计 `~/.workbuddy/skills/` 下全部已安装技能 |
 | `--check <名称>` | 仅启用指定检查器（可重复），`doc` 常驻默认开 |
 | `--all-checks` | 启用全部检查器（含 deadcode） |
-| `--deadcode-mode {ask,vulture,ast,off}` | deadcode 精度模式；`ask` 默认已装 vulture 则自动高精度(不询问)，未装则交互询问、30s 超时回退 `ast`（**不安装**）；非交互环境无法征询 → 硬失败挂起 `ask_undecided`（ERROR），须显式 --deadcode-mode 重跑；显式 `vulture` 或交互选 vulture 缺库时先自动安装、失败回退 `ast` 并 WARN 告警；`ast`/`off` 绝不联网安装 |
+| `--deadcode-mode {ask,vulture,ast,off}` | deadcode 精度模式；`ask` 默认（已装 vulture 则自动高精度、否则交互终端询问、30s 超时回退 `ast`）；非交互环境无法征询 → 由执行前一次性决策门 `prerun_decision`（退出码 130）接管，须显式 --deadcode-mode 重跑；显式 `vulture`（高精度，需装 vulture）未装时先自动安装、失败回退 `ast` 并 WARN；`ast`(零依赖,易误报)/`off` 绝不联网安装 |
 | `--preview` | 只预览将运行的检查器与将扫描的文件，不产出发现，退出码 0（适合首次审计前心里有数） |
 | `--strict` | WARN 也计入退出码（CI 门禁用） |
 | `--json` | 额外输出 JSON 机读结果（每条含 checker/severity/category/category_cn/message/file/line/suggestion） |
 | `--timeout <秒>` | 整体超时保护，超时优雅终止（退出码 130）而非卡死 |
 | `--max-file-size <字节>` | 超大文件跳过阈值，避免拖慢 |
 | `--backup` / `--backup-limit N` | 审计前备份 SKILL.md（默认最多保留 3 个备份） |
-| `--examples-mode {static,ask,run,off}` | examples 检查器模式；`ask` 默认(交互询问是否沙箱试运行；交互 30s 超时回退 static 并 `examples_degraded` INFO 标注；非交互无法征询 → 硬失败挂起 `ask_undecided`（ERROR），须显式 --examples-mode 重跑)，`static` 纯静态(零执行/零网络/零 token)，`run` 受限沙箱试运行带 expected 标注的示例，`off` 跳过 |
+| `--examples-mode {static,ask,run,off}` | examples 检查器模式；`ask` 默认(交互询问是否沙箱试运行；交互 30s 超时回退 static 并 `examples_degraded` INFO 标注；非交互无法征询 → 由执行前一次性决策门 `prerun_decision`（退出码 130）接管，须显式 --examples-mode 重跑)，`static` 纯静态(零执行/零网络/零 token)，`run` 受限沙箱试运行带 expected 标注的示例，`off` 跳过 |
 | `--examples-timeout <秒>` | examples run 模式下单条示例命令执行超时（默认 20） |
 | `--examples-max-cmd <条>` | examples run 模式下单技能最多执行示例命令条数（默认 12，防突刺） |
-| `--doc-llm-mode {ask,agent,off}` | doc-llm 语义检测模式；`ask` 默认（交互终端问询是否 agent 接手，30s 超时回退 off；非交互环境无法征询 → 硬失败挂起 `ask_undecided`（ERROR），须显式 `--doc-llm-mode agent/off` 重跑），`agent` 写 dossier 由 agent 接手比对，`off` 跳过 |
+| `--doc-llm-mode {ask,agent,off}` | doc-llm 语义检测模式；`ask` 默认（交互终端问询是否 agent 接手，30s 超时回退 off；非交互环境无法征询 → 由执行前一次性决策门 `prerun_decision`（退出码 130）接管，须显式 `--doc-llm-mode agent/off` 重跑），`agent` 写 dossier 由 agent 接手比对，`off` 跳过 |
 | `--examples-consent` | examples 授权令牌：agent 非交互环境显式指定 `--examples-mode run/static/off` 时须附此令牌，否则脚本阻断并报 `examples_consent_missing`（ERROR），杜绝静默替用户决定 |
 | `--source {local,github,skillhub,url}` | 技能来源（默认 local 本机）；`github` 需 git、`skillhub` 需 skillhub CLI、`url` 标准库直抓零外部 CLI |
 | `--ref <值>` | 来源引用：`owner/repo`（可 `@分支`，逗号分隔批量）/ 集市 slug / https 地址 |
