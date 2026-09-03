@@ -89,7 +89,8 @@ REPORT_MD = os.path.join(CACHE, "report.md")
 # 默认取当前解释器，需指定别的版本时用 SKILL_AUDIT_PYTHON 覆盖（见 _devcommon.resolve_python）。
 CLI = os.path.join(SRC, "scripts", "auditlib", "cli.py")
 AUDIT_FLAGS = ["--all-checks", "--deadcode-mode", "vulture",
-               "--doc-llm-mode", "agent", "--json"]
+               "--doc-llm-mode", "agent", "--examples-mode", "static",
+               "--examples-consent", "--json"]
 PER_AUDIT_TIMEOUT = 240  # 秒
 
 LIST_ENDPOINTS = [
