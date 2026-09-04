@@ -719,7 +719,7 @@ def build_parser():
 
     rnp = sub.add_parser("run", help="执行仓库内 .py 脚本（单进程编排用）")
     rnp.add_argument("--script", required=True, help="仓库相对路径或绝对路径，须为 .py")
-    rnp.add_argument("argv", nargs="*", help="传给脚本的参数")
+    rnp.add_argument("argv", nargs=argparse.REMAINDER, help="原样透传给脚本的参数（含其内部子命令与 - 开头旗标）")
     rnp.set_defaults(func=cmd_run)
 
     cmp = sub.add_parser("commit", help="薄封装 dev_commit.py（提交并触发同步钩子）")
