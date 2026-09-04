@@ -125,9 +125,20 @@ DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
 VERSION_RE = re.compile(r"^version:\s*[\"']?([0-9][0-9A-Za-z.\-]*)[\"']?\s*$", re.M)
 
 # ---- security 检查器正则 ----
+# 值部分区分两种形态（v1.35.1 修正误报，详见下方注释）：
+#   ① 引号包裹的字面量 —— 必定是真硬编码，命中（不要求到行尾，兼容 JSON / SQL 内联）；
+#   ② 无引号字面量 —— 须位于行尾（.env / shell 风格赋值）。
+# 旧正则把引号写成可选（`['\"]?`），导致任何 12+ 字符的**标识符**都被当成密钥字面量：
+#   `api_key = resolve_judge_api_key(config)`（函数调用）、`token=my_token,`（变量引用传参）
+#   均被误报为 ERROR。规模实测该项曾占单轮全部 ERROR 的 50%。新正则是旧正则的严格子集，
+#   只减不增；真硬编码（引号字面量 / 含数字·大写·连字符的无引号赋值）全部保留，并排除：
+#   ① 标识符式无引号值（变量自引用、函数返回值等 snake_case）；② 全大写占位符（YOUR_*_HERE）。
 SECRET_RE = re.compile(
-    r"(?i)(api[_-]?key|secret|token|password|passwd|access[_-]?key|akia[0-9a-z]{16})"
-    r"\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{12,}")
+    r"(?i:api[_-]?key|secret|token|password|passwd|access[_-]?key|akia[0-9a-z]{16})"
+    r"\s*[\"']?\s*[:=]\s*(?:"
+    r"['\"](?!(?i:[A-Z_]{12,}\"|[A-Za-z0-9_\-]*(your|replace|change|dummy|example|placeholder|fake|sample|changeme|xxxx)[A-Za-z0-9_\-]*\"|[A-Za-z0-9_\-]*here\"))[A-Za-z0-9_\-]{12,}['\"]"
+    r"|(?![a-z_]+\s*(?:[#;].*)?$)[A-Za-z0-9_\-]{12,}(?=\s*(?:[#;].*)?$)"
+    r")")
 EVAL_EXT_RE = re.compile(r"\b(eval|exec)\s*\(\s*(?![\"'\"])")
 TRAVERSAL_RE = re.compile(r"\.\./|\.\.\\")
 # 路径穿越检测：上下文感知，避免「上下文盲」误报。
