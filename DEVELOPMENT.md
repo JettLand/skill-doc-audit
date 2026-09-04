@@ -53,6 +53,11 @@ python src/scripts/dev_market_bench.py check-bump                # 版本监测�
 
 退出码：`0` 正常；`2` 参数/路径错误；`run` 下被审技能出现 ERROR 属被测现象、不升退出码（与旧 `run_market_audit` 一致）。
 
+**运行时产出的 `[agent-todo]` 提示**（本工具是两个 `[agent-todo]` 发射方之一，另一个是 `dev_self_audit` 经 `release_check`）：文档只描述、不重述全文，代码（`print_selfcheck_hint()` 与 `check_bump()`）是单一真相源，改提示须同步代码。
+
+1. **`run` 结束时**（`print_selfcheck_hint()`，best-effort、非阻断）：首行 `[agent-todo][建议] 用实测结果反查 skill-doc-audit 自身（基准实测的初衷）——逐项校验：`，后附 5 条——① 回执健康（`UNKNOWN`/`FAILED` 非 0 ⇒ 检查器静默休眠或执行异常，须立即排查）；② 检查器点火率（命中技能数 / 已审 N）+ 标注 ⚠ 零点火（跑了却零 finding，疑似静默休眠/判定过窄）与 ⚠ 全量命中（每个都报，疑似口径过宽/噪音）；③ 全量命中类别（N/N 技能皆中）多属噪音口径须逐条判真伪；④ 与上一版 `report.md` 对比，新增/消失类别须先抽样复现再定性；⑤ 抽样优先级 = 单技能 finding 数最高者 + 全量命中类别 + 零源码技能（历史误报集中区）。判据：误报 ⇒ 加抑制规则 + `self_validate` fixture 固化 + bump 版本；真缺陷 ⇒ 修检查器并回归 `self_validate` 与 `dev_self_audit --strict`。
+2. **`check-bump` 时**（`dev_self_audit` 汇总后 best-effort 调用，绝不触发 `run`）：① `[agent-todo][必须] 上架 SkillHub 前须先取得用户明确授权（不得自动发布）`；② `[agent-todo][建议] 版本变动时用户文档（SKILL.md / references/*）无需写入版本变动叙述`（留 CHANGELOG.md）；③ `[agent-todo][建议] ⚠ 决策点：次/主版本变动——是否运行「市场质量基准实测器」做完整实测？`（仅 `is_minor_or_major_bump` 命中时）；④ `[agent-todo][建议] 检测到未提交的本地改动，请立即本地 commit`（仅存在未提交改动时）。
+
 ### 开发工作台（dev_workbench.py）
 
 `src/scripts/dev_workbench.py` 是开发工作台（v1.35.0 由 `dev_orchestrate.py` 更名而来；该名 v1.34.7 由 `devkit.py` 重命名得到）——更名理由：本工具不编排任何外部流程，实为单进程内的开发期文件操作与校验工作台，原名 orchestrate（编排）词不达意：**不替代 bash**，而是把开发期对 shell 的脆弱依赖压缩到最小——凡能在一个 Python 进程内完成的字节级 patch / 断言复核 / 编译 / 版本 bump / git 状态 / git commit 薄封装 / 计划批量，都不经 bash 命令行传递多字节或转义内容，降低对 shell 调用层的暴露面。动机：本会话反复踩的 Edit 工具 phantom success（报成功但磁盘未变）与工具调用参数传输层间歇丢参（`command` / `file_path` 随机变 undefined）——多字节/转义内容移出命令行即可规避。
