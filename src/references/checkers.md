@@ -65,7 +65,7 @@
 | structure | `todo_marker` | 待办标记 | 含 TODO/FIXME 标记 | WARN |
 | structure | `placeholder` | 占位/历史文本 | 疑似占位/历史记录文本 | INFO |
 | security | `hardcoded_secret` | 疑似硬编码密钥 | 疑似硬编码密钥/凭据 | ERROR |
-| security | `path_traversal` | 路径穿越 | 路径穿越('../')（上下文感知：排除注释/文档URL/自引用上溯，避免误报）| ERROR |
+| security | `path_traversal` | 路径穿越 | 路径穿越('../')（上下文感知 v1.39.0：排除注释/文档URL/自引用上溯，及**合法相对引用**——import/require/from 模块导入、shell $VAR 拼接、字符串/JSON 字面量值；仅「路径 API + 变量动态拼接」才报 ERROR，杜绝把编程语言基础相对引用误判为漏洞）| ERROR |
 | security | `destructive_wildcard` | 危险通配删除 | 用户目录通配删除 'rm -rf *' | ERROR |
 | security | `obfuscation` | 疑似混淆编码 | 疑似混淆/编码隐藏执行 | WARN |
 | security | `dynamic_exec` | 动态执行 | 动态执行外部内容 eval/exec | WARN |
@@ -91,10 +91,10 @@
 | portability | `encoding_sep` | 编码/路径分隔符假设 | `open()` 未指定 `encoding`，Windows 文本模式默认非 UTF-8 易致解码错误 | WARN |
 | portability | `agent_coupling` | Agent 平台耦合 | 耦合 WorkBuddy 平台约定（`.workbuddy`/`allowed-tools`），受 `target_agent` 字段门控：声明跨 Agent 目标（不含 workbuddy，如 claude-code/cross-agent）且仍含 WorkBuddy 耦合升 WARN，其余（未声明/声明含 workbuddy/推断 workbuddy）均 INFO 提示（不再抑制）；开放标准 `compatibility` 视作 `target_agent` | INFO/WARN |
 | portability | `lossy_port` | 跨格式可移植性损失 | Phase 6 矩阵发现：技能显式声明跨 Agent 目标（如 `compatibility: [claude-code, cursor]`）却含目标端无对应字段（`lost`，升 WARN）或需转译（`degraded`，仅 INFO）的字段；纯 workbuddy/未声明目标不触发 | INFO/WARN |
-| examples | `EXAMPLE_TARGET_MISSING` | 示例引用文件不存在（照抄将失败） | 示例命令引用的脚本文件（`.py/.js/.mjs/.ts/.sh/.ps1`）在技能目录中不存在（仅核验脚本扩展名，仓库引用 / 安装路径 / 输出文件跳过，避免误报）；SKILL.md 报 ERROR、其余文档 WARN | ERROR/WARN |
+| examples | `EXAMPLE_TARGET_MISSING` | 示例引用文件不存在（照抄将失败） | 示例命令引用的脚本文件（`.py/.js/.mjs/.ts/.sh/.ps1`）在技能目录中不存在（仅核验脚本扩展名，仓库引用 / 安装路径 / 输出文件跳过；v1.39.0 起命令解析排除 git diff/补丁行、单 token 相对路径与纯文件名——目录树注释/补丁输出里的路径 token 不再被当成示例命令引用，避免误报）；SKILL.md 报 ERROR、其余文档 WARN | ERROR/WARN |
 | examples | `EXAMPLE_TARGET_UNVERIFIABLE` | 示例引用无法核验（纯文档快照） | 纯文档快照（未取到技能代码）时示例引用无法核验，退为 INFO 提示，绝不把「没下载到」误判成「文件不存在」 | INFO |
 | examples | `EXAMPLE_FLAG_UNKNOWN` | 示例参数在脚本中无声明 | 示例给脚本传了参数，但该脚本中未找到对应 `add_argument` 声明（AST 解析 + 单层跟随导入 + 字面量兜底；仅 SKILL.md） | WARN |
-| examples | `EXAMPLE_EXT_CMD` | 示例调用外部命令但未声明依赖 | 示例调用外部 CLI（curl/pip/git/docker…），但文档未出现该依赖说明 | INFO |
+| examples | `EXAMPLE_EXT_CMD` | 示例调用外部命令但未声明依赖 | 示例调用外部 CLI（curl/pip/git/docker…），但文档未出现该依赖说明（**v1.39.0 起标记 advisory=True**：属风格建议、不计入缺陷口径，保留可观测性） | INFO |
 | examples | `EXAMPLE_DANGEROUS` | 示例含危险/不可逆命令 | 示例含 `rm -rf /`、fork 炸弹、`mkfs`、`dd` 写块设备、远端内容直喂 shell、`sudo rm` 等危险/不可逆命令（照抄风险） | ERROR/WARN |
 | examples | `EXAMPLE_UNVERIFIED` | 示例标注了期望但未执行验证 | 示例块标注了 `expected-*`，但当前为纯静态模式，未做执行验证（如需执行请 `--examples-mode run`） | INFO |
 | examples | `EXAMPLE_SANDBOX_SKIP` | 示例未执行（沙箱拒绝） | run 模式下示例因不满足沙箱白名单（解释器 / 脚本路径 / 元字符）被跳过，INFO 说明原因（安全红线，不可放宽） | INFO |
@@ -189,7 +189,8 @@
 
 1. **注释行**：以 `#`、`//`、`/*`、`*`、`<!--` 开头的整行；
 2. **文档 URL**：含 `://` 的行（例如文档里出现的 API 基地址中 `.../` 段，曾被误判为路径穿越）；
-3. **自引用资源上溯**：含 `__file__`/`dirname`/`.asar`/`install_dir` 等标记的行（合法定位安装目录，非真实穿越）。
+3. **自引用资源上溯**：含 `__file__`/`dirname`/`.asar`/`install_dir` 等标记的行（合法定位安装目录，非真实穿越）；
+4. **合法相对引用（v1.39.0）**：`../` 出现在 import/require/from 模块导入、shell `$VAR` 变量拼接、字符串/JSON 字面量值、赋值字符串变量中属编程语言基础相对引用语法，直接跳过；仅「路径 API（`os.path.join`/`path.join`/`Path(`/`open(` 等）+ 变量动态拼接」才判真实穿越。
 
 真实漏洞（如将外部可控字符串拼入用于 `open`/`os.remove`/`shutil` 的落盘路径并含相对上溯）仍正常报出。该机制无需人工逐条标注，统一作用于全部 security 正则，只减误报、绝不增 ERROR。
 

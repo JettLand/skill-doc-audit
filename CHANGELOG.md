@@ -3,6 +3,20 @@
 本文件收录各版本的「打磨明细」（改动 + 验证），作为开发 / QA 留档。版本变动信息统一在本文件记录，README 不再保留版本摘要表（仅指向本文件）。
 
 > 排序：版本号降序（最新在前）。
+## 1.39.0 打磨明细（path_traversal 误报根治 + examples 误报消除与分层）
+
+- **security `path_traversal` 误报根治（v1.39.0）**：新增 `_is_legit_relative_ref()` 上下文判定——`../` 出现在 import/require/from 模块导入、shell `$VAR` 变量拼接、字符串/JSON 字面量值、赋值字符串变量中属编程语言基础相对引用语法，直接跳过；仅「路径 API（`os.path.join`/`path.join`/`Path(`/`open(` 等）+ 变量动态拼接」才报 ERROR。基准实测 26 条 path_traversal 全为合法相对引用（Node/TS 相对模块导入、shell 合法路径拼接、配置字符串值）被误判为 ERROR，本版彻底根治。
+- **examples `EXAMPLE_TARGET_MISSING` 误报消除**：`_looks_like_command()` 新增两层排除——① git diff/补丁输出行（`modified:`/`diff --git`/`+++`/`---`/`@@` 等）；② 单 token 相对路径与纯脚本文件名（如 `src/login.py`、`login.py`；`./run.sh` 等显式执行保留）。目录树注释/补丁输出里的路径 token 不再被当成示例命令引用去校验存在性。
+
+### 治理（噪声分层）
+
+- **examples `EXAMPLE_EXT_CMD` 标记 advisory=True**（同 v1.38.0 structure 分层口径）：外部 CLI 未声明属风格建议，不计入缺陷口径，保留 INFO 可观测性。
+
+### 文档
+
+- `references/checkers.md`：`path_traversal`/`EXAMPLE_TARGET_MISSING`/`EXAMPLE_EXT_CMD` 明细行更新，误报自纠错段新增「合法相对引用」机制说明。
+
+
 ## 1.38.0 打磨明细（structure 信号饱和优化：advisory 分层）
 
 - **structure 检查器「信号饱和」优化（advisory 分层）**

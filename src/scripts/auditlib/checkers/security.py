@@ -3,6 +3,41 @@ from auditlib.core import *   # 常量 + 公共 helper（finding/collect_code/�
 from auditlib.model import *  # SkillModel / detect_format 等（如需）
 from auditlib.core import _security_irrelevant
 
+def _is_legit_relative_ref(line):
+    """判断文本中的 `../` 是否为合法相对引用（非路径穿越漏洞）。
+    覆盖：import/require/from 模块导入、shell $VAR 拼接、字符串/JSON 字面量值、
+    赋值字符串变量。这些属编程语言基础相对引用语法，不应判为漏洞。
+    """
+    # 0) 字符串拼接优先：含 + 拼接 → 非纯字面量引用，交由 _is_dynamic_traversal
+    #    判定（base + "/../" + name、os.path.join(base, user + '../etc') 等拼接
+    #    表达式里的引号 ../ 片段不是字面量配置值，宁严勿漏）
+    if "+" in line:
+        return False
+    # 1) 模块导入语法：require('../x') / from '../x' / import x from '../x'
+    if re.search(r"\b(require|import|from)\b\s*[(]?\s*['\"]?[^'\"]*\.\./", line):
+        return True
+    # 2) shell 变量展开 / 模板拼接：$VAR / ${VAR} / "$x/../y"
+    if "$" in line and "../" in line:
+        return True
+    # 3) 引号字符串字面量内的 ../（JSON 键值 / 字符串值 / 配置项）
+    if re.search(r"['\"][^'\"]*\.\./[^'\"]*['\"]", line):
+        return True
+    # 4) 赋值字符串变量：x = "../foo" / const y: "../bar"
+    if re.match(r"^\s*\w+\s*[:=]\s*['\"]", line) and "../" in line:
+        return True
+    return False
+
+def _is_dynamic_traversal(line):
+    """变量动态拼接含相对上溯 → 真实穿越候选（v1.39.0）。
+    ① 含 + 的拼接表达式（base 变量拼接相对上溯片段再拼 name 之类）；② 路径 API + 用户输入类变量。
+    """
+    if "+" in line and re.search(r"\.\./|\.\.\\\\", line):
+        return True
+    if re.search(r"(os\.path\.join|path\.join|Path\(|\.resolve\(|fs\.(read|open|write)|\bopen\()", line) \
+            and re.search(r"\$\w+|\buser|input|req\.|argv|request", line):
+        return True
+    return False
+
 def check_security(ctx):
     findings = []
     doc = ctx["doc"]
@@ -55,8 +90,15 @@ def check_security(ctx):
                                         "动态执行外部内容 eval/exec: %s" % rel, file=rel, line=i,
                                         suggestion="确认输入来源可信，避免执行外部内容"))
             if TRAVERSAL_RE.search(line):
+                # 上下文感知（v1.39.0）：合法相对引用（import/require/from、shell 变量拼接、
+                # 字符串字面量值）直接跳过，避免把编程语言基础相对引用语法误判为路径穿越漏洞
+                # （实测 26 条 ERROR 全为合法 ../）。仅「路径 API + 变量动态拼接」保留 ERROR。
+                if _is_legit_relative_ref(line):
+                    continue
+                if not _is_dynamic_traversal(line):
+                    continue
                 findings.append(finding("security", SEVERITY_ERROR, "path_traversal",
-                                        "路径穿越（相对路径上溯）: %s" % rel, file=rel, line=i))
+                                        "路径穿越（相对路径动态上溯）: %s" % rel, file=rel, line=i))
             if WILDCARD_RM_RE.search(line):
                 findings.append(finding("security", SEVERITY_ERROR, "destructive_wildcard",
                                         "用户目录通配删除: %s" % rel, file=rel, line=i))

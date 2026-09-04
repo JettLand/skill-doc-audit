@@ -159,7 +159,7 @@
       "severity": "ERROR",
       "category": "path_traversal",
       "category_cn": "路径穿越",
-      "message": "路径穿越（相对路径上溯）: scripts/main.py",
+      "message": "路径穿越（相对路径动态上溯）: scripts/main.py",
       "file": "scripts/main.py",
       "line": 10,
       "suggestion": null,

@@ -98,6 +98,9 @@ def _looks_like_command(s):
         return False
     if s.startswith(("#", "//", "<!--", "...", "->", "→")):
         return False
+    # git diff / 补丁输出行（非命令）：避免把 modified: src/x.js 当命令引用校验缺失
+    if re.match(r"^(?:modified|diff|index|new file|deleted|rename|copy|old mode|new mode|commit|Author|Date)\b|^(?:---|\+\+\+|@@)", s):
+        return False
     parts = s.split()
     if not parts:
         return False
@@ -109,6 +112,14 @@ def _looks_like_command(s):
     # 纯赋值（环境变量）不是命令
     if len(parts) == 1 and "=" in first and not first.startswith(("./", "/", "~")):
         return False
+    # 单 token 路径/文件名（如 src/login.py、login.py）不是命令，避免把目录树/补丁里的
+    # 路径 token 误判为示例命令引用（v1.39.0 修复 EXAMPLE_TARGET_MISSING 误报）
+    if len(parts) == 1:
+        if "/" in first and not first.startswith(("./", "/", "~")):
+            return False
+        if first.endswith((".py", ".js", ".mjs", ".ts", ".sh", ".ps1")) \
+                and not first.startswith(("./", "/", "~", "$")):
+            return False
     return True
 
 
@@ -613,11 +624,13 @@ def check_examples(ctx):
                 _blob = ctx.get("blob") or ""
                 _declared = ctx.get("declared_tools") or set()
                 if prog in EXAMPLES_EXTERNAL_CLI and prog not in _blob and prog not in _declared:
-                    findings.append(finding(
+                    _f = finding(
                         "examples", SEVERITY_INFO, "EXAMPLE_EXT_CMD",
                         "示例调用了外部命令 `%s`，但该 CLI 未在本技能代码中出现、也未在 frontmatter 声明，可能缺少依赖说明" % prog,
                         file=doc_name, line=cline,
-                        suggestion="在文档补充该外部依赖声明与缺失时的降级方式"))
+                        suggestion="在文档补充该外部依赖声明与缺失时的降级方式")
+                    _f["advisory"] = True  # 风格建议分层（v1.39.0）：不计入缺陷口径，保留可观测性
+                    findings.append(_f)
 
                 # --- 5) 沙箱试运行（run 模式 + 带标注 + 过白名单） ---
                 if mode == "run" and annotated:
