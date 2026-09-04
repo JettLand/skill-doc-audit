@@ -65,6 +65,7 @@ import time
 import urllib.request
 import zipfile
 from datetime import datetime, timezone
+from auditlib.core import ALL_CHECKERS
 
 # ── 路径（经 __file__ 解析，不依赖 CWD）──────────────────────────────────────
 HERE = os.path.dirname(os.path.abspath(__file__))            # <root>/src/scripts
@@ -469,7 +470,7 @@ def summarize_results(rows):
         statuses = {c["status"] for c in runs}
         if {"doc-llm"} & names and "OK" in {c["status"] for c in runs if c["name"] == "doc-llm"}:
             doc_llm_ok += 1
-        if statuses == {"OK"} and len(runs) >= 8:
+        if statuses == {"OK"} and len(runs) >= len(ALL_CHECKERS):
             receipt_all_ok += 1
         if "UNKNOWN" in statuses:
             receipt_with_unknown += 1
@@ -518,7 +519,7 @@ def write_report(summary, meta):
     lines.append("| 审计异常 | %d |" % summary["n_audit_fail"])
     lines.append("| 累计 ERROR / WARN / INFO | %d / %d / %d |" % (
         summary["tot_err"], summary["tot_warn"], summary["tot_info"]))
-    lines.append("| 回执全 OK（8/8 已执行）| %d |" % summary["receipt_all_ok"])
+    lines.append("| 回执全 OK（%d/%d 已执行）| %d |" % (len(ALL_CHECKERS), len(ALL_CHECKERS), summary["receipt_all_ok"]))
     lines.append("| 回执含 UNKNOWN（未注册）| %d |" % summary["receipt_with_unknown"])
     lines.append("| 回执含 FAILED（执行异常）| %d |" % summary["receipt_with_failed"])
     lines.append("| doc-llm 真实执行(OK) | %d / %d |" % (summary["doc_llm_ok"], summary["n_dl_ok"]))
@@ -781,8 +782,8 @@ def check_bump():
             print("")
             print("  [agent-todo][建议] ⚠ 决策点：次/主版本变动——是否运行「市场质量基准实测器」做完整实测？")
             print("  次/主版本属质量高风险点（检查器逻辑 / 误报抑制 / 风险口径可能变动）；建议评估是否运行一次规模化基准以验证稳定性：")
-            print("  → python src/scripts/dev_market_bench.py run （默认随机抽 50 个市场技能全量审计；可 --sample / --seed / --dedup）")
-            print("  （仅在人工要求或本建议触发时启用，不进自动调度、绝不由 check-bump 自动触发 run）")
+            print("  → python src/scripts/dev_workbench.py run --script src/scripts/dev_market_bench.py run --sample 50 --seed 2029 --dedup 3")
+            print("  （与 bump_audit 提交回显顶部直达打印的 #6 同源；走 dev_workbench 单入口符合开发纪律；不进自动调度、绝不由本提示自动触发 run）")
     # 通用提示（不依赖版本变动）：长期开发易因记忆漂移遗漏本地 commit，
     # 导致 src 与部署副本 / 版本号长期脱节（post-commit 钩子本应同步部署副本）。
     # 检测到未提交改动即提示立即本地 commit；[建议] 不阻断、不升退出码。
