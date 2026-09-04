@@ -558,6 +558,12 @@ def print_selfcheck_hint(summary, meta):
     fire = summary.get("checker_fire") or {}
     ran = sorted({k.split(":", 1)[0] for k in (summary.get("checker_status") or {})})
     zero_fire = [c for c in ran if not fire.get(c)]
+    # doc-llm 在 v1.37.0 移除 handoff 后 0 findings 属设计内预期（core 仍有真实发射路径），
+    # 不误标为静默休眠；其执行异常由回执健康(UNKNOWN/FAILED)覆盖。
+    dl_zero = [c for c in zero_fire if c.startswith("doc-llm")]
+    if dl_zero:
+        zero_fire = [c for c in zero_fire if not c.startswith("doc-llm")]
+        log("     \u00b7 doc-llm 零点火属预期（handoff 已移出 findings，仅确有文档漂移时发 finding，非休眠），不计入零点火告警")
     full_fire = [c for c in ran if fire.get(c, 0) >= n]
     cs = summary.get("cat_skills") or {}
     cat_full = sorted([c for c, v in cs.items() if v >= n], key=lambda c: -cs[c])
