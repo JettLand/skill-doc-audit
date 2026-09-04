@@ -78,6 +78,7 @@ python src/scripts/dev_workbench.py bump --version X.Y.Z --section-file <CHANGEL
 python src/scripts/dev_workbench.py grep --pattern <正则> [--path <目录>] [--max N]   # 纯 Python 递归 grep（跳过已知二进制，覆盖仓库全部文本文件）
 python src/scripts/dev_workbench.py status   # git status --short（一次 subprocess 封装）
 python src/scripts/dev_workbench.py doctor   # 环境探针（零 shell 依赖）
+python src/scripts/dev_workbench.py run --script <PY路径> [-- <argv...>]   # 白名单执行仓库内 .py（不执行任意命令 / shell 字符串）
 python src/scripts/dev_workbench.py run-plan --plan <JSON计划文件>   # 单进程批量执行
 python src/scripts/dev_workbench.py selftest # 内置自测
 python src/scripts/dev_workbench.py commit -m "<说明>"   # git commit 薄封装（转发 -m、跑完自动 doctor 确认同步；禁止 --no-verify）
