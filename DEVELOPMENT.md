@@ -83,7 +83,7 @@ python src/scripts/dev_workbench.py bump --version X.Y.Z --section-file <CHANGEL
 python src/scripts/dev_workbench.py grep --pattern <正则> [--path <文件或目录>] [--max N]   # 纯 Python grep（跳过已知二进制，覆盖仓库全部文本文件；传文件路径则只搜该文件，不存在则告警 rc 1）
 python src/scripts/dev_workbench.py status   # git status --short（一次 subprocess 封装）
 python src/scripts/dev_workbench.py doctor   # 环境探针（零 shell 依赖）
-python src/scripts/dev_workbench.py run --script <PY路径> [-- <argv...>]   # 白名单执行仓库内 .py（不执行任意命令 / shell 字符串）
+python src/scripts/dev_workbench.py run --script <PY路径> [透传给脚本的参数...]   # 白名单执行仓库内 .py（不执行任意命令 / shell 字符串）；--script 之后的所有参数经 argparse.REMAINDER 原样透传，无需 `--` 分隔符（写 `--` 反会被当作字面参数透传给目标脚本）
 python src/scripts/dev_workbench.py run-plan --plan <JSON计划文件>   # 单进程批量执行
 python src/scripts/dev_workbench.py selftest # 内置自测
 python src/scripts/dev_workbench.py commit -m "<说明>"   # git commit 薄封装（转发 -m、跑完自动 doctor 确认同步；禁止 --no-verify）
