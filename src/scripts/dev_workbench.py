@@ -47,11 +47,20 @@ Python 进程内完成的事（字节级 patch / 断言复核 / 编译 / 版本 
   verify   断言文件含/不含某子串（多字节串来自文件），打印匹配行 repr
   compile  递归 py_compile 指定目录下全部 .py，逐文件报告
   bump     版本号三锚点同步 + 插入 CHANGELOG 小节
-  grep     纯 Python 递归 grep（Grep 工具不可用时的备用）
+  grep     纯 Python 递归 grep（覆盖全部文本文件，跳过已知二进制）
   status   git status --short（一次 subprocess 封装）
+  run      白名单执行仓库内 .py（不执行任意命令 / shell 字符串）
   run-plan 读 JSON 计划，单进程批量执行上述操作
   doctor   纯 Python 环境探针（python 版本 / git 在 PATH / 部署副本 / 三锚点一致），零 shell 依赖
   selftest 内置自测
+  commit   git commit 薄封装（转发 -m、跑完自动 doctor 确认同步；禁止 --no-verify）
+  trash    移入系统回收站（绝不硬删；--force 才硬删且二次告警；--dry-run 只打印）
+  clean    清理仓库内 temp/ 等生成物（移入回收站；--dry-run 只打印）
+  audit    薄封装 dev_self_audit.py（质量门禁；argv 透传如 --strict）
+  validate 薄封装 self_validate.py（检查器回归护栏）
+  diff     git diff --stat（只读，替代裸 git diff）
+  log      git log（默认 --oneline -10，只读，替代裸 git log）
+  sync     手动强制重同步部署副本（调用 sync_deploy.py）
 """
 import argparse
 import io
@@ -62,6 +71,8 @@ import re
 import shutil
 import subprocess
 import sys
+import base64
+import time
 
 # ── 路径解析：从本文件向上定位仓库根（与 tests/ 下测试脚本同源手法）──────────────
 def _repo_root():
@@ -370,7 +381,7 @@ def cmd_run_plan(args):
                       ("contains_file", []), ("not_contains_file", []),
                       ("root", None), ("section", ""), ("path", None), ("max", 0),
                       ("script", None), ("argv", []), ("section_file", None),
-                      ("message", "")):
+                      ("message", ""), ("path", None), ("force", False), ("dry_run", False)):
             if not hasattr(a, k):
                 setattr(a, k, dv)
         # 把文件路径相对仓库根解析
@@ -390,6 +401,20 @@ def cmd_run_plan(args):
             rc = cmd_run(a) or rc
         elif op == "commit":
             rc = cmd_commit(a) or rc
+        elif op == "trash":
+            rc = cmd_trash(a) or rc
+        elif op == "clean":
+            rc = cmd_clean(a) or rc
+        elif op == "audit":
+            rc = cmd_audit(a) or rc
+        elif op == "validate":
+            rc = cmd_validate(a) or rc
+        elif op == "diff":
+            rc = cmd_diff(a) or rc
+        elif op == "log":
+            rc = cmd_log(a) or rc
+        elif op == "sync":
+            rc = cmd_sync(a) or rc
         else:
             sys.stderr.write("plan: 未知 op %s，跳过\n" % op)
             rc = rc or 2
@@ -419,6 +444,187 @@ def cmd_selftest(args):
                                          contains_file=None, not_contains_file=None)) == 2
     sys.stderr.write("selftest OK\n")
     return 0
+
+
+
+# ── trash / clean（安全删除：进系统回收站，绝不硬删）────────────────────────────
+class _TrashUnavailable(Exception):
+    pass
+
+
+def _trash_windows(path):
+    is_dir = os.path.isdir(path) and not os.path.islink(path)
+    method = "DeleteDirectory" if is_dir else "DeleteFile"
+    ps = ('Add-Type -AssemblyName Microsoft.VisualBasic; '
+          '[Microsoft.VisualBasic.FileIO.FileSystem]::%s("%s", "OnlyErrorDialogs", "SendToRecycleBin")'
+          % (method, path.replace('"', '""')))
+    b64 = base64.b64encode(b"\xff\xfe" + ps.encode("utf-16-le")).decode("ascii")
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-EncodedCommand", b64],
+                           capture_output=True)
+    except FileNotFoundError:
+        raise _TrashUnavailable("powershell 不可用")
+    out = (r.stdout or b"").decode("utf-8", "replace")
+    err = (r.stderr or b"").decode("utf-8", "replace")
+    if r.returncode != 0:
+        raise _TrashUnavailable("powershell rc=%d %s" % (r.returncode, (err or out).strip()))
+
+
+def _trash_darwin(path):
+    # 纯标准库：移入用户回收站 ~/Trash（Finder 可见、可恢复）
+    trash_dir = os.path.expanduser("~/.Trash")
+    os.makedirs(trash_dir, exist_ok=True)
+    dest = os.path.join(trash_dir, os.path.basename(path))
+    if os.path.exists(dest):
+        dest += ".%d" % int(time.time())
+    shutil.move(path, dest)
+
+
+def _trash_linux(path):
+    r = None
+    if shutil.which("gio"):
+        r = subprocess.run(["gio", "trash", path], capture_output=True)
+    elif shutil.which("trash-put"):
+        r = subprocess.run(["trash-put", path], capture_output=True)
+    else:
+        trash_dir = os.path.join(os.environ.get("XDG_DATA_HOME",
+                                                 os.path.expanduser("~/.local/share")),
+                                 "Trash", "files")
+        try:
+            os.makedirs(trash_dir, exist_ok=True)
+            dest = os.path.join(trash_dir, os.path.basename(path))
+            if os.path.exists(dest):
+                dest += ".%d" % int(time.time())
+            shutil.move(path, dest)
+            return
+        except Exception as e:
+            raise _TrashUnavailable("manual trash failed: %s" % e)
+    if r is not None and r.returncode != 0:
+        out = (r.stdout or b"").decode("utf-8", "replace")
+        err = (r.stderr or b"").decode("utf-8", "replace")
+        raise _TrashUnavailable("trash util rc=%d %s" % (r.returncode, (err or out).strip()))
+
+
+def _trash_file(path, force=False, dry_run=False):
+    """移入系统回收站（可恢复）；回收站不可用且未 --force 时拒绝硬删。"""
+    if not os.path.exists(path):
+        return 2, "trash: 路径不存在 %s" % path
+    if dry_run:
+        return 0, "trash DRY-RUN: 将移入回收站 %s" % path
+    try:
+        if sys.platform == "win32":
+            _trash_windows(path)
+        elif sys.platform == "darwin":
+            _trash_darwin(path)
+        else:
+            _trash_linux(path)
+        return 0, "trash: 已移入回收站 %s" % path
+    except _TrashUnavailable as e:
+        if force:
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            return 0, "trash: 回收站不可用，--force 已硬删 %s" % path
+        return 2, "trash: 回收站不可用（%s）；拒绝硬删，请用 --force 显式确认" % e
+
+
+def cmd_trash(args):
+    rc, msg = _trash_file(args.path, force=args.force, dry_run=args.dry_run)
+    sys.stderr.write(msg + "\n")
+    return rc
+
+
+def cmd_clean(args):
+    root = _repo_root()
+    targets = [args.path] if getattr(args, "path", None) else [os.path.join(root, "temp")]
+    rc = 0
+    for t in targets:
+        if not os.path.exists(t):
+            sys.stderr.write("clean: 跳过（不存在）%s\n" % t)
+            continue
+        entries = [os.path.join(t, e) for e in os.listdir(t)] if os.path.isdir(t) else [t]
+        if not entries:
+            sys.stderr.write("clean: 空目录 %s\n" % t)
+            continue
+        for e in entries:
+            r, msg = _trash_file(e, force=args.force, dry_run=args.dry_run)
+            sys.stderr.write(msg + "\n")
+            if r != 0:
+                rc = r
+    return rc
+
+
+# ── audit / validate（薄封装 dev 工具，消除裸 Bash 跑门禁/护栏）────────────────
+def cmd_audit(args):
+    script = os.path.join(_repo_root(), "src", "scripts", "dev_self_audit.py")
+    if not os.path.isfile(script):
+        sys.stderr.write("audit FAIL: 未找到 %s\n" % script)
+        return 2
+    argv = [sys.executable, script] + list(getattr(args, "argv", None) or [])
+    r = subprocess.run(argv, cwd=_repo_root(), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.stdout:
+        sys.stdout.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
+    sys.stderr.write("audit: %s rc=%d\n" % (os.path.basename(script), r.returncode))
+    return r.returncode
+
+
+def cmd_validate(args):
+    script = os.path.join(_repo_root(), "src", "scripts", "self_validate.py")
+    if not os.path.isfile(script):
+        sys.stderr.write("validate FAIL: 未找到 %s\n" % script)
+        return 2
+    argv = [sys.executable, script] + list(getattr(args, "argv", None) or [])
+    r = subprocess.run(argv, cwd=_repo_root(), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.stdout:
+        sys.stdout.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
+    sys.stderr.write("validate: %s rc=%d\n" % (os.path.basename(script), r.returncode))
+    return r.returncode
+
+
+# ── diff / log（只读 git 检视，替代裸 git 调用）────────────────────────────────
+def cmd_diff(args):
+    extra = list(getattr(args, "argv", None) or [])
+    if not extra:
+        extra = ["--stat"]
+    argv = ["git", "-C", _repo_root(), "diff"] + extra
+    r = subprocess.run(argv, capture_output=True, text=True)
+    if r.stdout:
+        sys.stdout.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
+    return r.returncode
+
+
+def cmd_log(args):
+    extra = list(getattr(args, "argv", None) or []) or ["--oneline", "-10"]
+    r = subprocess.run(["git", "-C", _repo_root(), "log"] + extra, capture_output=True, text=True)
+    if r.stdout:
+        sys.stdout.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
+    return r.returncode
+
+
+# ── sync（手动强制重同步部署副本）────────────────────────────────────────────
+def cmd_sync(args):
+    script = os.path.join(_repo_root(), "src", "scripts", "sync_deploy.py")
+    if not os.path.isfile(script):
+        sys.stderr.write("sync FAIL: 未找到 %s\n" % script)
+        return 2
+    r = subprocess.run([sys.executable, script], cwd=_repo_root(), capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    if r.stdout:
+        sys.stdout.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
+    return r.returncode
 
 
 def build_parser():
@@ -476,6 +682,37 @@ def build_parser():
     cmp.add_argument("-m", "--message", required=True, help="提交说明（必填）")
     cmp.set_defaults(func=cmd_commit)
 
+    tp = sub.add_parser("trash", help="移入系统回收站（绝不硬删；--force 才硬删且二次告警）")
+    tp.add_argument("--path", required=True, help="要移入回收站的路径（文件或目录；支持中文）")
+    tp.add_argument("--force", action="store_true", help="回收站不可用时硬删（须显式确认）")
+    tp.add_argument("--dry-run", action="store_true", help="只打印将执行的操作，不真正移动")
+    tp.set_defaults(func=cmd_trash)
+
+    clp = sub.add_parser("clean", help="清理仓库内 temp/ 等生成物（移入回收站）")
+    clp.add_argument("--path", default=None, help="覆盖默认清理目标（默认仓库 temp/）")
+    clp.add_argument("--force", action="store_true", help="回收站不可用时硬删（须显式确认）")
+    clp.add_argument("--dry-run", action="store_true", help="只打印，不真正移动")
+    clp.set_defaults(func=cmd_clean)
+
+    ap = sub.add_parser("audit", help="薄封装 dev_self_audit.py（质量门禁）")
+    ap.add_argument("argv", nargs="*", help="透传给 dev_self_audit.py 的参数（如 --strict）")
+    ap.set_defaults(func=cmd_audit)
+
+    vp = sub.add_parser("validate", help="薄封装 self_validate.py（检查器回归护栏）")
+    vp.add_argument("argv", nargs="*", help="透传给 self_validate.py 的参数")
+    vp.set_defaults(func=cmd_validate)
+
+    dp = sub.add_parser("diff", help="git diff --stat（只读）")
+    dp.add_argument("argv", nargs="*", help="透传给 git diff 的额外参数（默认 --stat；可覆盖）")
+    dp.set_defaults(func=cmd_diff)
+
+    lp = sub.add_parser("log", help="git log（默认 --oneline -10，只读）")
+    lp.add_argument("argv", nargs="*", help="透传给 git log 的额外参数（默认 --oneline -10；可覆盖）")
+    lp.set_defaults(func=cmd_log)
+
+    syp = sub.add_parser("sync", help="手动强制重同步部署副本（调用 sync_deploy.py）")
+    syp.set_defaults(func=cmd_sync)
+
     rp = sub.add_parser("run-plan", help="单进程批量执行 JSON 计划")
     rp.add_argument("--plan", required=True)
     rp.set_defaults(func=cmd_run_plan)
@@ -486,7 +723,11 @@ def build_parser():
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    args, extra = build_parser().parse_known_args(argv)
+    # 透传型子命令（audit/validate/diff/log 的 argv 可能以 -- 开头）：
+    # parse_known_args 把 -- 开头的参数留在 extra，这里并回 argv。
+    if hasattr(args, "argv") and isinstance(args.argv, list):
+        args.argv = list(args.argv) + list(extra)
     return args.func(args)
 
 

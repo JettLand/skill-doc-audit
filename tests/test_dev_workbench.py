@@ -21,9 +21,12 @@ SRC_SCRIPT = os.path.join(REPO, "src", "scripts", "dev_workbench.py")
 PY = sys.executable
 
 fails = []
+total = 0
 
 
 def check(name, cond, detail=""):
+    global total
+    total += 1
     print(("PASS" if cond else "FAIL") + "  " + name + (("  | " + detail) if detail and not cond else ""))
     if not cond:
         fails.append(name)
@@ -181,10 +184,22 @@ try:
     check("T20 run-plan 任一步失败即中止（后续 compile 未执行）",
           rc != 0 and "中止" in err and "step 1: compile" not in err, err)
 
+    # ---- trash / clean（安全删除：进回收站，--dry-run 不真正移动）----
+    trash_test = os.path.join(work, "to_trash.txt")
+    with open(trash_test, "w", encoding="utf-8", newline="") as f:
+        f.write("x\n")
+    rc, out, err = run(script, "trash", "--path", trash_test, "--dry-run")
+    check("T21 trash --dry-run 不移动文件且打印 DRY",
+          rc == 0 and os.path.exists(trash_test) and "DRY" in err, err)
+    rc, out, err = run(script, "trash", "--path", "/no/such/path_xyz")
+    check("T22 trash 不存在路径 → rc 2", rc == 2, "rc=%d" % rc)
+    rc, out, err = run(script, "clean", "--dry-run")
+    check("T23 clean --dry-run 在无 temp 目录时安全 no-op（rc 0）", rc == 0, "rc=%d err=%s" % (rc, err))
+
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
-print("\n%d/%d passed" % (21 - len(fails), 21))
+print("\n%d/%d passed" % (total - len(fails), total))
 if fails:
     print("FAILED: " + ", ".join(fails))
     sys.exit(1)
