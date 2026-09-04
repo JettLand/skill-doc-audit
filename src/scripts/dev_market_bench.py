@@ -430,6 +430,7 @@ def summarize_results(rows):
     cat_counter = {}
     cat_skills = {}          # 类别 -> 命中该类别的技能数（用于识别「全量命中」噪音口径）
     checker_fire = {}        # 检查器 -> 命中技能集合（用于识别零点火 / 全量命中）
+    structure_defect_skills = set()  # 含≥1 非 advisory structure finding 的技能（真实结构缺陷）
     checker_status = {}      # "检查器:状态" -> 次数（用于回执健康度核对）
     receipt_all_ok = receipt_with_unknown = receipt_with_failed = doc_llm_ok = 0
     worst = []
@@ -455,6 +456,9 @@ def summarize_results(rows):
             _cats_here.add(_c)
             # 逐检查器点火：同一检查器在同一技能内多次命中只计一次（按技能数衡量是否过度触发）
             checker_fire.setdefault(f.get("checker") or "?", set()).add(r["slug"])
+            # 结构真实缺陷（非风格建议）按技能去重计数，用于去饱和指标
+            if f.get("checker") == "structure" and not f.get("advisory"):
+                structure_defect_skills.add(r["slug"])
         for _c in _cats_here:
             cat_skills[_c] = cat_skills.get(_c, 0) + 1
         runs = res.get("checker_runs") or []
@@ -482,6 +486,7 @@ def summarize_results(rows):
         "receipt_with_failed": receipt_with_failed, "doc_llm_ok": doc_llm_ok,
         "worst": sorted(worst, key=lambda x: -_sev(x[1])),
         "cat_skills": cat_skills,
+        "structure_defect_skills": len(structure_defect_skills),
         "checker_fire": {k: len(v) for k, v in checker_fire.items()},
         "checker_status": checker_status,
     }
@@ -517,6 +522,8 @@ def write_report(summary, meta):
     lines.append("| 回执含 UNKNOWN（未注册）| %d |" % summary["receipt_with_unknown"])
     lines.append("| 回执含 FAILED（执行异常）| %d |" % summary["receipt_with_failed"])
     lines.append("| doc-llm 真实执行(OK) | %d / %d |" % (summary["doc_llm_ok"], summary["n_dl_ok"]))
+    lines.append("| 结构真实缺陷技能数（非风格建议）| %d / %d |" % (
+        summary.get("structure_defect_skills", 0), summary["n_dl_ok"]))
     lines.append("")
     lines.append("## 漂移类别分布（Top 15）")
     lines.append("")
@@ -557,6 +564,10 @@ def print_selfcheck_hint(summary, meta):
     log("[agent-todo][建议] 用实测结果反查 skill-doc-audit 自身（基准实测的初衷）——逐项校验：")
     log("  1. 回执健康：UNKNOWN=%d / FAILED=%d（非 0 ⇒ 检查器静默休眠或执行异常，须立即排查）"
         % (summary["receipt_with_unknown"], summary["receipt_with_failed"]))
+    sd = summary.get("structure_defect_skills", 0)
+    if fire.get("structure", 0) >= n and sd < n:
+        log("  1b. 结构检查器全量命中(%d/%d)，但真实结构缺陷仅 %d 个——其余为风格建议(advisory)，已分层、非误报"
+            % (fire.get("structure", 0), n, sd))
     log("  2. 检查器点火率（命中技能数 / 已审 %d）：%s"
         % (summary["n_dl_ok"], ", ".join("%s=%d" % (c, fire.get(c, 0)) for c in ran) or "无"))
     if zero_fire:

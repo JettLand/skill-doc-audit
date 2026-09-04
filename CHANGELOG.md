@@ -3,6 +3,16 @@
 本文件收录各版本的「打磨明细」（改动 + 验证），作为开发 / QA 留档。版本变动信息统一在本文件记录，README 不再保留版本摘要表（仅指向本文件）。
 
 > 排序：版本号降序（最新在前）。
+## 1.38.0 打磨明细（structure 信号饱和优化：advisory 分层）
+
+- **structure 检查器「信号饱和」优化（advisory 分层）**
+  - 根因：structure 检查器对几乎所有市场技能都发 INFO/WARN 风格建议（license_missing / placeholder / desc_four / name_mismatch / hardcoded_path / h1_name_mismatch 等），这些本身是「风格建议」而非「结构缺陷」，但被混入同一信号，导致「结构 49/49 命中」失去区分度。
+  - 改动：在 `check_structure` 返回前，将 10 个风格类 category 标记 `advisory=True`；保留 `version_missing` / `name_missing` / `desc_missing` / `broken_ref` 为真实结构缺陷（非 advisory）。
+  - 报告层：`summarize()` 新增 `advisory` / `defect` 计数；人类报告每技能汇总行显示「含风格建议 N」，使结构信号去饱和可视化。
+  - 基准层：`dev_market_bench.py` 新增 `structure_defect_skills`（含≥1 非 advisory structure finding 的技能数）指标，报告与自检提示同步展示「结构真实缺陷技能数」，全量命中但真实缺陷少时显式标注「已分层、非误报」。
+  - 不变量：未改变任何 finding 的 severity 与数量，ERROR/WARN/INFO 计数与黄金快照签名均不变（`finding_signature` 本就忽略 advisory 键）。
+
+
 ## 1.37.0 打磨明细（检查器噪声治理：hardcoded_endpoint 去重降噪 + doc_llm_agent_handoff 移出 findings）
 
 ### 修复

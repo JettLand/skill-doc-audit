@@ -125,6 +125,17 @@ def check_structure(ctx):
         if re.search(r"占位|伪代码|待补充|示例待填|修改于|更新于\s*\d{4}", line):
             findings.append(finding("structure", SEVERITY_INFO, "placeholder",
                                     "疑似占位/历史记录文本", file="SKILL.md", line=i))
+    # 风格建议类（非结构缺陷）：标记 advisory，使其不参与「结构真实缺陷」信号，
+    # 避免 structure 检查器在杂乱市场语料上 100% 命中、淹没真正缺陷信号。
+    # 仅 version_missing / name_missing / desc_missing / broken_ref 视为真实结构缺陷。
+    _ADVISORY_CATS = {
+        "name_mismatch", "license_missing", "desc_length", "desc_four",
+        "h1_name_mismatch", "no_frontmatter", "too_long", "hardcoded_path",
+        "todo_marker", "placeholder",
+    }
+    for f in findings:
+        if f["category"] in _ADVISORY_CATS:
+            f["advisory"] = True
     return findings
 
 

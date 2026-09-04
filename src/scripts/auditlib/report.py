@@ -6,7 +6,9 @@ def summarize(findings):
     e = sum(1 for f in findings if f["severity"] == SEVERITY_ERROR)
     w = sum(1 for f in findings if f["severity"] == SEVERITY_WARN)
     i = sum(1 for f in findings if f["severity"] == SEVERITY_INFO)
-    return {"error": e, "warn": w, "info": i, "pass": e == 0}
+    adv = sum(1 for f in findings if f.get("advisory"))
+    return {"error": e, "warn": w, "info": i, "advisory": adv,
+            "defect": e + w + i - adv, "pass": e == 0}
 
 
 def checker_receipt_runs(r):
@@ -99,9 +101,10 @@ def print_human(results):
                 if f.get("suggestion"):
                     print("          建议: %s" % f["suggestion"])
         tot = summarize(r["findings"])
-        print("\n  本技能汇总：ERROR %d / WARN %d / INFO %d    %s" % (
-            tot["error"], tot["warn"], tot["info"],
-            "通过" if tot["pass"] else "存在问题"))
+        _verdict = "通过" if tot["pass"] else "存在问题"
+        _adv_note = "" if not tot["advisory"] else "（含风格建议 %d）" % tot["advisory"]
+        print("\n  本技能汇总：ERROR %d / WARN %d / INFO %d    %s%s" % (
+            tot["error"], tot["warn"], tot["info"], _verdict, _adv_note))
         receipt = checker_receipt_runs(r)
         if receipt:
             print("  " + receipt)
