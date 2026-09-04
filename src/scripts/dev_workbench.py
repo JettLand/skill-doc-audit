@@ -325,6 +325,32 @@ def cmd_run(args):
     return r.returncode
 
 
+# ── commit（薄封装 dev_commit.py，确保提交必走 post-commit 同步钩子）─────────────────
+def cmd_commit(args):
+    script = os.path.join(_repo_root(), "src", "scripts", "dev_commit.py")
+    if not os.path.isfile(script):
+        sys.stderr.write("commit FAIL: 未找到 %s\n" % script)
+        return 2
+    msg = getattr(args, "message", None)
+    if not msg:
+        sys.stderr.write("commit FAIL: 需 -m 提交说明\n")
+        return 2
+    # 透传 -m；不提供 --no-verify，提交须触发 post-commit 同步钩子
+    argv = [sys.executable, script, "-m", msg]
+    r = subprocess.run(argv, cwd=_repo_root(), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.stdout:
+        sys.stdout.write(r.stdout)
+    if r.stderr:
+        sys.stderr.write(r.stderr)
+    if r.returncode != 0:
+        sys.stderr.write("commit: dev_commit.py 失败 rc=%d\n" % r.returncode)
+        return r.returncode
+    # 提交后确认部署副本已同步（零额外 shell）
+    sys.stderr.write("commit: 提交完成，校验部署副本同步状态...\n")
+    return cmd_doctor(argparse.Namespace())
+
+
 # ── run-plan（单进程批量，压缩 bash 往返）─────────────────────────────────────────
 def cmd_run_plan(args):
     plan = json.loads(_read_text(args.plan))
@@ -339,7 +365,8 @@ def cmd_run_plan(args):
                       ("contains", []), ("not_contains", []),
                       ("contains_file", []), ("not_contains_file", []),
                       ("root", None), ("section", ""), ("path", None), ("max", 0),
-                      ("script", None), ("argv", []), ("section_file", None)):
+                      ("script", None), ("argv", []), ("section_file", None),
+                      ("message", "")):
             if not hasattr(a, k):
                 setattr(a, k, dv)
         # 把文件路径相对仓库根解析
@@ -357,6 +384,8 @@ def cmd_run_plan(args):
             rc = cmd_bump(a) or rc
         elif op == "run":
             rc = cmd_run(a) or rc
+        elif op == "commit":
+            rc = cmd_commit(a) or rc
         else:
             sys.stderr.write("plan: 未知 op %s，跳过\n" % op)
             rc = rc or 2
@@ -438,6 +467,10 @@ def build_parser():
     rnp.add_argument("--script", required=True, help="仓库相对路径或绝对路径，须为 .py")
     rnp.add_argument("argv", nargs="*", help="传给脚本的参数")
     rnp.set_defaults(func=cmd_run)
+
+    cmp = sub.add_parser("commit", help="薄封装 dev_commit.py（提交并触发同步钩子）")
+    cmp.add_argument("-m", "--message", required=True, help="提交说明（必填）")
+    cmp.set_defaults(func=cmd_commit)
 
     rp = sub.add_parser("run-plan", help="单进程批量执行 JSON 计划")
     rp.add_argument("--plan", required=True)

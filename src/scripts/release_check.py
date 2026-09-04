@@ -169,12 +169,18 @@ def check_dev_workbench_usage():
     return {
         "blocking": False,
         "severity": "建议",
-        "title": "开发期改动优先用 dev_workbench.py（多字节/转义内容走文件）",
+        "title": "开发期改动请按边界使用 dev_workbench.py（提交除外）",
         "detail": "检测到未提交改动涉及开发面文件：%s" % "、".join(sorted(touched)[:6]),
-        "todo": "改 SKILL.md/脚本/CHANGELOG/DEVELOPMENT.md 时，优先用 "
-                "python src/scripts/dev_workbench.py 的 patch / verify / compile / "
-                "bump / run-plan 子命令；旧值/新值/待匹配串一律走 --*-file（规避 Edit 工具 "
-                "phantom success 与工具调用参数传输层丢参）。纯 ASCII 简单串可用内联 --old/--new。",
+        "todo": "开发面改动按以下边界使用 dev_workbench.py（提交不属其职责，勿混用）：\n"
+                "• 版本 bump / 改 SKILL.md·CHANGELOG·脚本：用 `python src/scripts/dev_workbench.py "
+                "bump --version X --section-file <tpl>` / `patch --old-file/--new-file` / `verify`；"
+                "多字节与转义内容一律走 --*-file（规避 Edit 工具 phantom success 与参数传输层丢参），"
+                "纯 ASCII 简单串可用内联 --old/--new。\n"
+                "• 只读核验（版本锚点一致性 / 部署副本同步 / git 状态 / 仓库内 grep）：用 "
+                "`dev_workbench.py doctor` / `status` / `grep`，勿用裸 Bash `git status` 或 Read/Grep。\n"
+                "• 提交：仍走 `dev_commit.py`（它会触发 post-commit 同步钩子）；也可经薄封装入口 "
+                "`python src/scripts/dev_workbench.py commit -m \"...\"`，但 commit 本身不属于 "
+                "dev_workbench，严禁裸 `git commit`。",
     }
 
 

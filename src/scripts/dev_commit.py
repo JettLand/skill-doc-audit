@@ -40,6 +40,21 @@ def main():
     ap.add_argument("--all", action="store_true",
                     help="暂存所有改动（git add -A，仍受 .gitignore 约束；用于新增文件也一并提交时）")
     args = ap.parse_args()
+    # 0) 开发工作流提醒（[agent-todo] #8）：提交前（改动仍可见）提示优先用 dev_workbench
+    #    时机早于 pre-push 门禁；dev_commit 是每次提交必跑入口，比门禁更贴近开发动作。
+    try:
+        import sys as _sys
+        _here = os.path.dirname(os.path.abspath(__file__))
+        if _here not in _sys.path:
+            _sys.path.insert(0, _here)
+        from release_check import check_dev_workbench_usage
+        _hint = check_dev_workbench_usage()
+        if _hint:
+            sys.stderr.write("[agent-todo][建议] %s\n" % _hint["title"])
+            sys.stderr.write("  %s\n" % _hint["detail"])
+            sys.stderr.write("  → %s\n" % _hint["todo"])
+    except Exception:
+        pass
 
     if not args.message.strip():
         print("[dev_commit] 错误：message 不能为空", file=sys.stderr)
