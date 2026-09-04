@@ -82,8 +82,8 @@ python src/scripts/dev_workbench.py run --script <PY路径> [-- <argv...>]   # �
 python src/scripts/dev_workbench.py run-plan --plan <JSON计划文件>   # 单进程批量执行
 python src/scripts/dev_workbench.py selftest # 内置自测
 python src/scripts/dev_workbench.py commit -m "<说明>"   # git commit 薄封装（转发 -m、跑完自动 doctor 确认同步；禁止 --no-verify）
-python src/scripts/dev_workbench.py trash --path <路径> [--force] [--dry-run]   # 移入系统回收站（绝不硬删；--force 才硬删且二次告警）
-python src/scripts/dev_workbench.py clean [--path <目录>] [--force] [--dry-run]   # 清理仓库内 temp/ 等生成物（移入回收站；默认 temp/）
+python src/scripts/dev_workbench.py trash --path <路径> [--force] [--dry-run]   # 移入系统回收站（绝不硬删；先以 canary 探针验证回收站可用，不可用则拒绝真实文件）；--force 才硬删且二次告警
+python src/scripts/dev_workbench.py clean [--path <目录>] [--force] [--dry-run]   # 清理仓库内 temp/ 等生成物（移入回收站；默认 temp/）；同样经 canary 护栏，回收站退化时拒绝而非静默硬删
 python src/scripts/dev_workbench.py audit [透传参数...]   # 薄封装 dev_self_audit.py（质量门禁；如 --strict 直接跟在子命令后）
 python src/scripts/dev_workbench.py validate [透传参数...]   # 薄封装 self_validate.py（检查器回归护栏）
 python src/scripts/dev_workbench.py diff [<git diff 参数>]   # git diff --stat（默认；只读，替代裸 git diff）
@@ -93,7 +93,7 @@ python src/scripts/dev_workbench.py sync   # 手动强制重同步部署副本�
 
 > **bump 的中文小节走文件（非内联）**：模板文件内 `{version}` 占位符替换为新版本号（用 `replace` 而非 `format`，避免正文花括号被误解析）；未提供 `--section-file` 时回退简化模板并告警——房屋风格要求「## X.Y.Z 打磨明细（副标题）」，须人工补齐。
 > **与 [agent-todo] #8 联动**：开发期改动（未提交且触及 SKILL.md / src/scripts / src/references / CHANGELOG.md / DEVELOPMENT.md / README.md）时，`dev_self_audit.py --strict` 会发 `[agent-todo][建议]` 提醒优先用本工具，详见下方指令清单。
-> **安全删除纪律**：`trash` / `clean` 永远移入系统回收站（可恢复），**绝不硬删**；仅当回收站不可用且显式 `--force` 时才硬删并二次告警，契合全局「Trash Not Delete」约定，替代了此前 `rm -f temp/*.py` 的硬删除习惯。只读核验（doctor/status/grep）与变更操作（patch/bump/commit/trash/clean/audit/validate/diff/log/sync）均为 dev 工作流统一入口。
+> **安全删除纪律**：`trash` / `clean` 永远移入系统回收站（可恢复），**绝不硬删**；先以 sacrificial canary 探针验证回收站真正可用（源消失且确实进入 `$Recycle.Bin`），不可用则**拒绝操作真实文件**而非静默硬删；仅当显式 `--force` 时才硬删并二次告警，契合全局「Trash Not Delete」约定，替代了此前 `rm -f temp/*.py` 的硬删除习惯。只读核验（doctor/status/grep）与变更操作（patch/bump/commit/trash/clean/audit/validate/diff/log/sync）均为 dev 工作流统一入口。
 
 覆盖测试：`tests/test_dev_workbench.py` 24/24 全绿（沙箱隔离、不碰真实仓库），覆盖 patch / verify / compile / bump 文件版与内联版、run-plan 四步串联、grep 截断、status 在真实 git 仓库 vs 非 git 目录的退出码差异、doctor 版本比对、selftest 正反路径。
 

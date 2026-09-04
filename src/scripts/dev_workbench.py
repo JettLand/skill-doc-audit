@@ -452,22 +452,66 @@ class _TrashUnavailable(Exception):
     pass
 
 
-def _trash_windows(path):
-    is_dir = os.path.isdir(path) and not os.path.islink(path)
-    method = "DeleteDirectory" if is_dir else "DeleteFile"
-    ps = ('Add-Type -AssemblyName Microsoft.VisualBasic; '
-          '[Microsoft.VisualBasic.FileIO.FileSystem]::%s("%s", "OnlyErrorDialogs", "SendToRecycleBin")'
-          % (method, path.replace('"', '""')))
-    b64 = base64.b64encode(b"\xff\xfe" + ps.encode("utf-16-le")).decode("ascii")
+def _in_recycle_bin(name):
+    """粗略判断名为 name 的文件是否已在系统回收站（仅作安全校验，非精确匹配）。"""
     try:
-        r = subprocess.run(["powershell", "-NoProfile", "-EncodedCommand", b64],
-                           capture_output=True)
-    except FileNotFoundError:
-        raise _TrashUnavailable("powershell 不可用")
-    out = (r.stdout or b"").decode("utf-8", "replace")
-    err = (r.stderr or b"").decode("utf-8", "replace")
-    if r.returncode != 0:
-        raise _TrashUnavailable("powershell rc=%d %s" % (r.returncode, (err or out).strip()))
+        bin_root = os.path.join(os.environ.get("SystemDrive", "C:"), "$Recycle.Bin")
+        for sid in os.listdir(bin_root):
+            d = os.path.join(bin_root, sid)
+            for root, _, files in os.walk(d):
+                for f in files:
+                    if f == name or name in f:
+                        return True
+    except OSError:
+        pass
+    return False
+
+
+def _recycle_via_com(path):
+    """经 Shell.Application COM 将文件送回收站（与资源管理器同源，正确处理含中文目录名）。
+    返回 subprocess.CompletedProcess；调用方自行判定成功/超时。路径走环境变量透传（Unicode 无损）。"""
+    env = dict(os.environ)
+    env["DEVWB_TRASH_PATH"] = os.path.abspath(path)
+    com = ('$p=$env:DEVWB_TRASH_PATH; '
+          '$sh=New-Object -ComObject Shell.Application; '
+          '$folder=$sh.Namespace((Split-Path $p)); '
+          '$item=$folder.ParseName((Split-Path $p -Leaf)); '
+          'if($item){$item.InvokeVerb("delete")}else{throw "ParseName-null:$p"}')
+    return subprocess.run(["powershell", "-NoProfile", "-Command", com],
+                          capture_output=True, env=env, timeout=15)
+
+
+def _trash_windows(path):
+    # 安全护栏：本环境（或无交互外壳的沙箱）下，回收站 API（VB / COM / SHFileOperation）实测会退化为「硬删除」。
+    # 故先用一个 sacrificial canary 验证回收站是否真可用；若 canary 被硬删（不在回收站），
+    # 则拒绝操作真实文件，绝不让静默数据丢失。真实 Windows 上 canary 会进回收站，可安全继续。
+    canary = path + ".canary-%d" % os.getpid()
+    try:
+        open(canary, "w", encoding="utf-8").close()
+        r = _recycle_via_com(canary)
+        if r.returncode != 0 or os.path.exists(canary) or not _in_recycle_bin(os.path.basename(canary)):
+            raise _TrashUnavailable("回收站不可用（canary 未安全进入回收站，疑似硬删），拒绝操作真实文件")
+    except subprocess.TimeoutExpired:
+        raise _TrashUnavailable("powershell(COM) 超时（疑似无交互外壳），拒绝操作真实文件")
+    finally:
+        if os.path.exists(canary):
+            try:
+                os.remove(canary)
+            except OSError:
+                pass
+    # canary 已进入回收站 → 真实文件回收可用
+    try:
+        r = _recycle_via_com(path)
+        if r.returncode != 0:
+            out = (r.stdout or b"").decode("utf-8", "replace")
+            err = (r.stderr or b"").decode("utf-8", "replace")
+            raise _TrashUnavailable("powershell rc=%d %s" % (r.returncode, (err or out).strip()))
+    except subprocess.TimeoutExpired:
+        raise _TrashUnavailable("powershell(COM) 超时（疑似无交互外壳），已中止，文件未删")
+    if os.path.exists(path):
+        raise _TrashUnavailable("回收站未移走真实文件（仍存在于 %s）；拒绝谎报成功" % path)
+    if not _in_recycle_bin(os.path.basename(path)):
+        raise _TrashUnavailable("检测到真实文件被硬删除（不在回收站）——环境回收站退化，已发生数据丢失，请改用 --force 显式确认或手动处理")
 
 
 def _trash_darwin(path):
