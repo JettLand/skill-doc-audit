@@ -247,7 +247,11 @@ def cmd_grep(args):
     hits = 0
     for dirpath, _dirs, files in os.walk(root):
         for fn in files:
-            if not fn.endswith((".py", ".md", ".txt", ".json")):
+            # 跳过已知二进制；其余按文本尝试（解码失败由下方 try/except 兜底），
+            # 从而覆盖仓库全部文本文件（含 .sh/.yaml/.ts 等），实现"只读核验作用于所有文件"。
+            if fn.endswith((".pyc", ".pyo", ".png", ".jpg", ".jpeg", ".gif", ".bmp",
+                            ".ico", ".zip", ".gz", ".tar", ".tgz", ".pdf", ".exe",
+                            ".dll", ".so", ".dylib", ".bin", ".dat", ".woff", ".woff2")):
                 continue
             fp = os.path.join(dirpath, fn)
             try:
