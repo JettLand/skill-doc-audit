@@ -91,6 +91,15 @@ def main():
     print("[bump-audit] 检测到%s变动 v%s → v%s —— 自动审计（doc + doc-llm agent 模式 + dev 文档）"
           % (kind_cn, prev, cur))
     print("=" * 72)
+
+    if kind in ("minor", "major"):
+        # [agent-todo #6] 直达提示：不依赖 post-commit -> dev_self_audit -> check-bump 深链路，
+        # 确保在提交回显顶部 agent 一定能看到；与 dev_market_bench.check_bump 口径一致。
+        print("")
+        print("  [agent-todo][建议] ⚠ 决策点：次/主版本变动——是否运行「市场质量基准实测器」做完整实测？")
+        print("  次/主版本属质量高风险点（检查器逻辑 / 误报抑制 / 风险口径可能变动）；建议评估是否运行一次规模化基准以验证稳定性：")
+        print("  → python src/scripts/dev_workbench.py run --script src/scripts/dev_market_bench.py run --sample 50 --seed 2029 --dedup 3")
+        print("  （仅在人工要求或本建议触发时启用，不进自动调度、绝不由本提示自动触发 run）")
     # 调 dev_self_audit（不带 --strict 作早期反馈；带 --no-sync-check 因 post-commit 已 sync）。
     # 输出直接透传给调用方（post-commit 终端 / agent 可见），不阻断 commit。
     try:
