@@ -21,7 +21,7 @@
 |---|---|---|---|
 | 源码自审计器 | `src/scripts/dev_self_audit.py` | 守**发布质量**：同步校验（副本↔src）+ 审计最新源码发布面 + dev 文档漂移 + 发布就绪检查（`[agent-todo]`） | 每次 `git commit`（post-commit 同步 + 版本 bump 提交经 `bump_audit` 自动跑它作早期反馈）/ `git push`（pre-push 门禁）/ 推 PR（dev-qa CI）；也手动跑 |
 | 市场质量基准实测器 | `src/scripts/dev_market_bench.py` | 守**「规模化真实世界」**：按官方市场列表 API 随机抽 sample 个技能、批量跑全量检查，验证检查器在长尾技能上的稳定性与 doc-llm 真实执行 | **不进自动调度**：仅人工要求时启用（`run`）；`check-bump` 子命令供 `dev_self_audit` 在版本变动 / 未提交时打印 `[agent-todo]` 提示（含次/主版本变动时的基准实测决策点），绝不直接触发 `run` |
-| 开发工作台 | `src/scripts/dev_workbench.py` | 守**改动落盘的可靠性**：字节级 patch / 断言复核 / 递归 py_compile / 版本 bump / 纯 Python grep / git 状态 / JSON 计划单进程批量执行（多字节与转义内容走 `--*-file`，规避 Edit 工具 phantom success 与工具调用参数传输层丢参） | 纯按需手动调用（不进任何钩子 / CI）；`[agent-todo]` #8 在检测到开发面未提交改动时提醒优先用它 |
+| 开发工作台 | `src/scripts/dev_workbench.py` | 守**改动落盘的可靠性**：字节级 patch / 断言复核 / 递归 py_compile / 版本 bump / 覆盖全部文本文件的纯 Python grep / git 状态 / git commit 薄封装（commit）/ JSON 计划单进程批量执行（多字节与转义内容走 `--*-file`，规避 Edit 工具 phantom success 与工具调用参数传输层丢参） | 纯按需手动调用（不进任何钩子 / CI）；`[agent-todo]` #8 在检测到开发面未提交改动时提醒优先用它 |
 
 > 其余 `self_validate.py` / `make_fixtures.py` / `sync_deploy.py` / `release_check.py` / `_devcommon.py` / `bump_audit.py` 为检查器回归护栏、fixture 生成、副本同步、发布就绪检查、共享样板等基础设施，不属于「三套辅助开发工具」本身，但支撑前述三套工具运转。
 
@@ -55,7 +55,7 @@ python src/scripts/dev_market_bench.py check-bump                # 版本监测�
 
 ### 开发工作台（dev_workbench.py）
 
-`src/scripts/dev_workbench.py` 是开发工作台（v1.35.0 由 `dev_orchestrate.py` 更名而来；该名 v1.34.7 由 `devkit.py` 重命名得到）——更名理由：本工具不编排任何外部流程，实为单进程内的开发期文件操作与校验工作台，原名 orchestrate（编排）词不达意：**不替代 bash**，而是把开发期对 shell 的脆弱依赖压缩到最小——凡能在一个 Python 进程内完成的字节级 patch / 断言复核 / 编译 / 版本 bump / git 状态 / 计划批量，都不经 bash 命令行传递多字节或转义内容，降低对 shell 调用层的暴露面。动机：本会话反复踩的 Edit 工具 phantom success（报成功但磁盘未变）与工具调用参数传输层间歇丢参（`command` / `file_path` 随机变 undefined）——多字节/转义内容移出命令行即可规避。
+`src/scripts/dev_workbench.py` 是开发工作台（v1.35.0 由 `dev_orchestrate.py` 更名而来；该名 v1.34.7 由 `devkit.py` 重命名得到）——更名理由：本工具不编排任何外部流程，实为单进程内的开发期文件操作与校验工作台，原名 orchestrate（编排）词不达意：**不替代 bash**，而是把开发期对 shell 的脆弱依赖压缩到最小——凡能在一个 Python 进程内完成的字节级 patch / 断言复核 / 编译 / 版本 bump / git 状态 / git commit 薄封装 / 计划批量，都不经 bash 命令行传递多字节或转义内容，降低对 shell 调用层的暴露面。动机：本会话反复踩的 Edit 工具 phantom success（报成功但磁盘未变）与工具调用参数传输层间歇丢参（`command` / `file_path` 随机变 undefined）——多字节/转义内容移出命令行即可规避。
 
 设计要点（dev-only，不进部署副本、列入 `DEV_TOOLS` 排除集）：
 
@@ -75,11 +75,12 @@ python src/scripts/dev_workbench.py verify --file <路径> \
 python src/scripts/dev_workbench.py compile [--root <目录>]   # 递归 py_compile，逐文件报告
 python src/scripts/dev_workbench.py bump --version X.Y.Z --section-file <CHANGELOG小节模板> \
   # 版本号三锚点同步（SKILL.md frontmatter / 源码内 User-Agent / CHANGELOG 小节）+ 中文内容走文件（{version} 占位符）
-python src/scripts/dev_workbench.py grep --pattern <正则> [--path <目录>] [--max N]   # 纯 Python 递归 grep
+python src/scripts/dev_workbench.py grep --pattern <正则> [--path <目录>] [--max N]   # 纯 Python 递归 grep（跳过已知二进制，覆盖仓库全部文本文件）
 python src/scripts/dev_workbench.py status   # git status --short（一次 subprocess 封装）
 python src/scripts/dev_workbench.py doctor   # 环境探针（零 shell 依赖）
 python src/scripts/dev_workbench.py run-plan --plan <JSON计划文件>   # 单进程批量执行
 python src/scripts/dev_workbench.py selftest # 内置自测
+python src/scripts/dev_workbench.py commit -m "<说明>"   # git commit 薄封装（转发 -m、跑完自动 doctor 确认同步；禁止 --no-verify）
 ```
 
 > **bump 的中文小节走文件（非内联）**：模板文件内 `{version}` 占位符替换为新版本号（用 `replace` 而非 `format`，避免正文花括号被误解析）；未提供 `--section-file` 时回退简化模板并告警——房屋风格要求「## X.Y.Z 打磨明细（副标题）」，须人工补齐。
@@ -242,7 +243,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 
 > 注：第 6/7 类（`[agent-todo]`）的**审计执行**自 v1.27.19 起已由上表第 6 步 `dev_self_audit --strict` 自动覆盖，v1.27.21 起不再作为「agent 必须手动跑命令」的指令打印（见下方指令清单表后说明），避免与钩子重复、且误导为手动门禁。
 
-> 下列「指令清单」汇总本地 CI **所有可能发出的 `[agent-todo]`**，逐项给出：触发条件、发出的指令（可照做动作）、严重度与是否阻断。其中第 1–3 类来自 `release_check.py`（版本一致性 / CHANGELOG 收口 / temp 清理），第 4–7 类来自 `dev_market_bench.py check-bump`（第 4 类上架授权为 `[必须]` 阻断、任何版本变化都打印；第 5 类文档无版本叙述、第 6 类基准实测建议[次/主版本]、第 7 类未提交提示为 `[建议]` 不阻断；第 7 类常驻、不依赖版本变动）；第 8 类（开发工作流提醒，[建议] 不阻断）来自 `release_check.check_dev_workbench_usage`，仅在检测到未提交开发面改动时提示，非发布门禁。
+> 下列「指令清单」汇总本地 CI **所有可能发出的 `[agent-todo]`**，逐项给出：触发条件、发出的指令（可照做动作）、严重度与是否阻断。其中第 1–3 类来自 `release_check.py`（版本一致性 / CHANGELOG 收口 / temp 清理），第 4–7 类来自 `dev_market_bench.py check-bump`（第 4 类上架授权为 `[必须]` 阻断、任何版本变化都打印；第 5 类文档无版本叙述、第 6 类基准实测建议[次/主版本]、第 7 类未提交提示为 `[建议]` 不阻断；第 7 类常驻、不依赖版本变动）；第 8 类（开发工作流提醒，[建议] 不阻断）来自 `release_check.check_dev_workbench_usage`，**可靠触发点已下移至 `dev_commit.py` 提交前**（开发面改动仍可见时必触发），`dev_self_audit` 保留为冗余安全网（提交后树已干净、通常不再触发）；非发布门禁。
 
 | # | 标识 / 严重度 | 触发条件 | 发出的 `[agent-todo]` 指令（原文要点） | 阻断 |
 |---|---|---|---|---|
@@ -253,7 +254,7 @@ dev 专用 CLI 旗标（`--dev-docs` / `dev_audit=True` / `exclude`）仅在运�
 | 5 | `[agent-todo][建议]` | **任何版本变化**（x.y.z 任一字段变动，**含补丁号**） | `版本变动时用户文档（SKILL.md / references/*）无需写入版本变动叙述`：如「vX.Y.Z 新增 / 升级」类里程碑叙述应留在开发者文档（CHANGELOG.md）；用户文档只描述当前能力本身。→ 发版前复核 SKILL.md 与 references/*.md 是否混入版本号里程碑叙述，有则删除 | 否 |
 | 6 | `[agent-todo][建议]` | **次版本 / 主版本变动**（x.y / X.y，x 或 y 中任一变动） | `⚠ 决策点：是否运行「市场质量基准实测器」做完整实测？`：次/主版本属质量高风险点（检查器逻辑 / 误报抑制 / 风险口径可能变动），建议评估是否运行一次规模化基准验证稳定性 → `python src/scripts/dev_market_bench.py run`（默认随机抽 50 个市场技能全量审计；可 `--sample` / `--seed` / `--dedup`）；仅在人工要求或本建议触发时启用，不进自动调度、绝不由 `check-bump` 自动触发 `run` | 否 |
 | 7 | `[agent-todo][建议]` | 仓库存在未提交改动（`git status --porcelain` 非空） | `检测到未提交的本地改动，请立即本地 commit`：本地提交即触发 post-commit 钩子同步部署副本，避免 src 与部署副本 / 版本号长期脱节；提交与发布解耦，未上架也可随时提交。→ `python src/scripts/dev_commit.py -m "<有意义说明>"`（静态提交助手：自动 git add -u + commit，commit 触发 post-commit 同步部署副本；新增文件加 --all 或显式传路径） | 否 |
-| 8 | `[agent-todo][建议]` | 未提交改动触及「开发面文件」（SKILL.md / src/scripts / src/references / CHANGELOG.md / DEVELOPMENT.md / README.md） | `开发期改动优先用 dev_workbench.py`：改这些文件时优先用 `python src/scripts/dev_workbench.py` 的 patch / verify / compile / bump / run-plan 子命令；旧值/新值/待匹配串走 `--*-file`（规避 Edit 工具 phantom success 与参数传输层丢参）。仅 [建议] 提示、不阻断、不升退出码 | 否 |
+| 8 | `[agent-todo][建议]` | 未提交改动触及「开发面文件」（SKILL.md / src/scripts / src/references / CHANGELOG.md / DEVELOPMENT.md / README.md） | `开发面改动按边界使用 dev_workbench.py（提交不属其职责）`：• 版本 bump / 改 SKILL.md·CHANGELOG·脚本：用 `dev_workbench.py bump --version X --section-file <tpl>` / `patch --old-file/--new-file` / `verify`，多字节与转义走 `--*-file`；• 只读核验（版本锚点/部署同步/git 状态/grep）：用 `dev_workbench.py doctor` / `status` / `grep`，勿用裸 Bash `git status` 或 Read/Grep；• 提交：走 `dev_commit.py`（触发 post-commit 同步），或经薄封装 `dev_workbench.py commit -m "..."`，但 commit 本身不属 dev_workbench、严禁裸 `git commit`。仅 [建议]、不阻断、不升退出码 | 否 |
 
 > **旧第 6 / 7 类已于 v1.27.21 退役（与 `pre-push` 钩子的执行重叠）**：`pre-push` 在每次推 `main` 前已自动跑 `dev_self_audit.py --strict`（其内硬编码 doc-llm agent 模式、dev_docs 写死含 README/CHANGELOG）+ `self_validate.py`，并对 doc-llm 确定性「正向覆盖缺口」做门禁、落盘报告 `bench/agent_audit_report.md`。因此旧第 6 类（补丁号 doc+doc-llm 文档自审计）与旧第 7 类（次/主版本全量自审计）的**执行已被钩子 100% 覆盖**——继续把它们作为 `[agent-todo][必须]`（阻断）的「agent 必须手动跑命令」指令，既与钩子重复、又误导为手动门禁，故 v1.27.21 从 `dev_market_bench.py check-bump` 移除这两条打印：
 > - 审计的**门禁**由钩子跑审计后的检查器结果决定（如确有 doc 漂移，doc 检查器报错即拦 push），不依赖 agent 手动跑命令；

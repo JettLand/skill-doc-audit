@@ -60,11 +60,12 @@
 | `verify --file F [--contains-file C] [--not-contains-file N]` | 断言含/不含子串，打印匹配行 repr | `grep` + `echo` 复核 |
 | `compile [--root src/scripts]` | 递归 py_compile 全部 .py | `python -m py_compile ...` |
 | `bump --version X.Y.Z [--section ...]` | 三锚点同步 + CHANGELOG 小节 | 现写 `bump_*.py` |
-| `grep --pattern P [--path G]` | 纯 Python grep（Grep 工具备用） | `grep -rn` |
+| `grep --pattern P [--path G]` | 纯 Python grep（跳过已知二进制，覆盖仓库全部文本文件；Grep 工具备用） | `grep -rn` |
 | `status` | `git status --short`（一次 subprocess） | `git status` |
 | `doctor` | 纯 Python 环境探针（python 版本 / git 在 PATH / 部署副本 / 三锚点一致），**零 shell 依赖** | 手写多行 shell 探针 |
 | `run-plan --plan P.json` | 单进程批量执行计划 | 多次 bash 往返 |
 | `selftest` | 内置自测 | — |
+| `commit -m "..."` | `dev_commit.py` 薄封装（转发 -m、跑完自动 doctor 确认同步；禁止 --no-verify） | 裸 `git commit` |
 
 文件位置：`src/scripts/dev_workbench.py`，已加入 `DEV_TOOLS`（core.py）排除集，不进发布面审计。
 （过渡期旧 `devkit.py` 仍列于 `DEV_TOOLS`，待 Bash 恢复后 `git rm` 删除。）
@@ -98,8 +99,7 @@ python src/scripts/dev_workbench.py selftest           # 套件自测
 - 仍依赖至少一次 shell 启动 Python；若 shell 完全不可用，dev-workbench 也无法运行
   （届时退回 Read/Grep 工具做静态复核，git 操作交用户手动）。
 - `bump` 的 CHANGELOG 锚点写死「排序说明」行；若该行改动需同步。
-- 后续可把 `dev_commit.py` 的提交动作也纳入 `run-plan`，使「patch→verify→compile→commit」
-  全链路单进程化（需谨慎处理 git 凭据交互，仍归用户）。
+- 已落地 `commit` 薄封装子命令（`dev_workbench.py commit -m "..."` → `dev_commit.py`）；提交经 `run-plan` 可串联「patch→verify→compile→commit」全链路单进程化（git 凭据交互仍归用户）。
 - 建议：`self_validate.py` / `dev_self_audit.py` 的发布门禁保持不变；dev-workbench 仅作为
   agent 开发期的「抗脆弱」辅助，不进部署副本、不影响被审技能质量。
 - **沉淀为可复用经验**：本「工具调用参数间歇丢参 → 重试 + 单进程编排降暴露面 + 跨 shell 工具冗余」
