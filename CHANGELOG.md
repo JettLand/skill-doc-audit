@@ -3,6 +3,20 @@
 本文件收录各版本的「打磨明细」（改动 + 验证），作为开发 / QA 留档。版本变动信息统一在本文件记录，README 不再保留版本摘要表（仅指向本文件）。
 
 > 排序：版本号降序（最新在前）。
+## 1.37.0 打磨明细（检查器噪声治理：hardcoded_endpoint 去重降噪 + doc_llm_agent_handoff 移出 findings）
+
+### 修复
+
+- **`hardcoded_endpoint` 噪声治理（security 检查器）**：基准实测中某技能 `assets/api-data.json`（1691 行数据文件）内含大量公网 URL，旧逻辑逐行扫描数据文件且无去重，单技能重复标记 71 条 WARN。修法：① 纯数据文件（.json 等 `CODE_DATA_EXT`）内的 URL 降为 INFO（属数据集内容，非代码硬编码端点）；② 按 host 去重，同一主机在**同一文件内**至多告警一次。修复后该技能由 71 条 WARN 降至按唯一 host 计数的少量 INFO。
+- **`doc_llm_agent_handoff` 移出 findings（doc-llm 检查器）**：旧实现每次 agent 模式都无条件 append 一条 `doc_llm_agent_handoff` INFO finding，导致 doc-llm 在 agent 模式下恒有 1 条 finding、呈现「100% 技能都被标记」假象，污染 WARN/ERROR 计数与黄金快照。修法：交接信号改为由 stderr `AGENT_TAKEOVER` 哨兵 + 回执 `_meta.handoff_dossier` 传达，不再计入 findings；doc-llm agent 模式返回 0 findings。
+
+### 验证
+
+- 基准回放：解析 `round_2026/2027/2028.json` 真实 findings 确认 ②③ 为检查器/度量缺陷（见 `bench/market_bench/close_loop_findings_2026-09-04.md`）。
+- `self_validate` 全绿（`hardcoded_endpoint` 改动不影响 dirty fixture：`error=10` 不变；fixtures 无 URL 数据文件，黄金快照不受影响）。
+- `dev_self_audit --strict` 全绿。
+
+
 
 ## 1.36.0 打磨明细（security 检查器硬编码密钥误报治理）
 

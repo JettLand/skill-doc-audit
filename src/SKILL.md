@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.36.0"
+version: "1.37.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -342,7 +342,7 @@ python scripts/audit_docs.py --skill src --all-checks
 | `DOC_CAPABILITY_DRIFT` | 文档声称的能力在代码中无对应实现 | WARN |
 | `DOC_CAPABILITY_MISSING` | 代码声明的能力文档未提及（正向覆盖缺口） | WARN |
 | `DOC_LLM_DRIFT` | 文档/代码语义漂移（agent 判定，doc-llm） | WARN |
-| `doc_llm_agent_handoff` | 语义漂移检测已转交 agent 接手（dossier 已写入，agent 将自行比对） | INFO |
+| `doc_llm_agent_handoff` | （v1.37.0 起不再作为 finding 产出）语义漂移检测交接信号改由 stderr `AGENT_TAKEOVER` 哨兵 + 回执 `_meta.handoff_dossier` 传达；本标签仅保留作历史兼容 | — |
 | `ask_undecided` | 决策未决（非交互环境 ask 无法征询用户，语义漂移检测硬失败挂起，须显式 `--doc-llm-mode agent/off` 重跑） | ERROR |
 
 > 结构化声明 ↔ 代码事实交叉校验（`DOC_ENUM_DRIFT` / `DOC_COUNT_DRIFT` / `DOC_CAPABILITY_DRIFT` / `DOC_CAPABILITY_MISSING`，均 `WARN` 仅作线索）；自由散文语义漂移由独立的 `doc-llm` 检查器覆盖（由 agent 直接接手、不再调外部 LLM）。完整机制见 `references/checkers.md`。

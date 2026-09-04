@@ -9,6 +9,7 @@ def check_security(ctx):
     code = ctx["code"]
 
     for rel, content in code.items():
+        seen_hosts = set()  # hardcoded_endpoint 按 host 去重（v1.37.0）：每文件内同一主机至多告警一次
         for i, line in enumerate(content.splitlines(), 1):
             if any(tok in line for tok in SCAN_SKIP_TOKENS):
                 # 含检查器自身检测常量/调用的行（re.compile / subprocess|os.system 等）
@@ -18,16 +19,26 @@ def check_security(ctx):
             # 硬编码远端端点（供应链风险）：仅排除注释行、并要求行内含代码上下文
             # （赋值/调用/返回），避免把文档叙述/注释中的示例 URL 误报（如检查器自身 docstring）。
             # 文档/示例/SDK 主机已在下方排除，避免把正常链接误报为硬编码端点。
+            # 校准（v1.37.0）：纯数据文件（.json 等 CODE_DATA_EXT）内的 URL 属数据集内容而非代码
+            #   硬编码端点，降为 INFO 且不计入供应链告警噪声；并按下方的 host 去重，避免数据文件大量
+            #   同主机 URL 刷屏（如某技能 assets/api-data.json 内同一公网主机被重复标记数十次 WARN）。
             _ep = ENDPOINT_RE.search(line)
             _ep_comment = line.strip().startswith(("#", "//", "/*", "*", "<!--"))
             _ep_context = re.search(r"[=(\[]|return |yield ", line) is not None
             if _ep and not _ep_comment and _ep_context \
                     and _ep.group(1) not in EXCLUDE_ENDPOINT_HOSTS \
                     and not _ep.group(1).endswith(".example.com"):
-                findings.append(finding("security", SEVERITY_WARN, "hardcoded_endpoint",
-                                        "脚本硬编码远端端点: %s (%s)" % (_ep.group(0), rel),
-                                        file=rel, line=i,
-                                        suggestion="远端地址建议提取为配置/环境变量，避免供应链被定点篡改"))
+                _ep_host = _ep.group(1)
+                if _ep_host not in seen_hosts:
+                    seen_hosts.add(_ep_host)
+                    _ep_is_data = rel.lower().endswith(CODE_DATA_EXT)
+                    _ep_sev = SEVERITY_INFO if _ep_is_data else SEVERITY_WARN
+                    _ep_sug = ("数据文件内的 URL 属数据集内容（非代码硬编码端点），若确为可调端点建议提取为配置/环境变量"
+                               if _ep_is_data else
+                               "远端地址建议提取为配置/环境变量，避免供应链被定点篡改")
+                    findings.append(finding("security", _ep_sev, "hardcoded_endpoint",
+                                            "脚本硬编码远端端点: %s (%s)" % (_ep.group(0), rel),
+                                            file=rel, line=i, suggestion=_ep_sug))
             # 误报自纠错（上下文感知）：注释 / 文档 URL / 自引用资源上溯 不视为漏洞，
             # 统一作用于所有 security 正则，避免上下文盲误报。
             if _security_irrelevant(line):

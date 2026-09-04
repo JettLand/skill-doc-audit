@@ -173,11 +173,13 @@ def check_doc_llm(ctx):
             "[doc-llm] 语义漂移检测已由 agent 直接接手（使用 agent 自身能力，不依赖外部 LLM、但会占用 agent 自身推理 token（输入侧为主））。"
             "请 agent 读取上方 dossier 并完成语义比对。\n"
         )
-        findings.append(finding(
-            "doc-llm", SEVERITY_INFO, "doc_llm_agent_handoff",
-            "doc-llm 语义检测转交 agent 接手：dossier 已写入 %s。agent 将使用自身能力比对 SKILL.md 与代码事实清单，会占用 agent 推理 token（输入侧为主），但不向外部 LLM 服务付费。" % dossier,
-            suggestion="agent 读取 dossier，比对文档声称的能力/默认值/行为/数量/集合与代码事实清单，回报潜在语义漂移。",
-        ))
+        # 交接通知不再计入 findings（v1.37.0 修复）：原实现每次 agent 模式都无条件 append 一条
+        # doc_llm_agent_handoff INFO finding，导致 doc-llm 在 agent 模式下恒有 1 条 finding、
+        # 呈现「100% 技能都被标记」的假象，污染 WARN/ERROR 计数与黄金快照。实际交接信号已由上方
+        # stderr 的 AGENT_TAKEOVER 哨兵传达给 agent；此处仅把 dossier 路径等结构化信息记入 _meta，
+        # 供机读回执消费，不污染 findings。
+        ctx["_meta"]["handoff"] = True
+        ctx["_meta"]["handoff_dossier"] = dossier
         return findings
     if mode == "off":
         if degraded:

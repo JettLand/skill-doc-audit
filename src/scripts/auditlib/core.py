@@ -209,7 +209,6 @@ CATEGORY_LABELS = {
     "DOC_CAPABILITY_MISSING": "代码声明的能力文档未提及（能力覆盖缺口）",
     # doc-llm：语义漂移检测（Vector 2，v1.22.0 引入、v1.23.0 纳入全量，v1.24.0 起由 agent 直接接手，不再依赖外部 LLM）
     "DOC_LLM_DRIFT": "文档/代码语义漂移（agent 判定）",
-    "doc_llm_agent_handoff": "语义漂移检测已转交 agent 接手",
     "ask_undecided": "决策未决（非交互环境，ask 模式无法征询用户，已硬失败挂起，需显式 --X-mode 重跑）",
     "B_STATUS": "运行状态枚举（供 AI 复核）",
     "B_CONFIG": "配置项枚举（供 AI 复核）",
