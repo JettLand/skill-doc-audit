@@ -36,8 +36,8 @@
 | doc | `DEAD_FLAG` | 失效命令行参数 | 文档提到的命令行参数在代码中无实现 | ERROR |
 | doc | `EXIT_DOC_ONLY` | 文档独有退出码 | 文档列了退出码，但代码从不返回 | ERROR |
 | doc | `EXIT_CODE_ONLY` | 代码独有退出码 | 代码会返回某退出码，但文档未列 | ERROR |
-| doc | `UNKNOWN_IDENT` | 未知标识符 | 文档提到的 snake_case 标识符在代码/声明中不存在（已自动跳过 frontmatter 与文档中声明的外部 MCP/插件工具名，避免对 Agent 类技能误报） | WARN |
-| doc | `VERSION_MISSING` | 缺少版本声明 | SKILL.md 缺少 version 声明 | ERROR |
+| doc | `UNKNOWN_IDENT` | 未知标识符 | 文档提到的 snake_case 标识符在代码/声明中不存在（已自动跳过 frontmatter 与文档中声明的外部 MCP/插件工具名，避免对 Agent 类技能误报；**技能无可解析源码时本项整体跳过**——无符号可比对时恒为假阳性） | ERROR |
+| doc | `NO_CODE_BASELINE` | 无可分析源码 | 技能仅含数据文件（`.json` 等）、无任一可解析源码文件时，文档↔代码交叉校验（失效参数 / 退出码 / 标识符）整体跳过并留此痕迹（可观测，避免「跳过」被误读为「无问题」） | INFO |
 | doc | `EXTERNAL_REF` | 外部裸文件名引用 | 裸文件名引用，可能指向技能外文件，需人工确认 | INFO |
 | doc | `B_STATUS` | 运行状态枚举 | 运行状态全集（供 AI 复核） | INFO |
 | doc | `B_CONFIG` | 配置项枚举 | 配置项全集（供 AI 复核） | INFO |
@@ -49,7 +49,7 @@
 | doc-llm | `doc_llm_agent_handoff` | 语义漂移检测已转交 agent 接手 | 用户选「agent 接手」或显式 `--doc-llm-mode agent`：脚本写 dossier（SKILL.md 全文 + 代码事实清单 + 正向覆盖缺口预分析 + 比对要点）+ 打印 `AGENT_TAKEOVER` 哨兵，由 agent 读取后自行比对 | INFO |
 | doc-llm | `ask_undecided` | 决策未决（非交互硬失败，兜底） | 仅当用户**显式** `--doc-llm-mode ask`（或裸跑默认 ask）且处于非交互环境（stdout/stderr 任一非 TTY）、且绕过执行前一次性决策门时触发：无法询问 → 硬失败挂起（ERROR，退出码 1），强制以显式 `--doc-llm-mode agent/off` 重跑。v1.34.6 起非交互默认 ask 由**执行前一次性决策门**（`PRE_RUN_DECISION_JSON` 哨兵、退出码 130）统一接管，本项仅作逐检查器兜底。与 deadcode/examples 一致。不再静默软跳过（旧 `doc_llm_skipped` INFO 已弃用） | ERROR |
 | structure | `name_mismatch` | 名称不一致 | frontmatter name 与目录名不一致 | WARN |
-| structure | `version_missing` | 版本缺失 | 缺少合规 version | ERROR |
+| structure | `version_missing` | 版本缺失 | 缺少合规 version（**v1.35.0 起版本检查单一归属本项**：原 doc 侧 `VERSION_MISSING` 与之判定等价、命中完全重合，已移除以免同一问题重复计数） | ERROR |
 | structure | `name_missing` | 名称缺失 | 缺少 name 声明 | ERROR |
 | structure | `license_missing` | 许可证缺失 | 缺少 license 声明 | WARN |
 | structure | `h1_name_mismatch` | 标题与名称不一致 | 正文 H1 与 name/displayName 不一致 | WARN |

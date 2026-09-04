@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""dev-orchestrate —— skill-doc-audit 开发编排层（dev orchestration layer）。
+"""dev-workbench —— skill-doc-audit 开发工作台（dev workbench）。
 
-定位（v1.34.7 重定位）
+定位（v1.34.7 重定位；v1.35.0 由 dev_orchestrate.py 更名为 dev_workbench.py）
+========================
+更名理由：本工具并不编排任何外部流程，它是「单进程内的开发期文件操作与校验工作台」
+（patch / verify / compile / bump / grep / status / run-plan / doctor / selftest），
+原名 orchestrate（编排）词不达意、易被误读成流程调度器。
+
 ========================
 本工具不是「替代 bash」，而是把开发期对 shell 的脆弱依赖**压缩到最小**：凡是能在一个
 Python 进程内完成的事（字节级 patch / 断言复核 / 编译 / 版本 bump / git 状态 / 计划批量），
 都不经 bash 命令行传递多字节或转义内容，从而降低对 shell 调用层的暴露面。仍须至少一次
-`python dev_orchestrate.py <sub>` 的 shell 启动——这是物理事实，绕不开。
+`python dev_workbench.py <sub>` 的 shell 启动——这是物理事实，绕不开。
 
 设计动机：本会话反复踩的坑
 ============================
@@ -28,9 +33,9 @@ Python 进程内完成的事（字节级 patch / 断言复核 / 编译 / 版本 
    patch/verify/compile/status，把原本 N 次 shell 往返压缩为 1 次，显著降低因单次
    传输丢参而整批失败的概率；任一步失败即中止并给非零退出码。
 - **幂等可重跑**：每个子命令只读/写明确路径，无副作用累积；计划中断后重跑安全。
-- **跨 shell 工具冗余**：启动行 `python src/scripts/dev_orchestrate.py <sub>` 是纯 ASCII、
+- **跨 shell 工具冗余**：启动行 `python src/scripts/dev_workbench.py <sub>` 是纯 ASCII、
    跨 shell 通用（bash / powershell / cmd 皆认）。当 Bash 工具丢参时，改用 PowerShell
-   工具（或反之）用**同一行**重试——这是针对「传输层丢参」的冗余容错，dev-orchestrate
+   工具（或反之）用**同一行**重试——这是针对「传输层丢参」的冗余容错，dev-workbench
    自身不根绝该 bug，只减少其暴露面并提供幂等可重跑路径。
 - **验证不依赖 bash echo/cat**：`verify` 直接读字节、对匹配行打印 `repr()`，等价于用
    Read 工具复核磁盘，但可在同一次进程内完成。
@@ -61,7 +66,7 @@ import sys
 # ── 路径解析：从本文件向上定位仓库根（与 tests/ 下测试脚本同源手法）──────────────
 def _repo_root():
     d = os.path.dirname(os.path.abspath(__file__))
-    # src/scripts/dev_orchestrate.py -> 仓库根 = 上两级
+    # src/scripts/dev_workbench.py -> 仓库根 = 上两级
     cand = os.path.dirname(os.path.dirname(d))
     if os.path.isfile(os.path.join(cand, "src", "scripts", "audit_docs.py")):
         return cand
@@ -384,7 +389,7 @@ def cmd_selftest(args):
 
 
 def build_parser():
-    p = argparse.ArgumentParser(description="dev-orchestrate")
+    p = argparse.ArgumentParser(description="dev-workbench")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pp = sub.add_parser("patch", help="字节级替换（旧/新值来自文件）")

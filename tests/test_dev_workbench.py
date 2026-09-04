@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""test_dev_orchestrate.py —— dev-orchestrate 开发编排层全子命令回归测试。
+"""test_dev_workbench.py —— dev-workbench 开发编排层全子命令回归测试。
 
 不进部署副本、不触碰真实仓库：版本类操作（bump / run-plan 含 bump）在临时沙箱仓库内执行——
-沙箱结构 tmp/{src/SKILL.md, src/scripts/dev_orchestrate.py, src/scripts/auditlib/sources.py,
+沙箱结构 tmp/{src/SKILL.md, src/scripts/dev_workbench.py, src/scripts/auditlib/sources.py,
 CHANGELOG.md}，脚本 _repo_root() 会解析到 tmp（无 audit_docs.py 时回退 .git 上溯失败→取 cand）。
 
-运行：python tests/test_dev_orchestrate.py
+运行：python tests/test_dev_workbench.py
 """
 import json
 import os
@@ -17,7 +17,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-SRC_SCRIPT = os.path.join(REPO, "src", "scripts", "dev_orchestrate.py")
+SRC_SCRIPT = os.path.join(REPO, "src", "scripts", "dev_workbench.py")
 PY = sys.executable
 
 fails = []
@@ -37,9 +37,9 @@ def run(script, *args, **kw):
 
 
 def mk_sandbox(root):
-    """构造最小仓库沙箱，返回沙箱内 dev_orchestrate.py 路径。"""
+    """构造最小仓库沙箱，返回沙箱内 dev_workbench.py 路径。"""
     os.makedirs(os.path.join(root, "src", "scripts", "auditlib"))
-    shutil.copy(SRC_SCRIPT, os.path.join(root, "src", "scripts", "dev_orchestrate.py"))
+    shutil.copy(SRC_SCRIPT, os.path.join(root, "src", "scripts", "dev_workbench.py"))
     with open(os.path.join(root, "src", "SKILL.md"), "w", encoding="utf-8", newline="") as f:
         f.write('---\nname: sandbox\nversion: "9.9.8"\n---\n\n# sandbox\n')
     with open(os.path.join(root, "src", "scripts", "auditlib", "sources.py"), "w",
@@ -47,7 +47,7 @@ def mk_sandbox(root):
         f.write('UA = "skill-doc-audit/9.9.8"\n')
     with open(os.path.join(root, "CHANGELOG.md"), "w", encoding="utf-8", newline="") as f:
         f.write("# 变更明细（CHANGELOG）\n\n> 排序：版本号降序（最新在前）。\n")
-    return os.path.join(root, "src", "scripts", "dev_orchestrate.py")
+    return os.path.join(root, "src", "scripts", "dev_workbench.py")
 
 
 tmp = tempfile.mkdtemp(prefix="dev_orch_test_")
@@ -124,7 +124,7 @@ try:
           rc == 0 and "version-anchors" in err and "deploy-copy" in err, err)
 
     # ---- run ----
-    rc, out, err = run(script, "run", "--script", "src/scripts/dev_orchestrate.py", "doctor")
+    rc, out, err = run(script, "run", "--script", "src/scripts/dev_workbench.py", "doctor")
     check("T12 run 执行仓库内 .py → rc 0 且带 rc=0 回执", rc == 0 and "rc=0" in err, err)
     rc, out, err = run(script, "run", "--script", "src/scripts/not_exists.py")
     check("T13 run 拒绝不存在的脚本 → rc 2", rc == 2, "rc=%d" % rc)
@@ -159,7 +159,7 @@ try:
         {"op": "patch", "args": {"file": target, "old": "dup", "new": "PLAN"}},
         {"op": "verify", "args": {"file": target, "contains": ["PLAN"], "not_contains": ["dup"]}},
         {"op": "compile", "args": {"root": okdir}},
-        {"op": "run", "args": {"script": "src/scripts/dev_orchestrate.py", "argv": ["doctor"]}},
+        {"op": "run", "args": {"script": "src/scripts/dev_workbench.py", "argv": ["doctor"]}},
     ]}
     planf = os.path.join(work, "plan.json")
     with open(planf, "w", encoding="utf-8", newline="") as f:

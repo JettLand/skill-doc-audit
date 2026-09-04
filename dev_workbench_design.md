@@ -1,4 +1,5 @@
-# dev-orchestrate 设计方案（开发编排层：压缩 shell 暴露面 + 幂等重试 + 跨 shell 冗余）
+# dev-workbench 设计方案（开发工作台：压缩 shell 暴露面 + 幂等重试 + 跨 shell 冗余）
+> v1.35.0 更名：dev_orchestrate → dev_workbench（本工具不编排外部流程，是单进程文件操作与校验工作台）
 
 > 来源：本会话反复踩中两类执行层故障后归纳。对应待办 #68。v1.34.7 由 `devkit.py` 重命名而来（定位从「edit-verify-kit」调整为「开发编排层」）。
 
@@ -23,7 +24,7 @@
 
 ## 二、核心定位：开发编排层（dev orchestration layer），而非「替代 bash」
 
-- 运行任何代码都须经 shell（`python x.py`）。dev-orchestrate **不能凭空消除 shell**——
+- 运行任何代码都须经 shell（`python x.py`）。dev-workbench **不能凭空消除 shell**——
   这是物理事实，绕不开。故**不叫"替代 bash"**，而叫**开发编排层**：把开发期对 shell 的
   脆弱依赖**压缩到最小 + 幂等可重跑 + 跨 shell 工具冗余**。
 - 真正的收益在三处：
@@ -38,12 +39,12 @@
 
 ## 三、跨 shell 工具冗余（覆盖 PowerShell / Bash 故障，v1.34.7 新增）
 
-故障 B 的特征是**任意工具**的参数都可能被传输层丢弃，dev-orchestrate 自身启动也受威胁。
+故障 B 的特征是**任意工具**的参数都可能被传输层丢弃，dev-workbench 自身启动也受威胁。
 应对原则是**减少暴露面 + 幂等重试 + 跨工具冗余**，而非"修复"：
 
 - **启动行纯 ASCII、跨 shell 通用**：
   ```bash
-  python src/scripts/dev_orchestrate.py <sub> [--flags]
+  python src/scripts/dev_workbench.py <sub> [--flags]
   ```
   bash / powershell / cmd 均认这同一行。当 **Bash 工具丢参**时，改用 **PowerShell 工具**
   （或反之）用**同一行**重试——这是针对传输层丢参的冗余容错。
@@ -51,7 +52,7 @@
 - **一次 shell 暴露**：把 N 次往返压成 1 次，即使那 1 次失败，重试成本低、不会半途污染磁盘
   （`run-plan` 任一步失败即中止、不续写后续步骤）。
 
-## 四、dev_orchestrate.py 子命令
+## 四、dev_workbench.py 子命令
 
 | 子命令 | 作用 | 替代的旧 bash 模式 |
 |---|---|---|
@@ -65,7 +66,7 @@
 | `run-plan --plan P.json` | 单进程批量执行计划 | 多次 bash 往返 |
 | `selftest` | 内置自测 | — |
 
-文件位置：`src/scripts/dev_orchestrate.py`，已加入 `DEV_TOOLS`（core.py）排除集，不进发布面审计。
+文件位置：`src/scripts/dev_workbench.py`，已加入 `DEV_TOOLS`（core.py）排除集，不进发布面审计。
 （过渡期旧 `devkit.py` 仍列于 `DEV_TOOLS`，待 Bash 恢复后 `git rm` 删除。）
 
 ## 五、推荐工作流（针对故障 A+B）
@@ -75,31 +76,31 @@
 1. 用 Write 工具把旧串、新串分别写到 `old.txt` / `new.txt`（Write 处理多字节稳定）。
 2. 唯一一次 shell 调用（纯 ASCII；若 Bash 丢参，改 PowerShell 用同一行重试）：
    ```bash
-   python src/scripts/dev_orchestrate.py patch --file <目标> --old-file old.txt --new-file new.txt --once
-   python src/scripts/dev_orchestrate.py verify --file <目标> --contains-file new.txt --not-contains-file old.txt
+   python src/scripts/dev_workbench.py patch --file <目标> --old-file old.txt --new-file new.txt --once
+   python src/scripts/dev_workbench.py verify --file <目标> --contains-file new.txt --not-contains-file old.txt
    ```
    或合并为一次 `run-plan`：
    ```bash
-   python src/scripts/dev_orchestrate.py run-plan --plan plan.json
+   python src/scripts/dev_workbench.py run-plan --plan plan.json
    ```
    其中 `plan.json` 列出 patch + verify 两步，单进程执行。
 
 **场景：提交前回归**
 ```bash
-python src/scripts/dev_orchestrate.py compile            # 语法
-python src/scripts/dev_orchestrate.py status             # git 状态
-python src/scripts/dev_orchestrate.py doctor             # 环境探针（零 shell 依赖）
-python src/scripts/dev_orchestrate.py selftest           # 套件自测
+python src/scripts/dev_workbench.py compile            # 语法
+python src/scripts/dev_workbench.py status             # git 状态
+python src/scripts/dev_workbench.py doctor             # 环境探针（零 shell 依赖）
+python src/scripts/dev_workbench.py selftest           # 套件自测
 ```
 
 ## 六、局限与后续
 
-- 仍依赖至少一次 shell 启动 Python；若 shell 完全不可用，dev-orchestrate 也无法运行
+- 仍依赖至少一次 shell 启动 Python；若 shell 完全不可用，dev-workbench 也无法运行
   （届时退回 Read/Grep 工具做静态复核，git 操作交用户手动）。
 - `bump` 的 CHANGELOG 锚点写死「排序说明」行；若该行改动需同步。
 - 后续可把 `dev_commit.py` 的提交动作也纳入 `run-plan`，使「patch→verify→compile→commit」
   全链路单进程化（需谨慎处理 git 凭据交互，仍归用户）。
-- 建议：`self_validate.py` / `dev_self_audit.py` 的发布门禁保持不变；dev-orchestrate 仅作为
+- 建议：`self_validate.py` / `dev_self_audit.py` 的发布门禁保持不变；dev-workbench 仅作为
   agent 开发期的「抗脆弱」辅助，不进部署副本、不影响被审技能质量。
 - **沉淀为可复用经验**：本「工具调用参数间歇丢参 → 重试 + 单进程编排降暴露面 + 跨 shell 工具冗余」
   的应对是跨项目通用的，建议沉淀为 skill（如 `toolcall-resilience`），供其他项目复用。

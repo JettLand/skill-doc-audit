@@ -10,6 +10,13 @@ def check_doc(ctx):
     code = ctx["code"]
     blob = ctx["blob"]
     declared = ctx.get("declared_tools", set())
+    # 无可分析源码时的交叉校验抑制（v1.35.0）：零源码技能（纯提示词 / MCP / Agent 类）没有任何可比对的代码，
+    # 「文档声明 ↔ 代码实现」类检查（失效参数 / 退出码 / 标识符）恒为假阳性——规模基准实测中
+    # 219 条 UNKNOWN_IDENT 有 202 条（92%）出自 12 个零源码技能，且全部按 ERROR 输出，严重虚高。
+    # 故无源码时统一跳过，并留一条 INFO 痕迹（可观测：不静默放行，避免「跳过」被误读为「无问题」）。
+    # 口径：只认「可解析源码」——纯数据扩展（.json）不算，否则仅含 _meta.json 的纯提示词技能
+    # 会被判为有源码，抑制逻辑形同虚设（首版用 bool(code) 即踩此坑，实测 UNKNOWN_IDENT 一条没减）。
+    has_code = has_analyzable_code(code)
 
     for d in docs:
         doc = d["content"]
@@ -45,9 +52,17 @@ def check_doc(ctx):
                                             "裸文件名引用，可能指向技能外文件，需人工确认: %s" % ref,
                                             file=doc_name, ref=ref))
 
+        if doc_name == "SKILL.md" and not has_code:
+            findings.append(finding("doc", SEVERITY_INFO, "NO_CODE_BASELINE",
+                                    "该技能无可分析源码（仅有数据文件），文档↔代码交叉校验"
+                                    "（失效参数 / 退出码 / 标识符）已整体跳过：无可解析符号时这些检查恒为假阳性",
+                                    file=doc_name,
+                                    suggestion="纯提示词 / MCP / Agent 类技能属正常；若本应含脚本，核查 CODE_EXT 覆盖与 MAX_FILE_SIZE 截断"))
+
         # A2 失效参数（CLI 契约，仅 SKILL.md：开发文档命令示例常引用开发期工具如
         # make_fixtures.py --baseline，其参数不在发布面代码 blob 中，按能力目录口径跳过避免误报）
-        if doc_name == "SKILL.md":
+        # 无源码（has_code=False）时跳过：无代码可比对 ⇒ 每个参数都判「无实现」⇒ 恒假阳性。
+        if doc_name == "SKILL.md" and has_code:
             for m in FLAG_RE.finditer(doc):
                 flag = m.group(1)
                 ls = doc.rfind("\n", 0, m.start()) + 1
@@ -61,7 +76,8 @@ def check_doc(ctx):
                                             suggestion="实现该参数或更正文档示例"))
 
         # A3 退出码口径（仅 SKILL.md：退出码是技能本体的契约，开发文档不列退出码，避免误报）
-        if doc_name == "SKILL.md":
+        # 无源码时同样跳过（code_exits 恒空 ⇒ 文档列出的每个退出码都会被判「代码从不返回」）。
+        if doc_name == "SKILL.md" and has_code:
             # 文档退出码：表格行 + 「退出码：」行内反引号（两种写法都收）
             doc_exits = set(DOC_EXIT_RE.findall(doc))
             for _line in doc.splitlines():
@@ -96,7 +112,8 @@ def check_doc(ctx):
         # 能力漂移（DOC_CAPABILITY_DRIFT / UNKNOWN_IDENT）。开发文档（README/CHANGELOG）是
         # 叙述性变更日志，常提及「已移除的符号」（如历史版本删掉的 _call_llm），属历史叙事、
         # 非真实漂移，跳过避免噪音；其语义漂移改由 doc-llm dossier 扫描覆盖。
-        if doc_name == "SKILL.md":
+        # 无源码时跳过（见上方 has_code 说明）：这是 UNKNOWN_IDENT 92% 误报的根因所在。
+        if doc_name == "SKILL.md" and has_code:
             seen_idents = set()
             for m in IDENT_RE.finditer(doc):
                 ident = m.group(1)
@@ -120,13 +137,12 @@ def check_doc(ctx):
                         findings.append(finding("doc", SEVERITY_ERROR, "UNKNOWN_IDENT",
                                                 "文档里提到的名称 %s 在代码里找不到（可能拼写有误或已被删除；若为外部 MCP/插件工具请在 frontmatter 的 allowed-tools 声明）" % ident, file=doc_name))
 
-        # A5 版本号（仅 WorkBuddy 平台强制；开放标准 agentskills/generic 不强制 version，避免审计外部技能误报）
-        # 仅对技能本体 SKILL.md 检查；开发文档（README/CHANGELOG）无 frontmatter，不强制。
-        if doc_name == "SKILL.md" and ctx.get("platform", "workbuddy") == "workbuddy" \
-                and not VERSION_RE.search(doc):
-            findings.append(finding("doc", SEVERITY_ERROR, "VERSION_MISSING",
-                                    "SKILL.md 缺少 version 声明", file=doc_name,
-                                    suggestion="添加 version: x.y.z"))
+        # A5 版本号 —— 已于 v1.35.0 移除（跨检查器重复上报）。
+        # 原 doc 侧 VERSION_MISSING 与 structure 侧 version_missing 判定条件等价（同为
+        # 「WorkBuddy 平台 + 文档内找不到 version」），规模基准实测确认二者命中完全相同的 7 个
+        # 技能、消息一字不差，同一问题被两个检查器各报一次、计数翻倍。现单一归属 structure：
+        # 它按 YAML frontmatter 精确解析（有 frontmatter 查 version 键、无 frontmatter 退回
+        # 全文 VERSION_RE），比 doc 侧的全文正则更严谨，保留它即可覆盖全部场景。
 
         # C 类：内容漂移——结构化声明 ↔ 代码事实 交叉校验（仅 SKILL.md：开发文档为叙述性变更日志，
         # 其中的「第 7 个检查器」「共 6 个检查器」「删 skip」等历史表述会被数量/枚举正则误判为漂移，非真实漂移）

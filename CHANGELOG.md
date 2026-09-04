@@ -4,6 +4,38 @@
 
 > 排序：版本号降序（最新在前）。
 
+## 1.35.0 打磨明细（规模基准反查出的误报治理 + 开发工具更名归位）
+
+> 起因：50 样本规模基准实测（62 技能）的细粒度核查报告暴露 3 处检查器缺陷。本版按「用实测反查自身」的初衷逐项治理，A/B 实测验证（同 50 技能、修复前后对比）。
+
+### 修复
+
+- **缺陷① 零源码技能的符号级检查必然误报（最严重）**：`UNKNOWN_IDENT` 219 条中有 202 条（92%）来自 28 个**仅含数据文件、无可解析源码**的技能（纯提示词 / MCP / Agent 类），却一律按 `ERROR` 输出，严重虚高 error 计数。修法：`core.has_analyzable_code()` 判定「是否存在可解析源码」（**排除纯数据扩展 `.json`**），无源码时整体跳过文档↔代码交叉校验（`UNKNOWN_IDENT` / `DOC_CAPABILITY_DRIFT` / `DEAD_FLAG` / 退出码），并留一条 `NO_CODE_BASELINE`（INFO）痕迹——不静默放行。
+  - 坑位记录：首版用 `bool(code)` 判定，因 `CODE_EXT` 含 `.json`、而基准工具会给每个下载技能注入 `_meta.json`，导致 `code` 恒非空、抑制形同虚设（实测 UNKNOWN_IDENT 一条未减）。改用「排除数据扩展」后才真正生效。
+- **缺陷② 跨检查器重复上报**：`doc/VERSION_MISSING` 与 `structure/version_missing` 判定条件等价、规模实测命中**完全相同 7 个技能且消息一字不差**，同一问题被两个检查器各报一次、计数翻倍。修法：移除 doc 侧 A5，**版本检查单一归属 `structure`**（它按 YAML frontmatter 精确解析，比全文正则更严谨；无 frontmatter 时退回全文 `VERSION_RE`，覆盖不丢）。
+- **缺陷③ 基准 resume 未按审计配置失效缓存**：`results.json` 曾把跨 4 天 5 次 run 的结果混合（期间检查器集合由 8 个演进到 9 个），汇总出现「examples 仅执行 60/62」的假象，一度被误判为「examples 按技能条件跳过」的缺陷。修法：新增 `audit_config_fp()`（AUDIT_FLAGS + 版本指纹），每条审计结果记入 `config_fp`，resume 只复用同配置记录，旧配置产物打印失效计数并不计入汇总。
+
+### 增强
+
+- **`dev_market_bench.py` run 结束后向 agent 发自检提醒**（补齐工具初衷：实测是为了反查自身，而不是只产出数字）：新增 `print_selfcheck_hint()`，报告落盘后打印 5 项数据驱动校验清单——回执健康（UNKNOWN/FAILED 必须 0）、逐检查器点火率（零点火⇒疑似静默休眠 / 全量命中⇒疑似口径过宽）、全量命中类别、与上一版报告对比、抽样优先级，并给出「误报⇒加抑制规则 + fixture 固化 + bump」「真缺陷⇒修检查器并回归」的判据。`summarize_results` 相应补算 `cat_skills` / `checker_fire` / `checker_status`。
+- **`dev_orchestrate.py` 更名为 `dev_workbench.py`**：原名 orchestrate（编排）词不达意——本工具不编排任何外部流程，实为「单进程内的开发期文件操作与校验工作台」（patch / verify / compile / bump / grep / status / run-plan / doctor / selftest）。同步更名：测试 `tests/test_dev_orchestrate.py`→`test_dev_workbench.py`、设计文档 `dev_orchestrate_design.md`→`dev_workbench_design.md`，以及 `core.py` DEV_TOOLS、`release_check.check_dev_workbench_usage`、`dev_self_audit` 全部引用。
+
+### 文档
+
+- **DEVELOPMENT.md**：`dev_workbench` 从独立二级节**并入「辅助开发套件」**（现为三套，`###` 级，与 dev_self_audit / dev_market_bench 并列）；套件表补「开发工作台」行；全文件「两套」→「三套」口径同步。
+- **修正过时工作流**：`## 未发布改动工作流（累积发布）` 与「版本号改动后直接升」规则冲突，改为 `## 版本发布工作流（版本直接升，不累积）`，写明「版本号直接升」与「push / 上架归用户手动」是解耦的两件事，并记录 v1.34.8 曾违规攒累积节的教训。
+- **类别表漂移修正**：`SKILL.md` 与 `references/checkers.md` 中 `UNKNOWN_IDENT` 登记为 `WARN` 但代码实为 `ERROR`，已订正；移除已不再产出的 `VERSION_MISSING` 行（补注：版本检查单一归属 `structure/version_missing`）；登记新类别 `NO_CODE_BASELINE`（INFO）。
+
+### 验证（磁盘实测）
+
+| 项 | 结果 |
+|---|---|
+| A/B 实测（同 50 技能，修复前→后） | `UNKNOWN_IDENT` 219→**17**（−202，与预测的 92% 零源码误报吻合）；`DEAD_FLAG` 42→27（−15）；`VERSION_MISSING` 7→**0**；`version_missing` 仍 7（覆盖不丢）；`NO_CODE_BASELINE` 0→28（INFO 留痕）；finding 总数 873→**677** |
+| `self_validate.py` | 全 PASS（4/4 fixture） |
+| `dev_self_audit --strict` | EXIT 0 / ERROR 0 / WARN 0 |
+| `dev_workbench.py` | `selftest` 通过、`doctor` 正常（21/21 测试全绿） |
+
+
 ## 1.34.9 打磨明细（dev_orchestrate 增强 + [agent-todo] #8 + DEV_TOOLS 收口）
 
 - **dev_orchestrate.py 三项增强（前序会话，已 21/21 测试）**：① `bump` 中文小节走 `--section-file`（多字节/转义移出命令行，模板内 `{version}` 占位符用 `replace` 替换，未提供则回退简化模板并告警）；② `run-plan` 新增 `run` op（白名单执行仓库内 `.py`，单进程压缩 patch→verify→compile→run 全链路）；③ `doctor` 比对部署副本版本（synced/STALE），零 shell 依赖。

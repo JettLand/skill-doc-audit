@@ -67,6 +67,18 @@ CODE_EXT = (".py", ".js", ".jsx", ".ts", ".tsx", ".vue", ".go", ".rs", ".java",
              ".c", ".cpp", ".h", ".rb", ".php", ".swift", ".kt", ".lua",
              ".sh", ".ps1", ".json")
 MAX_FILE_SIZE = 2_000_000  # 单文件超过此字节数跳过扫描，避免超大文件拖慢/卡死
+# 纯数据扩展：纳入 blob 供文本检索，但不提供任何可解析的「符号」（标识符 / CLI 旗标 / 退出码）。
+# 判定「该技能是否含可分析源码」时必须排除——否则一个仅含 _meta.json 的纯提示词技能
+# 会被误判为有源码，符号级交叉校验随之全量假阳性（v1.35.0 实测教训）。
+CODE_DATA_EXT = (".json",)
+
+
+def has_analyzable_code(code):
+    """代码文件集合中是否存在**可解析源码**（排除纯数据扩展）。
+
+    code：collect_code 返回的 {相对路径: 内容}。
+    """
+    return any(not rel.lower().endswith(CODE_DATA_EXT) for rel in code)
 
 # ---- doc 检查器正则 ----
 FILE_REF_RE = re.compile(r"`([\w./\\-]+\.(?:py|js|jsx|ts|tsx|vue|go|rs|java|c|cpp|h|rb|php|swift|kt|lua|json|log|md|lnk|sh|ps1|asar|txt))`")
@@ -108,7 +120,7 @@ def extract_code_exit_codes(blob):
 DEV_TOOLS = {"sync_deploy.py", "self_validate.py", "make_fixtures.py",
              "dev_self_audit.py", "_devcommon.py", "release_check.py",
              "dev_market_bench.py", "dev_commit.py", "bump_audit.py",
-             "dev_orchestrate.py"}
+             "dev_workbench.py"}
 
 VERSION_RE = re.compile(r"^version:\s*[\"']?([0-9][0-9A-Za-z.\-]*)[\"']?\s*$", re.M)
 
@@ -178,7 +190,8 @@ CATEGORY_LABELS = {
     "EXIT_DOC_ONLY": "文档独有退出码（代码未返回）",
     "EXIT_CODE_ONLY": "代码独有退出码（文档未列）",
     "UNKNOWN_IDENT": "未知标识符",
-    "VERSION_MISSING": "缺少版本声明",
+    "NO_CODE_BASELINE": "无可分析源码（文档↔代码交叉校验已整体跳过）",
+    "VERSION_MISSING": "缺少版本声明（v1.35.0 起不再产出，单一归属 structure/version_missing；保留此 label 仅供历史报告兼容）",
     "DOC_ENUM_DRIFT": "文档枚举/集合与代码不一致",
     "DOC_COUNT_DRIFT": "文档数量声明与代码不一致",
     "DOC_CAPABILITY_DRIFT": "文档声称的能力在代码中无对应实现",

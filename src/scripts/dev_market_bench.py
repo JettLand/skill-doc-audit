@@ -53,6 +53,7 @@ dev_market_bench.py —— 市场质量基准实测器（dev-only 辅助开发�
 import argparse
 import concurrent.futures as futures
 import glob
+import hashlib
 import json
 import os
 import random
@@ -92,6 +93,18 @@ AUDIT_FLAGS = ["--all-checks", "--deadcode-mode", "vulture",
                "--doc-llm-mode", "agent", "--examples-mode", "static",
                "--examples-consent", "--json"]
 PER_AUDIT_TIMEOUT = 240  # 秒
+
+
+def audit_config_fp():
+    """审计配置指纹：AUDIT_FLAGS + 当前被审工具版本；配置/版本一变，旧 resume 结果即失效重审。
+
+    背景（v1.35.0 修复的缺陷③）：results.json 的 resume 曾把跨 4 天 5 次 run 的结果混在
+    一起，而期间检查器集合已由 8 个演进到 9 个，汇总因此出现「examples 仅执行 60/62」的
+    假象——实为旧配置（8 检查器）产物混入，一度被误判成「examples 按技能条件跳过」的缺陷。
+    故每条审计结果记入指纹，resume 只复用同配置的记录。
+    """
+    raw = "|".join(AUDIT_FLAGS) + "|v=" + (current_version() or "?")
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
 
 LIST_ENDPOINTS = [
     "https://api.skillhub.cn/api/skills?pageSize={size}&page={page}",
@@ -415,6 +428,9 @@ def summarize_results(rows):
     n_audit_fail = sum(1 for r in rows if r.get("audit_error"))
     tot_err = tot_warn = tot_info = 0
     cat_counter = {}
+    cat_skills = {}          # 类别 -> 命中该类别的技能数（用于识别「全量命中」噪音口径）
+    checker_fire = {}        # 检查器 -> 命中技能集合（用于识别零点火 / 全量命中）
+    checker_status = {}      # "检查器:状态" -> 次数（用于回执健康度核对）
     receipt_all_ok = receipt_with_unknown = receipt_with_failed = doc_llm_ok = 0
     worst = []
     for r in rows:
@@ -432,9 +448,19 @@ def summarize_results(rows):
         tot_err += s.get("error", 0)
         tot_warn += s.get("warn", 0)
         tot_info += s.get("info", 0)
+        _cats_here = set()
         for f in res.get("findings", []):
-            cat_counter[f.get("category", "?")] = cat_counter.get(f.get("category", "?"), 0) + 1
+            _c = f.get("category", "?")
+            cat_counter[_c] = cat_counter.get(_c, 0) + 1
+            _cats_here.add(_c)
+            # 逐检查器点火：同一检查器在同一技能内多次命中只计一次（按技能数衡量是否过度触发）
+            checker_fire.setdefault(f.get("checker") or "?", set()).add(r["slug"])
+        for _c in _cats_here:
+            cat_skills[_c] = cat_skills.get(_c, 0) + 1
         runs = res.get("checker_runs") or []
+        for _c in runs:
+            _k = "%s:%s" % (_c.get("name"), _c.get("status"))
+            checker_status[_k] = checker_status.get(_k, 0) + 1
         names = {c["name"] for c in runs}
         statuses = {c["status"] for c in runs}
         if {"doc-llm"} & names and "OK" in {c["status"] for c in runs if c["name"] == "doc-llm"}:
@@ -455,6 +481,9 @@ def summarize_results(rows):
         "receipt_all_ok": receipt_all_ok, "receipt_with_unknown": receipt_with_unknown,
         "receipt_with_failed": receipt_with_failed, "doc_llm_ok": doc_llm_ok,
         "worst": sorted(worst, key=lambda x: -_sev(x[1])),
+        "cat_skills": cat_skills,
+        "checker_fire": {k: len(v) for k, v in checker_fire.items()},
+        "checker_status": checker_status,
     }
 
 
@@ -509,6 +538,41 @@ def write_report(summary, meta):
     log("report written: %s" % REPORT_MD)
 
 
+def print_selfcheck_hint(summary, meta):
+    """run 结束后向 agent 发出「用报告反查 skill-doc-audit 自身」的提醒。
+
+    基准实测的初衷不是给市场技能打分，而是**拿规模化真实世界反查本工具自身的缺陷**：
+    报告里的每一项异常——回执非 OK、检查器零点火、类别全量命中、单技能 finding 极端值——
+    都可能是本工具的误报或漏报信号，须由 agent 抽样复核后才下结论。没有这一步，
+    实测就只是产出一堆数字（曾因此漏掉 UNKNOWN_IDENT 92% 误报长达数个版本）。
+    """
+    n = summary["n_dl_ok"] or 1
+    fire = summary.get("checker_fire") or {}
+    ran = sorted({k.split(":", 1)[0] for k in (summary.get("checker_status") or {})})
+    zero_fire = [c for c in ran if not fire.get(c)]
+    full_fire = [c for c in ran if fire.get(c, 0) >= n]
+    cs = summary.get("cat_skills") or {}
+    cat_full = sorted([c for c, v in cs.items() if v >= n], key=lambda c: -cs[c])
+    log("[bench] 报告已生成：%s" % REPORT_MD)
+    log("[agent-todo][建议] 用实测结果反查 skill-doc-audit 自身（基准实测的初衷）——逐项校验：")
+    log("  1. 回执健康：UNKNOWN=%d / FAILED=%d（非 0 ⇒ 检查器静默休眠或执行异常，须立即排查）"
+        % (summary["receipt_with_unknown"], summary["receipt_with_failed"]))
+    log("  2. 检查器点火率（命中技能数 / 已审 %d）：%s"
+        % (summary["n_dl_ok"], ", ".join("%s=%d" % (c, fire.get(c, 0)) for c in ran) or "无"))
+    if zero_fire:
+        log("     ⚠ 零点火（跑了但一条 finding 都没出）：%s ⇒ 疑似静默休眠 / 判定过窄，需抽样确认" % ", ".join(zero_fire))
+    if full_fire:
+        log("     ⚠ 全量命中（每个技能都报）：%s ⇒ 疑似口径过宽 / 噪音，需抽样确认" % ", ".join(full_fire))
+    if cat_full:
+        log("  3. 全量命中类别（%d/%d 技能皆中）：%s"
+            % (n, n, ", ".join("%s(%d条)" % (c, summary["cat_counter"].get(c, 0)) for c in cat_full[:6])))
+        log("     ⇒ 多属噪音口径（交接通知 / 普遍建议）而非真实漂移，须逐条判真伪")
+    log("  4. 与上一版 report.md 对比：新增 / 消失的类别 ⇒ 新增类别须先抽样复现再定性（真缺陷 or 误报）")
+    log("  5. 抽样优先级：单技能 finding 数最高者 + 全量命中类别 + 零源码技能（历史上误报集中区）")
+    log("  判据：确认误报 ⇒ 加抑制规则 + self_validate fixture 固化防复发 + bump 版本；")
+    log("        确认真缺陷 ⇒ 修检查器并回归 self_validate 与 dev_self_audit --strict。")
+
+
 # ── run 子命令 ────────────────────────────────────────────────────────────────
 def run_bench(sample=50, seed=None, dedup=3, page_size=100):
     """直接用官方市场列表 API 随机页偏移抽 sample 个 slug → 下载 → 全量审计 → 报告。
@@ -550,13 +614,22 @@ def run_bench(sample=50, seed=None, dedup=3, page_size=100):
         log("[run] 无本地优先源，样本将全部走官方下载端点")
     dl_stats = {"local": 0, "remote": 0}
     done = {}
+    FP = audit_config_fp()
     if os.path.isfile(RESULTS_JSON):
         try:
             prev = json.load(open(RESULTS_JSON, encoding="utf-8"))
+            stale = 0
             for r in prev.get("skills", []):
-                if r.get("audit", {}).get("ok"):
+                a = r.get("audit", {})
+                if not a.get("ok"):
+                    continue
+                if a.get("config_fp") == FP:
                     done[r["slug"]] = r
-            log("[run] resume: 已有 %d 个已完成技能，将跳过" % len(done))
+                else:
+                    stale += 1
+            log("[run] resume: 同配置（指纹 %s）已完成 %d 个，将跳过" % (FP, len(done)))
+            if stale:
+                log("[run] resume: 另有 %d 个为旧配置产物（检查器集合 / 审计旗标已演进），已失效、不计入本次汇总" % stale)
         except Exception:  # noqa: BLE001
             pass
     out = {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -583,7 +656,7 @@ def run_bench(sample=50, seed=None, dedup=3, page_size=100):
             out["skills"].append(rec)
             _flush(out)
             continue
-        rec["audit"] = {"ok": True, "result": parsed}
+        rec["audit"] = {"ok": True, "result": parsed, "config_fp": FP}
         sm = parsed[0].get("summary", {}) if isinstance(parsed, list) and parsed else {}
         rec["audit"]["summary"] = sm
         log("   审计完成: ERROR %d / WARN %d / INFO %d" % (
@@ -598,6 +671,7 @@ def run_bench(sample=50, seed=None, dedup=3, page_size=100):
             "local_hits": dl_stats.get("local", 0),
             "remote_downloads": dl_stats.get("remote", 0)}
     write_report(summary, meta)
+    print_selfcheck_hint(summary, meta)
     record_sampled(picked)
     log("DONE in %.1fs | ERROR %d WARN %d INFO %d | doc-llm OK %d/%d | 本地命中 %d / 远端下载 %d"
         % (time.time() - t0, summary["tot_err"], summary["tot_warn"], summary["tot_info"],

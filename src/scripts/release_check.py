@@ -140,8 +140,8 @@ def check_temp_residue():
 
 
 
-def check_dev_orchestrate_usage():
-    """常驻 [建议] 开发工作流提醒：开发面改动优先用 dev_orchestrate.py。
+def check_dev_workbench_usage():
+    """常驻 [建议] 开发工作流提醒：开发面改动优先用 dev_workbench.py。
 
     仅在检测到未提交改动触及「开发面文件」（SKILL.md / src/scripts / src/references /
     CHANGELOG.md / DEVELOPMENT.md / README.md）时提示，避免干净树发布时的噪音。
@@ -169,10 +169,10 @@ def check_dev_orchestrate_usage():
     return {
         "blocking": False,
         "severity": "建议",
-        "title": "开发期改动优先用 dev_orchestrate.py（多字节/转义内容走文件）",
+        "title": "开发期改动优先用 dev_workbench.py（多字节/转义内容走文件）",
         "detail": "检测到未提交改动涉及开发面文件：%s" % "、".join(sorted(touched)[:6]),
         "todo": "改 SKILL.md/脚本/CHANGELOG/DEVELOPMENT.md 时，优先用 "
-                "python src/scripts/dev_orchestrate.py 的 patch / verify / compile / "
+                "python src/scripts/dev_workbench.py 的 patch / verify / compile / "
                 "bump / run-plan 子命令；旧值/新值/待匹配串一律走 --*-file（规避 Edit 工具 "
                 "phantom success 与工具调用参数传输层丢参）。纯 ASCII 简单串可用内联 --old/--new。",
     }

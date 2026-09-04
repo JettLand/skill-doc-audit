@@ -3,7 +3,7 @@ name: skill-doc-audit
 slug: skill-doc-audit
 displayName: 技能体检助手
 description: 技能体检助手：审计技能文档与代码的一致性及静态质量，找出版本迭代造成的文档漂移与结构/安全/可运行性/依赖隐患——死链接、失效的命令行参数、退出码表不符、状态或配置项漏写、描述脱节，以及 frontmatter 不规范、硬编码密钥、脚本语法错误、外部依赖与运行平台未声明、跨平台可移植性等。当你刚改完某个技能的脚本或配置、担心文档没跟上，或某个技能经历多次版本迭代后想做一次体检/质量检查/一致性校验时使用。可审计任意本地技能目录、批量审计全部已安装技能，也可经 --source 审计 GitHub 仓库、SkillHub 集市或任意 URL 上的技能；portability 检查器可按 SKILL.md 的 target_platform 字段豁免对应平台项。支持 `--ref` 逗号分隔批量审计多仓库/整组织技能，并以 `--report health` 输出供应链安全自检汇总。
-version: "1.34.9"
+version: "1.35.0"
 license: MIT
 author: Jett
 agent_created: true
@@ -333,8 +333,8 @@ python scripts/audit_docs.py --skill src --all-checks
 | `DEAD_FLAG` | 失效命令行参数（代码无实现） | ERROR |
 | `EXIT_DOC_ONLY` | 文档独有退出码（代码未返回） | ERROR |
 | `EXIT_CODE_ONLY` | 代码独有退出码（文档未列） | ERROR |
-| `UNKNOWN_IDENT` | 未知标识符（代码找不到） | WARN |
-| `VERSION_MISSING` | 缺少版本声明 | ERROR |
+| `UNKNOWN_IDENT` | 未知标识符（代码找不到）；**技能仅含数据文件、无可解析源码时整体跳过** | ERROR |
+| `NO_CODE_BASELINE` | 无可分析源码，文档↔代码交叉校验（失效参数 / 退出码 / 标识符）已整体跳过（仅留痕，非质量发现） | INFO |
 | `B_STATUS` | 运行状态枚举（供 AI 复核） | INFO |
 | `B_CONFIG` | 配置项枚举（供 AI 复核） | INFO |
 | `DOC_ENUM_DRIFT` | 文档枚举/集合与代码不一致（如 deadcode 模式列表） | WARN |
