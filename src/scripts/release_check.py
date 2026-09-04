@@ -141,7 +141,7 @@ def check_temp_residue():
 
 
 def check_dev_workbench_usage():
-    """常驻 [建议] 开发工作流提醒：开发面改动优先用 dev_workbench.py。
+    """常驻 [建议] 开发工作流提醒（视觉强提示，但非阻断、不升退出码）：开发面改动优先用 dev_workbench.py。
 
     仅在检测到未提交改动触及「开发面文件」（SKILL.md / src/scripts / src/references /
     CHANGELOG.md / DEVELOPMENT.md / README.md）时提示，避免干净树发布时的噪音。
@@ -169,15 +169,15 @@ def check_dev_workbench_usage():
     return {
         "blocking": False,
         "severity": "建议",
-        "title": "开发期改动请按边界使用 dev_workbench.py（提交除外）",
+        "title": "⚠ 开发期改动请按边界使用 dev_workbench.py（提交除外）",
         "detail": "检测到未提交改动涉及开发面文件：%s" % "、".join(sorted(touched)[:6]),
         "todo": "开发面改动按以下边界使用 dev_workbench.py（提交不属其职责，勿混用）：\n"
                 "• 版本 bump / 改 SKILL.md·CHANGELOG·脚本：用 `python src/scripts/dev_workbench.py "
                 "bump --version X --section-file <tpl>` / `patch --old-file/--new-file` / `verify`；"
                 "多字节与转义内容一律走 --*-file（规避 Edit 工具 phantom success 与参数传输层丢参），"
                 "纯 ASCII 简单串可用内联 --old/--new。\n"
-                "• 只读核验（版本锚点一致性 / 部署副本同步 / git 状态 / 仓库内 grep）：用 "
-                "`dev_workbench.py doctor` / `status` / `grep`，勿用裸 Bash `git status` 或 Read/Grep。\n"
+                "• 只读核验（doctor/status/grep）：用 `dev_workbench.py doctor`/`status`/`grep`；"
+                "⚠ 严禁裸 Bash `git status` 或 Read/Grep——违反会让落盘复核不可信，且 #8 仅在提交前触发、提交后纯复核无提醒。\n"
                 "• 提交：仍走 `dev_commit.py`（它会触发 post-commit 同步钩子）；也可经薄封装入口 "
                 "`python src/scripts/dev_workbench.py commit -m \"...\"`，但 commit 本身不属于 "
                 "dev_workbench，严禁裸 `git commit`。",

@@ -50,6 +50,7 @@ def main():
         from release_check import check_dev_workbench_usage
         _hint = check_dev_workbench_usage()
         if _hint:
+            sys.stderr.write("=" * 60 + "\n")
             sys.stderr.write("[agent-todo][建议] %s\n" % _hint["title"])
             sys.stderr.write("  %s\n" % _hint["detail"])
             sys.stderr.write("  → %s\n" % _hint["todo"])
