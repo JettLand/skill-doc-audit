@@ -80,7 +80,7 @@ python src/scripts/dev_workbench.py verify --file <路径> \
 python src/scripts/dev_workbench.py compile [--root <目录>]   # 递归 py_compile，逐文件报告
 python src/scripts/dev_workbench.py bump --version X.Y.Z --section-file <CHANGELOG小节模板> \
   # 版本号三锚点同步（SKILL.md frontmatter / 源码内 User-Agent / CHANGELOG 小节）+ 中文内容走文件（{version} 占位符）
-python src/scripts/dev_workbench.py grep --pattern <正则> [--path <目录>] [--max N]   # 纯 Python 递归 grep（跳过已知二进制，覆盖仓库全部文本文件）
+python src/scripts/dev_workbench.py grep --pattern <正则> [--path <文件或目录>] [--max N]   # 纯 Python grep（跳过已知二进制，覆盖仓库全部文本文件；传文件路径则只搜该文件，不存在则告警 rc 1）
 python src/scripts/dev_workbench.py status   # git status --short（一次 subprocess 封装）
 python src/scripts/dev_workbench.py doctor   # 环境探针（零 shell 依赖）
 python src/scripts/dev_workbench.py run --script <PY路径> [-- <argv...>]   # 白名单执行仓库内 .py（不执行任意命令 / shell 字符串）
@@ -100,7 +100,7 @@ python src/scripts/dev_workbench.py sync   # 手动强制重同步部署副本�
 > **与 [agent-todo] #8 联动**：开发期改动（未提交且触及 SKILL.md / src/scripts / src/references / CHANGELOG.md / DEVELOPMENT.md / README.md）时，`dev_self_audit.py --strict` 会发 `[agent-todo][建议]` 提醒优先用本工具，详见下方指令清单。
 > **安全删除纪律**：`trash` / `clean` 永远移入系统回收站（可恢复），**绝不硬删**；先以 sacrificial canary 探针验证回收站真正可用（源消失且确实进入 `$Recycle.Bin`），不可用则**拒绝操作真实文件**而非静默硬删；仅当显式 `--force` 时才硬删并二次告警，契合全局「Trash Not Delete」约定，替代了此前 `rm -f temp/*.py` 的硬删除习惯。只读核验（doctor/status/grep）与变更操作（patch/bump/commit/trash/clean/audit/validate/diff/log/sync）均为 dev 工作流统一入口。
 
-覆盖测试：`tests/test_dev_workbench.py` 24/24 全绿（沙箱隔离、不碰真实仓库），覆盖 patch / verify / compile / bump 文件版与内联版、run-plan 四步串联、grep 截断、status 在真实 git 仓库 vs 非 git 目录的退出码差异、doctor 版本比对、selftest 正反路径。
+覆盖测试：`tests/test_dev_workbench.py` 26/26 全绿（沙箱隔离、不碰真实仓库），覆盖 patch / verify / compile / bump 文件版与内联版、run-plan 四步串联、grep 截断 / 文件路径直搜 / 不存在路径告警、status 在真实 git 仓库 vs 非 git 目录的退出码差异、doctor 版本比对、selftest 正反路径。
 
 ## 开发套件的解耦约定（跨平台 / 跨 Agent）
 

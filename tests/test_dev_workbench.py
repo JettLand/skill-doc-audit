@@ -196,6 +196,15 @@ try:
     rc, out, err = run(script, "clean", "--dry-run")
     check("T23 clean --dry-run 在无 temp 目录时安全 no-op（rc 0）", rc == 0, "rc=%d err=%s" % (rc, err))
 
+    # ---- grep 支持文件路径 / 不存在路径 ----
+    grep_file = os.path.join(work, "grep_test.txt")
+    with open(grep_file, "w", encoding="utf-8", newline="") as f:
+        f.write("line1\n新的中文行：grep 文件直搜\nline3\n")
+    rc, out, err = run(script, "grep", "--pattern", "新的中文行", "--path", grep_file, "--max", "1")
+    check("T24 grep 支持直接传文件路径（非目录）→ 命中", rc == 0 and "新的中文行" in out, "rc=%d out=%r" % (rc, out))
+    rc, out, err = run(script, "grep", "--pattern", "x", "--path", os.path.join(work, "no_such_dir_xyz"))
+    check("T25 grep 路径不存在 → rc 1 且告警", rc == 1 and "不存在" in err, "rc=%d err=%s" % (rc, err))
+
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 

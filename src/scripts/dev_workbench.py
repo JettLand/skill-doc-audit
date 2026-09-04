@@ -256,25 +256,39 @@ def cmd_grep(args):
     root = args.path or _repo_root()
     pat = re.compile(args.pattern)
     hits = 0
-    for dirpath, _dirs, files in os.walk(root):
-        for fn in files:
-            # 跳过已知二进制；其余按文本尝试（解码失败由下方 try/except 兜底），
-            # 从而覆盖仓库全部文本文件（含 .sh/.yaml/.ts 等），实现"只读核验作用于所有文件"。
-            if fn.endswith((".pyc", ".pyo", ".png", ".jpg", ".jpeg", ".gif", ".bmp",
-                            ".ico", ".zip", ".gz", ".tar", ".tgz", ".pdf", ".exe",
-                            ".dll", ".so", ".dylib", ".bin", ".dat", ".woff", ".woff2")):
-                continue
-            fp = os.path.join(dirpath, fn)
-            try:
-                text = _read_text(fp)
-            except Exception:
-                continue
-            for i, line in enumerate(text.splitlines(), 1):
-                if pat.search(line):
-                    sys.stdout.write("%s:%d: %s\n" % (fp, i, line))
-                    hits += 1
-                    if args.max and hits >= args.max:
-                        return 0
+
+    def _scan_file(fp):
+        # 跳过已知二进制；其余按文本尝试（解码失败由下方 try/except 兜底），
+        # 从而覆盖仓库全部文本文件（含 .sh/.yaml/.ts 等），实现"只读核验作用于所有文件"。
+        # 同时支持 --path 直接传文件路径（os.walk 对文件不产生条目，故单列此分支）。
+        nonlocal hits
+        fn = os.path.basename(fp)
+        if fn.endswith((".pyc", ".pyo", ".png", ".jpg", ".jpeg", ".gif", ".bmp",
+                        ".ico", ".zip", ".gz", ".tar", ".tgz", ".pdf", ".exe",
+                        ".dll", ".so", ".dylib", ".bin", ".dat", ".woff", ".woff2")):
+            return
+        try:
+            text = _read_text(fp)
+        except Exception:
+            return
+        for i, line in enumerate(text.splitlines(), 1):
+            if pat.search(line):
+                sys.stdout.write("%s:%d: %s\n" % (fp, i, line))
+                hits += 1
+
+    if not os.path.exists(root):
+        sys.stderr.write("grep WARN: 路径不存在：%s\n" % root)
+        return 1
+    if os.path.isfile(root):
+        _scan_file(root)
+    else:
+        for dirpath, _dirs, files in os.walk(root):
+            for fn in files:
+                _scan_file(os.path.join(dirpath, fn))
+                if args.max and hits >= args.max:
+                    break
+            if args.max and hits >= args.max:
+                break
     sys.stderr.write("grep: %d 命中\n" % hits)
     return 0
 
@@ -707,7 +721,7 @@ def build_parser():
 
     gp = sub.add_parser("grep", help="纯 Python grep")
     gp.add_argument("--pattern", required=True)
-    gp.add_argument("--path", default=None)
+    gp.add_argument("--path", default=None, help="要搜索的路径：文件则只搜该文件，目录则递归搜索（默认仓库根）")
     gp.add_argument("--max", type=int, default=0)
     gp.set_defaults(func=cmd_grep)
 
